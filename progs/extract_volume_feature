@@ -1,0 +1,186 @@
+#! /usr/bin/env perl
+#
+# Volumetric Feature Extractor
+#
+# Oliver Lyttelton oliver@bic.mni.mcgill.ca
+
+#
+
+use strict;
+use warnings "all";
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+
+my($Help, $Usage, $me);
+my(@opt_table, %opt, $source, $target, $outxfm, @args, $tmpdir);
+
+$me = &basename($0);
+%opt = (
+   'verbose'   => 0,
+   'clobber'   => 0,
+   'asymmetry' => 0
+   );
+
+$Help = <<HELP;
+|    $me extracts a volumetric feature sets with options to 
+|    vary the extraction space (native or tal) the blurring kernel,
+|    the registration space (tal or nl tal) and the sampling 
+|    resolution
+| 
+| Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
+HELP
+
+$Usage = "Usage: $me [options] input.mnc output.mnc\n".
+         "       $me -help to list options\n\n";
+
+@opt_table = (
+   ["-verbose", "boolean", 0, \$opt{verbose},
+      "be verbose" ],
+   ["-clobber", "boolean", 0, \$opt{clobber},
+      "clobber existing check files" ],
+    ["-extract_class", "string", 1, \$opt{extract_class},
+      "Choose class for non-binary classified image" ],
+   ["-native_xfm", "string", 1, \$opt{native_trans},
+      "supply native transformation for extraction space" ],
+   ["-native_sum_file", "string", 1, \$opt{native_sum},
+      "print out the sum of native voxels" ],
+   ["-asymm", "boolean", 0, \$opt{asymmetry},
+      "flip and diff the files for evaluation of asymmetries" ],      
+   ["-blurfwhm", "string",1,\$opt{blur}, 
+      "optional blurring kernel" ],
+   ["-nl_xfm", "string", 1, \$opt{nl_trans},
+      "non-linear registration transformation" ],
+   ["-downsample", "string",1,\$opt{blur},
+      "specify downsampling factor" ],   
+   );
+
+# Check arguments
+&Getopt::Tabular::SetHelp($Help, $Usage);
+&GetOptions (\@opt_table, \@ARGV) || exit 1;
+die $Usage if($#ARGV != 1);
+my $input = shift(@ARGV);
+my $output = shift(@ARGV);
+
+
+# check for files
+die "$me: Couldn't find input file: $input\n" if (!-e $input);
+if(-e $output && !$opt{clobber}){
+   die "$me: $output exists, -clobber to overwrite\n";
+   }
+
+# make tmpdir
+$tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+my $pretransform_file = $opt{native_trans}; 
+my $transform_file = $opt{nl_trans};
+my $FWHM = 0;
+if ($opt{blur}) {$FWHM = $opt{blur}; }
+my $do_symm = $opt{asymmetry};
+my $downsample = $opt{downsample};
+my $native_sum;
+if ($opt{native_sum}){ $native_sum = "${opt{native_sum}}";}
+
+                
+#set up internal variables
+my $pre_trans_output = "${tmpdir}/pretrans.mnc";
+my $extract_file = "${tmpdir}/class.mnc";
+my $blur_file = "${tmpdir}/blur.mnc";
+my $positive_file =  "${tmpdir}/positive.mnc";
+my $flip_file = "${tmpdir}/flip.mnc";
+my $diff_file = "${tmpdir}/diff.mnc";
+my $post_blur_output = "${tmpdir}/posttrans.mnc";
+my $resample_file = "${tmpdir}/resample.mnc";
+my $source_file = $input;
+ 
+#Optional pre-blurring transformation
+  	if ($pretransform_file) {
+	    #perform_pre_blurring_transformation step
+		&do_cmd("mincresample", "-clobber", "-transform",
+			$pretransform_file, "-like", $source_file,
+			$source_file, $pre_trans_output);
+		$source_file =$pre_trans_output;
+	}
+    
+    if($native_sum){
+        #measure total 
+		&do_cmd("mincstats -sum ${source_file}> ${native_sum}");
+	}
+	
+#Optional Select_Class step
+     if ($opt{extract_class}) {
+	    #extract class
+         &do_cmd("minccalc","-clobber", "-expression","if(abs(A[0]-${opt{extract_class}})<0.5){out=1;}else{out=0;}",$source_file, $extract_file );
+		 $source_file = $extract_file;
+	}
+    
+#Optional Blurring stage                                                                          
+  	if ($FWHM!=0) {
+	    #perform_pre_blurring step
+         &do_cmd("mincblur","-clobber", "-fwhm",$FWHM,$source_file, $blur_file );
+          $source_file = "${blur_file}_blur.mnc";
+         &do_cmd("minccalc","-clobber", "-expression","if(A[0]<0){out=0;}else{out=A[0];}",$source_file, $positive_file );
+		 $source_file =$positive_file;
+	}
+    
+ 
+	
+#Reverse Optional pre-blurring transformation
+  	if ($pretransform_file) {
+	    #perform_pre_blurring_transformation step
+        &do_cmd("mincresample", "-clobber","-invert_transformation","-transform",
+			$pretransform_file, "-like", $source_file,
+			$source_file, $post_blur_output);
+		$source_file =$post_blur_output;
+	} 
+        
+		                                                         
+#Optional Resampling step	
+ 	if ($transform_file) {
+	    #perform_resampling step
+		&do_cmd("mincresample", "-clobber", "-transform",
+			$transform_file, "-like", $source_file,
+			$source_file, $resample_file);		
+        $source_file = $resample_file;
+}
+
+#Optional Asymmetry stages                                                                      
+  	if ($do_symm) {
+	    #perform_symmetry step
+		&do_cmd("flip_volume",$source_file, $flip_file);
+        #perform_symmetry step
+        &do_cmd("mincmath","-clobber","-sub",$source_file,$flip_file,$diff_file);
+		$source_file = $diff_file;
+
+	}
+
+
+
+#Optional Downsampling step	
+if ($downsample){&do_cmd("downsample.exe",$downsample, $source_file, $output); 
+}else{
+      &do_cmd("cp", $source_file, $output);
+     if (substr($source_file,-3) eq ".gz"){
+         &do_cmd("mv", $output, "${output}.gz");
+         &do_cmd("gzip","-d", "${output}.gz");
+        }
+  }
+
+
+sub do_cmd { 
+   print STDOUT "@_\n" if $opt{verbose};
+   system(@_) == 0 or die;
+}
+
+
+
+
+
+
+
+
+
+
+
+

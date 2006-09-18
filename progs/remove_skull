@@ -1,0 +1,133 @@
+#!/usr/bin/env perl
+#
+
+# This step eliminates the skull and meninges using mincbet.
+# For better performance by mincbet, use uniform steps for 
+# (x,y,z). Also, resample in the same way as the original
+# image (the mincbet mask is z-y-x so if the original image
+# is different, do a mincresample in order to be able to 
+# apply the mask to its image). By the way, steps of 0.50mm
+# also work very well for t2 and pd since the layer of csf 
+# can be very thin.
+
+
+use strict;
+use warnings "all";
+
+use MNI::Startup;
+use MNI::FileUtilities qw(check_output_dirs);
+
+# define input variables:
+
+my $maskType=$ARGV[0];
+my $cropNeck=$ARGV[1];
+my $t1_input=$ARGV[2];
+my $t2_input=$ARGV[3];
+my $pd_input=$ARGV[4];
+my $skull_mask=$ARGV[5];
+
+# Directory for temporary files.
+
+MNI::FileUtilities::check_output_dirs($TmpDir)
+or exit 1;
+
+# define internal variables:
+
+my $bet_prefix = "${TmpDir}/bet";
+my $bet_mask = "${bet_prefix}_mask.mnc";
+my $bet_mask_temp = "${bet_prefix}_mask_temp.mnc";
+my $input_resampled = "${TmpDir}/bet_resampled.mnc";
+
+# Crop the neck if required. This assumes that top-bottom orientation of
+# the head is in the z-direction. If not, this will produce unexpected
+# results. Beware! Check sign +/- of zstep!!! Use only for t1 now (t2/pd
+# may have different zstep). Also, make sure that z-extent is not less
+# than 190mm (see mritotal).
+
+my @extend = ();
+if( defined $cropNeck ) {
+  my $zlen;
+  my $zstep;
+  chomp( $zlen = `mincinfo -dimlength zspace $t1_input` );
+  chomp( $zstep = `mincinfo -attvalue zspace:step $t1_input` );
+
+  my $total_z = abs( $zlen * $zstep );
+  my $crop_z = $total_z * $cropNeck / 100;
+
+  # The extents are in mm. No less than 190mm in height after cropping.
+  if( $total_z - $crop_z < 190 ) {
+    $crop_z = $total_z - 190;
+  }
+  @extend = ( "-extend", "0,0", "0,0", "-$crop_z,0" ) if( $crop_z > 0 );
+}
+
+# mask non-cortical tissues using mincbet
+
+# run FSL bet on the classified t1 image (output is "${bet_prefix}_mask.mnc")
+my $bet_t1_mask = "${bet_prefix}_t1_mask.mnc";
+
+&run( "autocrop", "-clobber", "-isostep", "1.0", "-resample", @extend,
+      $t1_input, $input_resampled );
+
+&run( "mincbet", $input_resampled, "${bet_prefix}_t1", 
+      "-n", "-m", "-f", "0.50" );
+&run( "mv", "-f", $bet_t1_mask, $bet_mask );
+
+# Use t2 and pd to obtain a better mask.
+if( $maskType eq "multispectral" ) {
+
+  my $bet_expr = 'out=A[0]*A[1];';
+
+  # In the current way mincbet works, searching for a local minimum,
+  # it can be better to refine the sampling with t2 and pd. For t1 only,
+  # which usually has a weaker outline for csf, it is better to leave
+  # the sampling at 1.0mm rather than risking propagating skull
+  # everywhere at a smaller sampling. However, sampling at 0.5mm has
+  # not proved to be overly conclusive, so leave it at 1.0mm.
+
+  my $step = "1.0";
+
+  if( -e $t2_input ) {
+    my $bet_t2_mask = "${bet_prefix}_t2_mask.mnc";
+    &run( "autocrop", "-clobber", "-isostep", $step, "-resample",
+          $t2_input, $input_resampled );
+    &run( "mincbet", $input_resampled, "${bet_prefix}_t2", 
+          "-n", "-m", "-f", "0.50" );
+    &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
+          "-like", $bet_mask, $bet_t2_mask, $input_resampled );
+    &run( "mv", "-f", $bet_mask, $bet_mask_temp );
+    &run( "minccalc", "-clobber", "-expression", $bet_expr,
+          $bet_mask_temp, $input_resampled, $bet_mask );
+  }
+
+  if( -e $pd_input ) {
+    my $bet_pd_mask = "${bet_prefix}_pd_mask.mnc";
+    &run( "autocrop", "-clobber", "-isostep", $step, "-resample",
+          $pd_input, $input_resampled );
+    &run( "mincbet", $input_resampled, "${bet_prefix}_pd", 
+          "-n", "-m", "-f", "0.50" );
+    &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
+          "-like", $bet_mask, $bet_pd_mask, $input_resampled );
+    &run( "mv", "-f", $bet_mask, $bet_mask_temp );
+    &run( "minccalc", "-clobber", "-expression", $bet_expr,
+          $bet_mask_temp, $input_resampled, $bet_mask );
+  }
+}
+
+# getting mincbet data in correct form:
+# Two cases: 1 - native images, only t1 is used since other images
+#                are not aligned (different steps and dimensions)
+#            2 - Talairach images, t1, t2, pd in same space so
+#                -like $t1_input applies to all
+# Conclusion: The resampling below will always work.
+
+&run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
+      "-like", $t1_input, $bet_mask, $skull_mask );
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

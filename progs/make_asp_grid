@@ -1,0 +1,151 @@
+#!/usr/bin/env perl
+
+# creates a grid from the classified image. This grid can then
+# be used to initialise the solving of Laplace's equation.
+#
+# Authors: June-sic Kim <luck3d@bic.mni.mcgill.ca> and
+#          Jason Lerch <jason@bic.mni.mcgill.ca>
+# Updated by Oliver Lyttelton to fit the hemispheres
+#
+# Sep 2003
+
+use strict;
+use MNI::Startup;
+use Getopt::Tabular;
+use MNI::Spawn;
+use MNI::DataDir;
+use MNI::FileUtilities qw(check_output_dirs);
+
+# ===== Global Variables =====
+my ($usage, $help);
+my ($skelCSF, $cls, $wmSurfaceLeft,$wmSurfaceRight, $grid, $laplace, $output);
+my ($expression);
+my ($objMask, $unmasked, $minc_model);
+my ($callosal_mask,$clsMasked, $wmLineLeft,$wmLineRight,$wmLine, $wmMask,$wmMaskLeft, $wmMaskRight,  $wmMask2, $filledImage, $rslCSF);
+my ($in_chamfer, $out_chamfer);
+
+# ===== Defaults =====
+$unmasked = 0;
+
+# ===== Argument Processing =====
+
+$usage = "$ProgramName [options] skeletonized_csf.mnc wm_left_surface.obj wm_right_surface.obj classified.mnc callosal_mask.mnc output.mnc\n";
+$help = "Help still to be written";
+
+my @leftOverArgs;
+my @argTbl = 
+    (
+     @DefaultArgs,
+     ["Masking options", "section"],
+     ["-obj_mask", "string", 1, \$objMask,
+      "Mask to be used to mask the classified file with. By default the ".
+      "classified file is already masked."],
+     ["-unmasked", "boolean", undef, \$unmasked,
+      "Create a mask and apply it to the classified image. By default the " .
+      "classified file is already masked."],
+     ["-like", "string", 1, \$minc_model,
+      "Reference file for resolution of a Laplacian field"],
+     );
+GetOptions(\@argTbl, \@ARGV, \@leftOverArgs) or die "\n";
+
+$skelCSF = shift @leftOverArgs or die $usage;
+$wmSurfaceLeft = shift @leftOverArgs or die $usage;
+$wmSurfaceRight = shift @leftOverArgs or die $usage;
+$cls = shift @leftOverArgs or die $usage;
+$callosal_mask = shift @leftOverArgs or die $usage;
+$output = shift @leftOverArgs or die $usage;
+
+# register the programs
+RegisterPrograms(["minccalc", "mincresample", "scan_object_to_volume",
+                  "surface_mask2", "cortical_surface", "laplacian_thickness",
+                  "mincmath", "mincdefrag", "mv", "mincchamfer"]);
+
+if ($Clobber) {
+    AddDefaultArgs("minccalc", ["-clobber"]);
+}
+
+# create necessary tmp directory
+check_output_dirs($TmpDir);
+
+# ===== Main program execution =====
+if ($unmasked) {
+    # compute a mask
+    $objMask = "${TmpDir}/cortex.obj";
+    Spawn(["cortical_surface", $cls, $objMask, 1.5]);
+}
+if ($objMask) {
+    # apply the mask
+    $clsMasked = "${TmpDir}/masked_cls.mnc";
+    Spawn(["surface_mask2", $cls, $objMask, $clsMasked]);
+}
+else {
+    # the default assumption that the input classified file is already masked
+    $clsMasked = $cls;
+}
+if (! defined($minc_model)){
+    $minc_model = $clsMasked;
+}
+else {
+    Spawn(["mincresample", "-like", $minc_model, $clsMasked, "${TmpDir}/cls_resampled.mnc"]);
+    $clsMasked = "${TmpDir}/cls_resampled.mnc";
+}
+
+# compute the WM lines
+# first, create a filled image
+$filledImage = "${TmpDir}/filled.mnc";
+Spawn(["minccalc", "-expression", 'out = 0;', $minc_model, $filledImage]);
+
+
+# now add the lines to the filled image
+$wmLineLeft = "${TmpDir}/wm_lines_left.mnc";
+$wmLineRight = "${TmpDir}/wm_lines_right.mnc";
+$wmLine = "${TmpDir}/wm_lines.mnc";
+Spawn(["scan_object_to_volume", $filledImage, $wmSurfaceLeft, $wmLineLeft]);
+Spawn(["scan_object_to_volume", $filledImage, $wmSurfaceRight, $wmLineRight]);
+Spawn(["minccalc","-clobber","-expr",'out=A[0]||A[1];',$wmLineLeft,$wmLineRight,$wmLine]);
+
+# create a binary white matter mask
+$wmMask = "${TmpDir}/wm_mask.mnc";
+$wmMask2 = "${TmpDir}/wm_mask2.mnc";
+$wmMaskLeft = "${TmpDir}/wm_mask_left.mnc";
+$wmMaskRight = "${TmpDir}/wm_maskright.mnc";
+
+Spawn(["surface_mask2", "-binary_mask", $clsMasked, $wmSurfaceLeft, $wmMaskLeft]);
+Spawn(["surface_mask2", "-binary_mask", $clsMasked, $wmSurfaceRight, $wmMaskRight]);
+Spawn(["minccalc","-clobber","-expr",'out=A[0]||A[1];',$wmMaskLeft,$wmMaskRight,$wmMask2]);
+Spawn(["mincresample", "-like",$clsMasked, $wmMask2, $wmMask]);
+
+# resample the CSF skel map to be like the classified map
+$rslCSF = "${TmpDir}/csf_rsl.mnc";
+Spawn(["mincresample", "-nearest_neighbour", "-like", 
+       $clsMasked, $skelCSF, $rslCSF]);
+
+# create the grid itself
+$expression = 'if(abs(A[4]-1)<0.45){out=10;}else{if(abs(A[4]-2)<0.45){out=5;}else{if(A[2]>0 && A[3]==0){out=0;}else if(A[0]>0 && A[3]==0){out=10;}else if(A[1]<=1.1){out=10;}else if(A[1]>2.5 && A[2]==0){out=10;}else{out=5;}}}';
+$grid = "${TmpDir}/grid.mnc";
+Spawn(["minccalc", "-expression", $expression, $rslCSF, $clsMasked,
+       $wmMask, $wmLine,$callosal_mask,$grid]);
+
+# remove dangling voxels
+Spawn(["mincdefrag", $grid, $grid, "5", "6"]);
+Spawn(["mincdefrag", $grid, $grid, "10", "27", "20" ]);
+
+# create the laplacian field
+$laplace = "${TmpDir}/laplace.mnc";
+Spawn(["laplacian_thickness", "-like", $minc_model, "-potential_only", "-volume-double", "-from_grid", $grid, "-convergence", "1e-8", "-max_iterations", "500", $output]);
+
+# chamfer map in WM area
+$in_chamfer="${TmpDir}/in_chamfer.mnc";
+Spawn(["minccalc", "-expression", 'if(A[0]==0){out=0;}else{out=10;}', $grid, $in_chamfer]);
+Spawn(["mincchamfer", "-max_dist", "10", $in_chamfer, "${TmpDir}/chamfer.mnc"]);
+Spawn(["mincresample", "-clobber", "-like", $output, "${TmpDir}/chamfer.mnc", $in_chamfer]);
+
+# chamfer map in CSF and background area
+$out_chamfer="${TmpDir}/out_chamfer.mnc";
+Spawn(["minccalc", "-expression", 'if(A[0]==10){out=0;}else{out=11;}', $grid, $out_chamfer]);
+Spawn(["mincchamfer", "-max_dist", "11", $out_chamfer, "${TmpDir}/chamfer.mnc"]);
+Spawn(["mincresample", "-clobber", "-like", $output, "${TmpDir}/chamfer.mnc", $out_chamfer]);
+
+# combine laplacian field with chamfer maps
+Spawn(["minccalc", "-clobber", "-expression", 'if(A[0]>=10){out=A[0]+A[1]-1;}else{out=A[0]-A[2];}', $output, $out_chamfer, $in_chamfer, "${TmpDir}/chamfer.mnc"]);
+Spawn(["mv", "-f", "${TmpDir}/chamfer.mnc", $output]);

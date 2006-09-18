@@ -1,0 +1,370 @@
+#! /usr/bin/env perl
+#
+# Surface Feature Extractor
+#
+# Oliver Lyttelton oliver@bic.mni.mcgill.ca
+
+use strict ;
+use warnings "all" ;
+use Getopt::Tabular ;
+use File::Basename ;
+use File::Temp qw/ tempdir / ;
+# use Math::BigFloat;
+use MNI::MiscUtilities qw(shellquote);
+
+# inputs:
+my $cls_correct = shift;
+my $pve_wm = shift;
+my $pve_csf = shift;
+my $final_callosum = shift;
+my $final_classify = shift;
+my $skel_csf = shift;
+my $nl_transform = shift;
+my $Second_model_Dir = shift;
+
+# make tmpdir:
+my $me = &basename($0);
+my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 ) ;
+
+# temporary outputs:
+my $custom_mask = "${tmpdir}/custom_mask.mnc";
+my $classified_wm_fixed = "${tmpdir}/classified_wm_fixed.mnc";
+my $classified_wm_gm_fixed = "${tmpdir}/classified_wm_gm_fixed.mnc";
+
+# create $custom_mask
+
+make_custom_mask( $cls_correct, $nl_transform, $custom_mask, $Second_model_Dir );
+
+# copy contiguous pieces of white matter from pve image and custom mask
+
+fix_wm( $cls_correct, $pve_wm, $custom_mask, $classified_wm_fixed );
+
+# fix gray matter voxels
+
+fix_gm( $classified_wm_fixed, $classified_wm_gm_fixed );
+
+# create a midline mask to separate the hemispheres
+
+create_midline_mask( $classified_wm_gm_fixed, $Second_model_Dir,
+                     $final_callosum );
+
+# final classification
+
+run( "minccalc", "-clobber", "-expr", 
+     "if(A[1]>0){out=A[1];}else{out=A[0];}",
+     $classified_wm_gm_fixed, $final_callosum, $final_classify );
+
+# create the csf skeleton
+
+make_csf_skel( $final_classify, $pve_csf, $skel_csf, $tmpdir );
+
+# the end!
+
+
+# create the csf skeleton
+
+sub make_csf_skel {
+
+  my $cls_correct = shift;
+  my $pve_csf = shift;
+  my $skel_csf = shift;
+  my $tmpdir = shift;
+
+  my $wm_gm_mask = "${tmpdir}/wm_gm_mask.mnc";
+  my $wm_gm_maskD = "${tmpdir}/wm_gm_mask_dil.mnc";
+  my $pve_csf_dil = "${tmpdir}/pve_csf_dil.mnc";
+
+  # Make sure there is a layer of CSF around the cortex:
+  #   - select white + gray
+  #   - dilate white + gray by one voxel layer
+  #   - add csf to the skeleton in the dilated layer of the mask
+  #   - create the fixed skeleton to be used in the Laplacian
+  #     field for the gray surface extraction.
+  # NOTE: If you don't do this step, the skeleton will go through
+  #       the gray matter if there is no layer of csf between gray
+  #       and background. This will truncate the gray matter and
+  #       make the cortex thinner.
+
+  run( "minccalc", "-clobber", "-expression", "if(A[0]>1.5){out=1;}else{out=0;}", 
+       $cls_correct, $wm_gm_mask );
+  run( "dilate_volume", $wm_gm_mask, $wm_gm_maskD, "1", "26", "1" );
+  run( "minccalc", "-clobber", "-expression", 
+       "if((A[1]<1.5&&A[2]>0.5)||A[0]>0.0){out=1;}else{out=0;}",
+       $pve_csf, $cls_correct, $wm_gm_maskD, $pve_csf_dil );
+  run( "skel", $pve_csf_dil, $skel_csf );
+}
+
+
+# create custom_mask to mask sub-cortical gray and fill up ventricules.
+
+sub make_custom_mask {
+
+  my $cls_correct = shift;
+  my $nl_transform = shift;
+  my $custom_mask = shift;
+  my $Second_model_Dir = shift;
+ 
+  my $model_mask = "${Second_model_Dir}/Cerebellum_Ventricles_SubCortical_Mask.mnc";
+  run( "mincresample", "-clobber", "-like", $cls_correct, 
+       "-invert_transformation", "-nearest_neighbour",
+       "-transform", $nl_transform, $model_mask, $custom_mask );
+}
+
+
+# fix_wm is a little bit of image processing alchemy that attempts 
+# the following:
+#   1) adds the wm skeleton to the wm image by removing any loose ends 
+#      by blurring and cropping 
+#   2) blurs and crops the whole image, and its negative iteratively, 
+#      to remove "nonsense" voxels
+# Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
+#
+# fix_wm( classified.mnc, pve_wm, custom_mask.mnc, output.mnc )
+#
+
+sub fix_wm {
+
+  my $classified =  shift;
+  my $pve_wm =  shift;
+  my $custom_mask = shift;
+  my $output = shift;
+
+  ### make tmpdir
+  my $me = &basename($0) ;
+  my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 ) ;
+
+  my $classified_temp= "${tmpdir}/classified_plugged.mnc" ;
+  my $pve_wm_temp = "${tmpdir}/pve_plugged.mnc" ;
+  my $pve_wm_skel = "${tmpdir}/temp_skel.mnc" ;
+  my $temp_blur = "${tmpdir}/temp_blur" ;
+  my $pve_wm_skel_new = "${tmpdir}/temp_skel_new.mnc" ;
+  my $temp_diff = "${tmpdir}/temp_diff.mnc" ;
+  my $wm_with_skel = "${tmpdir}/wm_with_skel.mnc" ;
+  my $wm_with_skel_new = "${tmpdir}/wm_with_skel_new.mnc" ;
+  my $iteration = 0 ;
+  my $done = 0 ;
+  my $integrity = 0.3 ;
+  my @args = undef ;
+ 
+  # Combine custom mask for ventricules and sub-cortical gray into white.
+
+  run( "minccalc", "-clobber", "-expr", 
+       "if(abs(A[1]-1)<0.45||abs(A[1]-3)<0.45){out=1;}else{if(abs(A[1]-2)<0.45){out=0;}else{out=A[0];}}", 
+       $pve_wm, $custom_mask, $pve_wm_temp );
+   
+  run( "minccalc", "-clobber", "-expr", 
+       "if(abs(A[1]-1)<0.45||abs(A[1]-3)<0.45){out=3;}else{if(abs(A[1]-2)<0.45){out=1;}else{out=A[0];}}", 
+       $classified, $custom_mask, $classified_temp) ;
+ 
+  run( "skel", $pve_wm_temp, $pve_wm_skel );
+
+  ### First Pass, add the connected skeleton voxels to the image...
+
+  while( !$done && $iteration < 20 ) {
+  
+    $temp_blur = "${tmpdir}/temp_blur.mnc" ;
+  
+    run( "mincblur", "-clobber", "-fwhm", "2", $pve_wm_skel, $temp_blur );
+ 
+    $temp_blur = "${temp_blur}_blur.mnc" ;
+ 
+    run( "minccalc", "-clobber", "-expr", 
+         "out=(A[0]>${integrity}||A[2]==3)&&A[1];", 
+         $temp_blur, $pve_wm_skel, $classified_temp, $pve_wm_skel_new );
+ 
+    run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-A[1]);", 
+         $pve_wm_skel, $pve_wm_skel_new, $temp_diff);
+
+    @args = ( "mincstats", "-sum", $temp_diff );
+    print "@args\n" ;
+    my $result = `@args` ;
+    my @line = split/\s+/, $result ;
+    print ("Iteration:${iteration} Voxels changed:${line[1]}\n");
+ 
+    $iteration = $iteration+1 ;
+
+    if ($line[1]==0) { $done = 1 ; }
+    run( "mv", "-f", $pve_wm_skel_new, $pve_wm_skel );
+  }
+ 
+  $done = 0 ;
+ 
+  # now we have pruned the wm pve skeleton, we are going to add it to
+  # the classified white matter and then get rid of nonsense voxels....
+
+  run( "minccalc", "-clobber", "-expr", "out=A[0]||(abs(A[1]-3)<0.45);", 
+       $pve_wm_skel, $classified_temp, $wm_with_skel) ;
+
+  $iteration = 0 ;
+
+  while( !$done && $iteration < 40 ) {
+ 
+    $temp_blur = "${tmpdir}/temp_blur.mnc" ;
+    
+    run( "mincblur", "-clobber", "-fwhm", "2", $wm_with_skel, $temp_blur );
+ 
+    $temp_blur = "${temp_blur}_blur.mnc" ;
+
+    run( "minccalc", "-clobber", "-expr", 
+         "out=if(A[0]<${integrity}&&A[1]>0.5){out==0;}else{if(A[0]>(1-${integrity})&&A[1]<0.5){out==1;}else{out=A[1];}};", 
+         $temp_blur, $wm_with_skel, $wm_with_skel_new );
+ 
+    run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-A[1]);",
+         $wm_with_skel, $wm_with_skel_new, $temp_diff );
+
+    @args = ("mincstats", "-sum", $temp_diff );
+    print "@args\n" ;
+    my $result = `@args`;
+    my @line = split/\s+/, $result;
+    print ("Iteration B:${iteration} Voxels changed:${line[1]}\n") ;
+
+    run( "mv", "-f", $wm_with_skel_new, $wm_with_skel );
+
+    if( $line[1]==0 ) { $done = 1 ; }
+
+    $iteration = $iteration+1;
+  }
+
+  # first defrag the gray and add the excluded voxels to csf unless 
+  # they are surrounded by white
+
+  run( "mincdefrag", $wm_with_skel, $wm_with_skel_new, "1", "27", "100000");
+
+  run( "minccalc", "-clobber", "-expr", "out=A[0]<0.5;", 
+       $wm_with_skel_new, $wm_with_skel );
+
+  run( "mincdefrag", $wm_with_skel, $wm_with_skel_new, "1", "27", "100000");
+
+  run( "minccalc", "-clobber", "-expr", "out=A[0]<0.5;", 
+       $wm_with_skel_new, $wm_with_skel );
+  
+  run( "minccalc", "-clobber", "-expr", 
+       "if(abs(A[0]-1)>0.45&&abs(A[1]-3)<0.45){out=2;}else{if(abs(A[0]-1)<0.45&&abs(A[1]-3)>0.45){out=3}else{out=A[1];}};", 
+       $wm_with_skel, $classified_temp , $output );
+
+}
+
+
+# fix_gm is a little bit of image processing alchemy that attempts 
+# the following:
+#   1) adds the wm skeleton to the wm image by removing any loose ends 
+#      by blurring and cropping 
+#   2) blurs and crops the whole image, and its negative iteratively, 
+#      to remove "nonsense" voxels
+# Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
+#
+# fix_gm( classified.mnc, output.mnc )
+#
+
+sub fix_gm {
+
+  my $classified = shift;
+  my $result = shift;
+
+  # make tmpdir
+  my $me = &basename($0);
+  my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 ) ;
+
+  my $temp_white = "${tmpdir}/temp_white.mnc" ;
+  my $temp_white_blur_prefix = "${tmpdir}/temp_white" ;
+  my $temp_white_blur = "${temp_white_blur_prefix}_blur.mnc" ;
+
+  my $temp_gray = "${tmpdir}/temp_gray.mnc" ;
+  my $temp_gray_defrag = "${tmpdir}/temp_gray_defrag.mnc" ;
+  my $temp_gray_blur_prefix = "${tmpdir}/temp_gray_defrag" ;
+  my $temp_gray_blur = "${temp_gray_blur_prefix}_blur.mnc" ;
+  my $temp_gray_new = "${tmpdir}/temp_gray_defrag_new.mnc" ;
+  my $temp_gray_diff = "${tmpdir}/temp_gray_diff.mnc" ;
+  my $done = 0 ;
+  my $count =0 ;
+  my @args = undef ;
+  
+  run( "minccalc", "-clobber", "-expr", 'out=abs(A[0]-3)<0.45;', 
+       $classified, $temp_white );
+  run( "mincblur", "-clobber", "-fwhm", "2", $temp_white, 
+       $temp_white_blur_prefix );
+  run( "minccalc", "-clobber", "-expr", 'out=abs(A[0]-2)<0.45;', 
+       $classified, $temp_gray );
+ 
+  ###first defrag the gray 
+  run( "mincdefrag", $temp_gray, $temp_gray_defrag, "1", "27", "100000" );
+
+  ###then go through iterations of blur and remove until converged
+  while (!$done && $count<50){
+    run( "mincblur", "-clobber", "-fwhm", "2", $temp_gray_defrag, 
+         $temp_gray_blur_prefix );
+ 
+    run( "minccalc", "-clobber", "-expr", 
+         'out=(A[0]>0.45&&abs(A[1]-1)<0.45)||(A[0]>0.001&&A[2]>0.01&&abs(A[1]-1)<0.45);', 
+         $temp_gray_blur, $temp_gray_defrag, $temp_white_blur, $temp_gray_new);
+ 
+    run( "minccalc", "-clobber", "-expr", 'out=abs(A[0]-A[1]);', 
+         $temp_gray_defrag, $temp_gray_new, $temp_gray_diff );
+
+    @args = ("mincstats", "-sum", $temp_gray_diff) ;
+    print "@args\n" ;
+    my $stats_result = `@args` ;
+    my @line = split/\s+/, $stats_result ;
+    print ("Iteration:${count}\tVoxels changed:${line[1]}\n") ;
+
+    if ($line[1]<20) { $done = 1 ; }
+    $count = $count+1 ;
+    run("mv", "-f", $temp_gray_new, $temp_gray_defrag) ;
+  }
+ 
+  run( "mincdefrag", $temp_gray_defrag, $temp_gray_new, "1", "27", "100000" );
+   
+  run( "minccalc", "-clobber", "-expr", 
+       'if(A[0]<0.5&&A[1]>0.5&&A[2]>0.25){out=2}else{if(A[0]<0.5&&A[1]>0.5&&A[2]<0.25){out=1}else{out=A[3];}}', 
+       $temp_gray_new, $temp_gray, $temp_white_blur, $classified, $result );
+
+}
+
+
+# create_midline_mask extracts ...
+# 
+# Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
+# 
+# create_midline_mask classified.mnc model_dir output.mnc\n".
+
+sub create_midline_mask {
+
+  my $classify = shift;
+  my $model_dir = shift;
+  my $output = shift;
+
+  my $me = &basename($0);
+
+  # make tmpdir
+  my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+  my $midline_mask  = "${model_dir}/midline_mask.mnc";
+  my $callosum_with_bits  = "${tmpdir}/callosum_with_bits.mnc";
+  my $callosal_defrag = "${tmpdir}/callosum_defrag.mnc";
+  my $callosal_blur  = "${tmpdir}/callosal_blur.mnc";
+
+  run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-3)<0.45&&A[1];",
+       $classify, $midline_mask, $callosum_with_bits );
+
+  run( "mincdefrag", $callosum_with_bits, $callosal_defrag, 1, 27, 100 );
+
+  run( "mincblur", "-clobber", "-fwhm", 2, $callosal_defrag, $callosal_blur );
+
+  $callosal_blur = "${callosal_blur}_blur.mnc";    
+                   
+  run( "minccalc", "-clobber", "-expr", "if(A[0]>0.0001&&A[1]==1){out=1}else{if(A[0]>0.08){out=2}else{out=0;}};", 
+       $callosal_blur, $midline_mask, $output );
+
+}  
+
+
+#Execute a system call.
+
+sub run {
+  print shellquote(@_), "\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+
+
+
+

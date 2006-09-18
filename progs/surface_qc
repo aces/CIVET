@@ -1,0 +1,163 @@
+#! /usr/bin/perl
+#
+# Simple Quality checks on the white and gray surfaces.
+#   - Count how many classified white voxels outside white surface
+#   - Count how many classified gray voxels outside gray surface
+#
+
+use strict;
+use warnings "all";
+
+use Getopt::Tabular;
+use MNI::Startup;
+use MNI::FileUtilities;
+use MNI::Spawn;
+
+MNI::Spawn::RegisterPrograms
+  ( [qw/  rm
+     mv
+     minccalc
+     mincstats
+     mincresample
+     surface_mask2/ ] )
+  or exit 1;
+
+# --- set the help & usage strings ---
+my $help = <<HELP;
+Simple Quality checks on the white and gray surfaces.
+
+HELP
+
+my $usage = <<USAGE;
+usage: $ProgramName cls_correct.mnc white_mask_left.mnc white_mask_right.mnc \
+white_surf_left.obj white_surf_right.obj gray_surf_left.obj gray_surf_right.obj
+USAGE
+
+Getopt::Tabular::SetHelp( $help, $usage );
+
+# --- initialization ---
+my @options = 
+  ( @DefaultArgs,     # from MNI::Startup
+  );
+
+GetOptions( \@options, \@ARGV )
+  or exit 1;
+die "$usage\n" unless @ARGV == 8;
+
+my $cls_correct = shift;
+my $white_mask_left = shift;
+my $white_mask_right = shift;
+my $white_left = shift;
+my $white_right = shift;
+my $gray_left = shift;
+my $gray_right = shift;
+my $info_file = shift;
+
+# These are temporary files.
+MNI::FileUtilities::check_output_path("${TmpDir}")
+or exit 1;
+
+#  Quality checks on the white and gray surfaces.
+
+my ($ret,$bla,$sum_left,$sum_right,$sum_white,$sum_gray,$sum);
+
+# White surface:
+
+# fill up the white_masks if there are small holes inside where
+# the white surface cannot reach (for a better quality check).
+
+&run( "mincdefrag", $white_mask_left, "${TmpDir}/white_mask_left_filled.mnc", 0, 6 );
+&run( "mincdefrag", $white_mask_right, "${TmpDir}/white_mask_right_filled.mnc", 0, 6 );
+
+# number of voxels classified as white
+$ret = `mincstats -sum "${TmpDir}/white_mask_left_filled.mnc"`;
+($bla,$sum_left) = split(' ',$ret);
+$ret = `mincstats -sum "${TmpDir}/white_mask_right_filled.mnc"`;
+($bla,$sum_right) = split(' ',$ret);
+$sum_white = 1 + $sum_left + $sum_right;
+
+# Get the voxels inside the surface.
+
+&run( "surface_mask2", "-binary_mask", $white_mask_left, $white_left, 
+      "${TmpDir}/wqc_tmp.mnc" );
+
+# Unfortunately, surface_mask2 puts the outlining voxels outside the surface
+# so try to exclude the border line of the surface as it will otherwise
+# count as a layer of voxel. We could use scan_object_to_volume, but the
+# latter creates a thick outline (about 2 voxels thick) so removing this
+# thick outline would remove too much. Instead, simply do a dilation of
+# the volume into the mask (this should be a decent compromise).
+
+&run( "dilate_volume", "${TmpDir}/wqc_tmp.mnc", "${TmpDir}/wqc.mnc", 0, 6, 1 );
+
+# Compute difference between the surface mask and the target mask. This is not
+# the most accurate because there are errors "voxelizing" the surface.
+
+&run( "minccalc", "-clobber", 
+      "-expression", 'if(A[0] != A[1]){out=1;}else{out=0;}',
+      "${TmpDir}/white_mask_left_filled.mnc", "${TmpDir}/wqc.mnc", "${TmpDir}/diff.mnc" );
+
+$ret = `mincstats -sum "${TmpDir}/diff.mnc"`;
+($bla,$sum_left) = split(' ',$ret);
+
+# Repeat for right surface.
+
+&run( "surface_mask2", "-binary_mask", $white_mask_right, $white_right, 
+      "${TmpDir}/wqc_tmp.mnc" );
+&run( "dilate_volume", "${TmpDir}/wqc_tmp.mnc", "${TmpDir}/wqc.mnc", 0, 6, 1 );
+&run( "minccalc", "-clobber", 
+      "-expression", 'if(A[0] != A[1]){out=1;}else{out=0;}',
+      "${TmpDir}/white_mask_right_filled.mnc", "${TmpDir}/wqc.mnc", "${TmpDir}/diff.mnc" );
+$ret = `mincstats -sum "${TmpDir}/diff.mnc"`;
+($bla,$sum_right) = split(' ',$ret);
+
+# Total for left+right.
+
+my $info = sprintf( "white surface (%5.2f\%), ", 100.0*(${sum_left}+${sum_right})/${sum_white} );
+
+# Gray surface:
+
+# number of voxels classified as gray (label 2).
+
+&run( "minccalc", "-clobber", "-expression", 'if(A[0]>1.5 && A[0]<2.5 ){out=1;}else{out=0;}',
+      $cls_correct, "${TmpDir}/diff.mnc" );
+
+$ret = `mincstats -sum "${TmpDir}/diff.mnc"`;
+($bla,$sum_gray) = split(' ',$ret);
+$sum_gray += 1;
+
+# voxels outside gray surface that are classified as gray matter (label 2)
+&run( "surface_mask2", "-binary_mask", $cls_correct,
+       $gray_left, "${TmpDir}/gqc_left_tmp.mnc" );
+&run( "surface_mask2", "-binary_mask", $cls_correct,
+       $gray_right, "${TmpDir}/gqc_right_tmp.mnc" );
+
+# dilate before combining (we may lose centerline, but this avoids outer ouline of
+# gray surfaces to cross - will not be able to dilate if touching).
+ 
+&run( "dilate_volume", "${TmpDir}/gqc_left_tmp.mnc", "${TmpDir}/gqc_left.mnc", 0, 6, 1 );
+&run( "dilate_volume", "${TmpDir}/gqc_right_tmp.mnc", "${TmpDir}/gqc_right.mnc", 0, 6, 1 );
+
+# Combine left + right, 
+&run( "minccalc", "-clobber", "-expression", 'if( A[0]>0.5 || A[1]>0.5 ) {out=1;} else {out=0;};', 
+      "${TmpDir}/gqc_left.mnc", "${TmpDir}/gqc_right.mnc", "${TmpDir}/gqc.mnc" );
+
+&run( "minccalc", "-clobber", "-expression", 
+      'if(A[0]>1.5 && A[0]<2.5&& A[1]==0){out=1;}else{out=0;}',
+      $cls_correct, "${TmpDir}/gqc.mnc", "${TmpDir}/diff.mnc" );
+$ret = `mincstats -sum "${TmpDir}/diff.mnc"`;
+($bla,$sum) = split(' ',$ret);
+
+$info .= sprintf( "gray surface (%5.2f\%)\n", 100.0*${sum}/${sum_gray} );
+
+open PIPE, ">$info_file";
+print PIPE $info;
+close PIPE;
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

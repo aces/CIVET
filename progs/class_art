@@ -1,0 +1,36 @@
+#!/usr/bin/env perl
+#
+# create artefact probability map uses threshold,blur,mask,final,
+#
+
+
+use strict;
+use warnings "all";
+use File::Basename;
+use Math::BigFloat;
+
+
+my @args = ("mincstats","-mask",$ARGV[2],"-mask_binvalue","1","-mean",$ARGV[3]);
+print @args;
+my $result = `@args`;
+my @line = split/\s+/,$result;
+print $line[1];
+my $intensity_threshold = $line[1] * (0+$ARGV[0]);
+
+@args = ("minccalc","-clobber", "-expression","if(A[0]>0&&A[0]<${intensity_threshold}) {out=1;} else {out=0;}",$ARGV[3], "${ARGV[4]}_temp");
+print @args; 
+system(@args)== 0 or die "system @args failed: $?";
+
+
+@args = ("mincblur","-clobber", "-fwhm",$ARGV[1],"${ARGV[4]}_temp", $ARGV[4]);
+print @args;
+system(@args)== 0 or die "system @args failed: $?";
+
+@args = ("rm","${ARGV[4]}_temp");
+print @args;
+system(@args) == 0 or die "system @args failed: $?";
+
+@args = ("mv","${ARGV[4]}_blur.mnc","${ARGV[4]}");
+print @args;
+system(@args) == 0 or die "system @args failed: $?";
+

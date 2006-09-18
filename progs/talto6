@@ -1,0 +1,29 @@
+#!/usr/bin/env perl
+#
+# create 6 param registrations to and from 9 param tal
+#
+
+
+use strict;
+use warnings "all";
+use File::Basename;
+use Math::BigFloat;
+
+
+my @args = ("xfm2param ",$ARGV[0]);
+my $result = `@args`;
+#print $result;
+my @class1;
+my @histarray = split/\n/,$result;
+
+  foreach my $line(@histarray){
+      if ($line=~ /-scale/){
+          @class1 = split /\s+/,$line;          
+      }
+  }
+
+@args = ("param2xfm","-clobber","-scale",1/$class1[1],1/$class1[2],1/$class1[3],$ARGV[1]);
+
+system(@args) == 0 or die "system @args failed: $?";
+
+

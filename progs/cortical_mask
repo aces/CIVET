@@ -1,0 +1,61 @@
+#!/usr/bin/env perl
+#
+
+# This step eliminates the skull and meninges by creating a coarse cortical
+# surface then removing tissue lying outside of it. The surface produced here
+# is a result of a deforming ellipsoid model that shrinks inward in an iterative
+# fashion until it finds the pial surface of the cortex. It is not accurate
+# enough to become the final pial surface in our corticometric analysis. But
+# it does a decent job as a mask to exclude the skull and meninges.
+
+
+use strict;
+use warnings "all";
+
+use MNI::PathUtilities qw(replace_ext);
+
+# define input variables:
+
+my $cls_tmp=$ARGV[0];
+my $cortex=$ARGV[1];
+my $skull_mask=$ARGV[2];
+my $brain_mask=$ARGV[3];
+
+# define internal variables:
+
+my $cls_tmp_defrag = &replace_ext( "defrag.mnc", $cls_tmp );
+
+# Apply skull mask to classified image.
+
+&run( "mincmath", "-clobber", "-mult", $cls_tmp, $skull_mask, $cls_tmp_defrag );
+
+# run defrag before the cortical surface mask to remove dangling pieces
+# of white and grey tissues. This will increase the accuracy of the
+# cortical surface by preventing the surface to be attracted to non-
+# desired tissues.
+
+&run( "mincdefrag", $cls_tmp_defrag, $cls_tmp_defrag, 3, 6 );
+
+&run( "mincdefrag", $cls_tmp_defrag, $cls_tmp_defrag, 2, 6 );
+
+# cortical surface to mask out cerebellum and other non-cortical tissues
+
+&run( "cortical_surface", $cls_tmp_defrag, $cortex, 1.5 );
+
+# masking of brain with the cortical surface
+
+&run( "surface_mask2", "-binary_mask", $cls_tmp, $cortex, $cls_tmp_defrag );
+&run( "mincmath", "-clobber", "-mult", $cls_tmp_defrag, $skull_mask, $brain_mask );
+
+# cleaning masking temp files
+
+&run( "rm", "-f", $cls_tmp_defrag );
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

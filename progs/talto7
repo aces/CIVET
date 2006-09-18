@@ -1,0 +1,34 @@
+#! /usr/bin/env perl
+#
+# create 7 param registrations to and from 9 param tal
+#
+
+use strict;
+use warnings "all";
+use File::Basename;
+use Math::BigFloat;
+
+
+my @args = ("xfm2param ",$ARGV[0]);
+my $result = `@args`;
+
+
+my @histarray = split/\n/,$result;
+my @class1;
+  foreach my $line(@histarray){
+      if ($line=~ /-scale/){
+          @class1 = split /\s+/,$line;          
+      }
+  }
+
+
+my $vol = ($class1[1]*$class1[2]*$class1[3]);
+my $x = Math::BigFloat->new($vol);
+$vol = $x->broot(3);
+
+@args = ("param2xfm","-clobber","-scale",$vol/$class1[1],$vol/$class1[2],$vol/$class1[3],$ARGV[1]);
+system(@args) == 0 or die "system @args failed: $?";
+
+
+
+

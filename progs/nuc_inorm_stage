@@ -1,0 +1,79 @@
+#!/usr/bin/env perl
+
+# Using N3, these stages will run an initial correction of intensity
+# non-uniformity on the linearly registered images. 
+# 
+# Be careful: the input file might come as .mnc.gz.
+#
+# In the arguments, $nuc_dist is the distance between knots in the b-spline.
+# The accuracy of nu_correct is quite sensitive to this distance. A small
+# value is more accurate, but it must not be chosen too small so as not to
+# remove biological variations. The smaller d is, the longer the code will
+# take to run. Accuracy is not free. In the old version, d=200 was used and 
+# this created hot spots in the corrected images when the spline was not able 
+# to represent non-uniformities at a smaller wavelength. (This likely depends
+# on the scanner too.) In the new way, d=25 to 50 seems to give reliable
+# results. Finally, at one point, it was believed that masking the skull
+# gave better results. This can be true if d is too large, but at the right
+# d, the skull can and should be kept. In fact, the skull is scanned too and 
+# subjected to the same non-uniformities as the brain tissues.
+#
+# Note: We remove the .imp file as it is relative to the previous
+#       iteration, thus meaningless globally.
+
+use strict;
+use warnings "all";
+
+use MNI::PathUtilities qw(replace_ext);
+
+# define input variables:
+
+my $input = $ARGV[0];
+my $output = $ARGV[1];
+my $nuc_dist = $ARGV[2];
+my $nuc_cycles = $ARGV[3];
+my $nuc_iters = $ARGV[4];
+
+# apply non-uniformity correction and intensity normalization on image.
+
+if ( -e $input ) {
+
+  my $tmp = &replace_ext( "nuc.mnc", $output );
+  &run( "cp", "-f", $input, $tmp );
+
+  my $tmp_input = $input;
+
+  # Important note: Because of the way nu_correct converges, it is better to
+  # do a few sets of 100 iterations rather than a total number of iterations
+  # at once. For example, nu_correct often thinks it has converged after 50-60
+  # iterations, so repeating the cycle will provide more iterations. Please
+  # leave as it is until nu_correct is fixed.
+
+  for( my $i = 0; $i < $nuc_cycles; $i++ ) {
+    &run( "nu_correct", "-clobber", "-iter", $nuc_iters, "-stop", 0.0001,
+          "-fwhm", 0.1, "-distance", $nuc_dist, $tmp_input, $output );
+    &run( "mv", "-f", $output, $tmp );
+    $tmp_input = $tmp;
+  }
+
+  # remove high extremum (low extremum - background - will be taken care of by the mask).
+  my $top;
+  my $upper = 99.50;
+  chomp($top = `mincstats -quiet -pctT $upper $tmp`);
+
+  my $clip_expr = "if(A[0]<0){out=0;}else{if(A[0]>${top}){out=${top};}else{out=A[0];}}";
+
+  &run( "minccalc", "-clobber", "-expression", $clip_expr, $tmp, $output );
+
+  # final clean-up
+  &run( "rm", "-f", $tmp, &replace_ext( "imp", $tmp ) );
+}
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

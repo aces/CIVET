@@ -1,0 +1,74 @@
+#!/usr/bin/env perl
+#
+# generate tal reg image using avg,std,input,output
+
+
+
+
+use strict;
+use warnings "all";
+use File::Basename;
+
+# Takes surface volume outside_val inside_val error.mnc
+
+my $surface_obj = $ARGV[0];
+my $volume_data = $ARGV[1];
+my $inside_val= $ARGV[2];
+my $outside_val = $ARGV[3];
+my $error_mnc = $ARGV[4];
+
+my $temp_scanned =  "${error_mnc}_temp1.mnc";
+my $temp_msdmask =  "${error_mnc}_temp2.mnc";
+my $temp_scanned_blurred =  "${error_mnc}_temp3.mnc";
+my $inner_mask=  "${error_mnc}_temp4.mnc"; 
+my $outer_mask   =  "${error_mnc}_temp5.mnc" ;
+my $combined_raw    =  "${error_mnc}_temp6.mnc";
+
+
+#create a single line of surface in 3D vol
+my @args = ("scan_object_to_volume",$volume_data,$surface_obj,$temp_scanned);
+#print @args;
+system(@args)== 0 or die "system @args failed: $?";
+
+#Create a mask which includes the surface 1 inside, 0 outside
+@args = ("msd_masks","-clobber",$volume_data,$surface_obj,$temp_msdmask);
+#print @args;
+system(@args) == 0 or die "system @args failed: $?";
+
+#blur the single line to create a roi 2mm from the scanned surface object.
+@args = ("mincblur","-clobber","-fwhm","2",$temp_scanned,$temp_scanned_blurred);
+#print @args;
+system(@args) == 0 or die "system @args failed: $?";
+
+$temp_scanned_blurred = "${temp_scanned_blurred}_blur.mnc";
+
+#create the inner mask
+ @args = ("minccalc","-clobber","-expr", "if(A[0]>0&&A[1]>0.5&&A[2]<0.5){out=1;}else{out=0;}", $temp_scanned_blurred,$temp_msdmask,$temp_scanned,$inner_mask);
+#print @args;
+system(@args) == 0 or die "system @args failed: $?";
+ 
+#create the outer mask
+ @args = ("minccalc","-clobber","-expr","if (A[0]>0 &&A[1]<0.5){out=1;}else{out=0;}",$temp_scanned_blurred,$temp_msdmask,$outer_mask);
+#print @args;
+system(@args) == 0 or die "system @args failed: $?";
+
+# create the bad voxels  gray inside or white outside
+@args = ("minccalc","-clobber","-expr","if((A[0]>0.5 &&abs(A[2]-${outside_val})<0.5)||(A[1]>0.5 &&abs(A[2]-${inside_val})<0.5)){out=1;}else{out=0;}" ,$inner_mask,$outer_mask,$volume_data,$combined_raw);
+#print @args;
+system(@args) == 0 or die "system @args failed: $?";
+
+#blur a bit to focus our attention...
+ @args = ("mincblur","-clobber","-fwhm","2",$combined_raw,$error_mnc);
+#print @args;
+system(@args) == 0 or die "system @args failed: $?";
+
+@args = ("mv", "${error_mnc}_blur.mnc", $error_mnc);
+ system(@args) == 0 or die "system @args failed: $?";
+#get rid of all the crap...
+ @args = ("rm",$temp_scanned,$temp_msdmask , $temp_scanned_blurred,$inner_mask, $outer_mask,$combined_raw);
+#print @args;
+system(@args) == 0 or die "system @args failed: $?";
+
+
+ 
+ 
