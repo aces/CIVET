@@ -10,6 +10,7 @@ use Clean_Scans;
 use Linear_Transforms;
 use Skull_Masking;
 use Classify;
+use Artefact;
 use Cortex_Mask;
 use Non_Linear_Transforms;
 use Segment;
@@ -137,6 +138,17 @@ sub create_pipeline{
     );
     my $Classify_complete = $res[0];
 
+    ##########################################
+    ##### Discrete tissue classification #####
+    ##########################################
+
+    @res = Artefact::create_pipeline(
+      $pipeline_ref,
+      $Cortex_Mask_complete,
+      $image
+    );
+    my $Artefact_complete = $res[0];
+
     ##############################
     ##### ANIMAL brain atlas #####
     ##############################
@@ -179,7 +191,7 @@ sub create_pipeline{
         $Surface_Fit_complete,
         $image
       );
-      my $Thickness_complete = $res[0];
+      $Thickness_complete = $res[0];
     }
 
     ##############################
@@ -203,6 +215,18 @@ sub create_pipeline{
     );
 
     my $Verify_image_complete = $res[0];
+
+
+    my $Verify_CLASP_complete = undef;
+    unless (${$image}->{surface} eq "noSURFACE") {
+      my $CLASPPrereqs = [ @{$Surface_Fit_complete} ];
+      @res = Verify::clasp(
+        $pipeline_ref,
+        $CLASPPrereqs,
+        $image
+      );
+      $Verify_CLASP_complete = $res[0];
+    }
 
 #
 #     my $Global_Surface_Segment_Dir = "${Global_Base_Dir}/surface_segment";

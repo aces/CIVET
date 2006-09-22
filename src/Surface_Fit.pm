@@ -64,8 +64,6 @@ sub create_pipeline {
     my $white_surf_right_prelim = ${$image}->{white}{right_prelim};
     my $white_surf_right_prelim_flipped = ${$image}->{white}{right_prelim_flipped};
 
-    my @Surface_Fit_complete;  #Depends on what options are set...
-
 # ---------------------------------------------------------------------------
 #  Step 1: Application of the custom mask (ventricules, cerebellum,
 #          sub-cortical gray) and final classification for surface
@@ -89,7 +87,7 @@ sub create_pipeline {
 
     ${$pipeline_ref}->addStage(
           { name => "create_wm_hemispheres",
-          label => "create wm hemispheres",
+          label => "create white matter hemisperic masks",
           inputs => [$final_classify, $brain_mask],
           outputs => [$wm_left_centered, $wm_right_centered],
           args=>["extract_wm_hemispheres", $final_classify, $brain_mask,
@@ -99,7 +97,7 @@ sub create_pipeline {
 
     ${$pipeline_ref}->addStage(
           { name => "extract_white_surface_left",
-          label => "Create WM left prelim surface",
+          label => "extract white left surface in Talairach",
           inputs => [$wm_left_centered], 
           outputs => [$white_surf_left_prelim],
           args => ["extract_white_surface", $wm_left_centered,
@@ -109,7 +107,7 @@ sub create_pipeline {
 
     ${$pipeline_ref}->addStage(
           { name => "extract_white_surface_right",
-          label => "Create WM right prelim surface",
+          label => "extract white right surface in Talairach",
           inputs => [$wm_right_centered],
           outputs => [$white_surf_right_prelim],
           args => ["extract_white_surface", $wm_right_centered,
@@ -202,7 +200,7 @@ sub create_pipeline {
 
     ${$pipeline_ref}->addStage(
           { name => "gray_surface_left",
-          label => "expand to pial surface",
+          label => "expand to left pial surface in Talairach",
           inputs => [$final_classify, $left_hemi_white, $laplace_field],
           outputs => [$gray_surface_left],
           args => ["expand_from_white", $final_classify, 
@@ -212,16 +210,13 @@ sub create_pipeline {
 
     ${$pipeline_ref}->addStage(
           { name => "gray_surface_right",
-          label => "expand to pial surface",
+          label => "expand to right pial surface in Talairach",
           inputs => [$final_classify, $right_hemi_white, $laplace_field],
           outputs => [$gray_surface_right],
           args => ["expand_from_white", $final_classify, 
                    $right_hemi_white, $gray_surface_right, $laplace_field],
           prereqs => ["laplace_field"] }
           );
-
-    push @Surface_Fit_complete, ("gray_surface_right");
-    push @Surface_Fit_complete, ("gray_surface_left");
 
     # Find the fitting error for the white and gray surfaces.
 
@@ -242,10 +237,9 @@ sub create_pipeline {
           prereqs => ["gray_surface_left", "gray_surface_right"] }
           );
 
-    push @Surface_Fit_complete, ("surface_fit_error");
+    my $Surface_Fit_complete = [ "surface_fit_error" ];
 
-
-    return( \@Surface_Fit_complete );
+    return( $Surface_Fit_complete );
 }
 
 1;

@@ -81,21 +81,8 @@ sub pve {
     my $pve_wm      = ${$image}->{pve_wm};
     my $pve_csf     = ${$image}->{pve_csf};
 
-    my $cls_artefact = ${$image}->{artefact};
     my $cls_clean    = ${$image}->{cls_clean};
     my $cls_correct  = ${$image}->{cls_correct};
-
-    # The output of this stage is used in quality control (see Oliver).
-    # I guess this stage could use $skull_mask.
-
-    ${$pipeline_ref}->addStage(
-         { name => "artefact",
-         label => "susceptability_art",
-         inputs => [$brain_mask, $t1_input],
-         outputs => [$cls_artefact],
-         args => ["class_art", "0.15", "4", $brain_mask,
-                  $t1_input, $cls_artefact],
-         prereqs => $Prereqs});
 
    #####################################
    ##### The classification stages #####
@@ -156,7 +143,7 @@ sub pve {
 
     #Must now set the completion condition.
 
-    my $Classify_complete = ["artefact", "reclassify"];
+    my $Classify_complete = ["reclassify"];
 
     return( $Classify_complete );
 }

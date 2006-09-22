@@ -39,7 +39,7 @@ use lib "$FindBin::Bin";
 use MRI_Image;
 use Processing_Pipeline_Main;
 
-my $version = "1.0.0";
+my $version = "1.0.1";
 my $versionDate= "September 12, 2006";
 my $authors= "Yasser Ad-Dab'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 

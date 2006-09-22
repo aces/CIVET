@@ -29,7 +29,6 @@ sub image {
     my $surface_info_file = ${$image}->{surface_qc};
 
     my $verify1 = ${$image}->{verify};
-    my $verify2 = ${$image}->{verify_clasp};
     my $t1_nl_final = ${$image}->{t1_nl_final};
 
     my @verifyRows;
@@ -64,7 +63,7 @@ sub image {
 
     ${$pipeline_ref}->addStage(
       { name => "verify_image_nlfit",
-      label => "verification on non-linear registration",
+      label => "verification of non-linear registration",
       inputs => [ $t1_tal_final, $t1_nl_xfm ],
       outputs => [$t1_nl_final],
       args => [ "mincresample", "-clobber", "-like", $t1_tal_final, 
@@ -116,7 +115,23 @@ sub image {
       args => [ @verifyCmd, @verifyRows ],
       prereqs => ["verify_image_nlfit"] });
 
-    my @Verify_Image_complete = ( "verify_image" );
+    my $Verify_Image_complete = [ "verify_image" ];
+    return( $Verify_Image_complete );
+}
+
+sub clasp {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $white_surface_left = ${$image}->{white}{left};
+    my $white_surface_right = ${$image}->{white}{right};
+    my $gray_surface_left = ${$image}->{gray}{left};
+    my $gray_surface_right = ${$image}->{gray}{right};
+    my $verify_file = ${$image}->{verify_clasp};
+
+    my @Verify_CLASP_complete = ( );
 
     # Plot 3D views of surfaces.
     unless (${$image}->{surface} eq "noSURFACE") {
@@ -125,15 +140,15 @@ sub image {
         label => "create verification image for surfaces",
         inputs => [$gray_surface_left, $gray_surface_right, $white_surface_left,
                    $white_surface_right],
-        outputs => [$verify2],
+        outputs => [$verify_file],
         args => [ "verify_clasp", $gray_surface_left, $gray_surface_right, 
-                  $white_surface_left, $white_surface_right, $verify2, 
+                  $white_surface_left, $white_surface_right, $verify_file, 
                   "CLASP surfaces" ],
         prereqs => $Prereqs });
-        push @Verify_Image_complete, ("verify_clasp");
+        push @Verify_CLASP_complete, ("verify_clasp");
     }
 
-    return( \@Verify_Image_complete );
+    return( \@Verify_CLASP_complete );
 }
 
 
