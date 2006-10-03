@@ -22,6 +22,7 @@
 
 use strict;
 use FindBin;
+use Cwd qw( abs_path );
 
 # All modules that will be used in either case are declared here
 use Getopt::Tabular;
@@ -39,8 +40,8 @@ use lib "$FindBin::Bin";
 use MRI_Image;
 use Processing_Pipeline_Main;
 
-my $version = "1.0.1";
-my $versionDate= "September 12, 2006";
+my $version = "1.0.2";
+my $versionDate= "October 3, 2006";
 my $authors= "Yasser Ad-Dab'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -216,6 +217,8 @@ else {
 unless ($prefix && $target && $sourceDir) {
     die "\n\n*******ERROR********: \n     You must specify -prefix, -targetdir, and -sourcedir \n********************\n\n\n";
 }
+$target = abs_path( $target );
+$sourceDir = abs_path( $sourceDir );
 
 ############# Set no file buffering for stdout (buffer is printed every 1 line)
 $| = 1;
@@ -248,6 +251,8 @@ my $classify_dir = MNI::DataDir::dir("classify");
 ############# The -like template (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00)
 my $Template = "${ICBM_dir}/icbm_template_${TemplateSize}mm.mnc";
 
+############# Used for creating verify_image only.
+my $fullpath_surfmodel = MNI::DataDir::dir("avg305")."average_305_mask.obj";
 
 ############# Define registration targets and directories and print them
 unless ($regModelDir) {
@@ -371,6 +376,7 @@ foreach my $dsid (@dsids) {
                         \$pipeline,
                         \$image,
                         $fullpath_regmodel,
+                        $fullpath_surfmodel,
                         $intermediate_model, 
                         $smallSurfRegModel,
                         $Template,

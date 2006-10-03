@@ -23,7 +23,7 @@ sub create_pipeline {
 
     ${$pipeline_ref}->addStage(
          { name => "cortical_masking",
-         label => "masking cortical tissues based on classified image using cortical_surface",
+         label => "masking cortical tissues using cortical_surface",
          inputs => [$skull_mask, $cls_clean],
          outputs => [$cortex, $brain_mask],
          args => ["cortical_mask", $cls_clean, $cortex, 

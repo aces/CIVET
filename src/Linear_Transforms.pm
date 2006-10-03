@@ -6,6 +6,9 @@ use PMP::PMP;
 use MRI_Image;
 use File::Basename;
 
+# Compute the transformations necessary to bring source images into MNI-Talairach
+# space.
+
 sub stx_register {
 
     my $pipeline_ref = @_[0];
@@ -18,11 +21,12 @@ sub stx_register {
     my $t2_input   = ${$image}->{t2}{nuc};
     my $pd_input   = ${$image}->{pd}{nuc};
 
-    my $maskType = "t1Only";
-    my $cropNeck = ${$image}->{cropNeck};
+    my $maskType = ${$image}->{maskType};
+    my $cropNeck = (defined ${$image}->{cropNeck}) ? ${$image}->{cropNeck} : 0;
     my $skull_mask = ${$image}->{skull_mask_native};
 
     my $t1_tal_xfm    = ${$image}->{t1_tal_xfm};
+    my $t2pd_t1_xfm  = ${$image}->{t2pd_t1_xfm};
     my $t2pd_tal_xfm  = ${$image}->{t2pd_tal_xfm};
     my $tal_to_6_xfm  = ${$image}->{tal_to_6_xfm};
     my $tal_to_7_xfm  = ${$image}->{tal_to_7_xfm};
@@ -30,18 +34,49 @@ sub stx_register {
     my $regModelDir  = dirname( $regModel);
     my $regModelName = basename( $regModel);
 
-    ##### Compute a preliminary skull mask for t1 native, to apply
-    ##### during linear registration. Use t1 only since t2/pd have
-    ##### not been registered to t1 yet. Use 1.0mm sampling.
+    # Compute the transformation necessary to align t2/pd to t1. Use
+    # the images after correction of non-uniformities. In case both t2 
+    # and pd exist, use t2. Assume that t2 and pd have been acquired 
+    # together and that they are aligned with one another.
+
+    my @skullInputs = ($t1_input);
+    my $Coregister_complete = $Prereqs;
+
+    if( -e $t2_input ) {
+      ${$pipeline_ref}->addStage(
+           { name => "t2_pd_coregister",
+           label => "co-register t2/pd to t1",
+           inputs => [$t1_input, $t2_input],
+           outputs => [$t2pd_t1_xfm],
+           args => ["mritoself", "-mi", "-lsq6", $t2_input, $t1_input, $t2pd_t1_xfm ],
+           prereqs => $Prereqs } );
+      push @skullInputs, ($t2pd_t1_xfm);
+      $Coregister_complete = ["t2_pd_coregister"];
+    } else {
+      if( -e $pd_input ) {
+        ${$pipeline_ref}->addStage(
+             { name => "t2_pd_coregister",
+             label => "co-register t2/pd to t1",
+             inputs => [$t1_input, $pd_input],
+             outputs => [$t2pd_t1_xfm],
+             args => ["mritoself", "-mi", "-lsq6", $pd_input, $t1_input, $t2pd_t1_xfm ],
+             prereqs => $Prereqs } );
+        push @skullInputs, ($t2pd_t1_xfm);
+        $Coregister_complete = ["t2_pd_coregister"];
+      }
+    }
+
+    ##### Compute a preliminary skull mask for t1, t2, pd native, to apply
+    ##### during linear registration. 
 
     ${$pipeline_ref}->addStage(
          { name => "skull_masking_native",
          label => "masking of skull in native space",
-         inputs => [$t1_input],
+         inputs => \@skullInputs,
          outputs => [$skull_mask],
-         args => ["remove_skull", $maskType, $cropNeck, $t1_input, undef,
-                  undef, $skull_mask ],
-         prereqs => $Prereqs });
+         args => ["remove_skull", $maskType, $cropNeck, $t1_input, $t2_input,
+                  $pd_input, $t2pd_t1_xfm, $skull_mask ],
+         prereqs => $Coregister_complete });
 
     ##### Compute transforms to STX space directly or indirectly #####
 
@@ -63,6 +98,9 @@ sub stx_register {
     } else {
       push @extraTransform, "-single-stage";
     }
+
+    # TEMPORARY: This will actually recompute t2pd_t1_xfm a second time,
+    #            but no big deal, it's cheap. This can be cleaned-up later.
 
     my @registerInputs = ($t1_input);
     push @registerInputs, ($t2_input) if (-e ${$image}->{t2}{native});
@@ -86,7 +124,6 @@ sub stx_register {
                   $t1_tal_xfm, $t2pd_tal_xfm ],
          prereqs => ["skull_masking_native"] } );
 
-
    ############## Generate the tal to 6 and 7 space transforms (only on t1)
 
     ${$pipeline_ref}->addStage(
@@ -105,7 +142,7 @@ sub stx_register {
          args => ["talto7", $t1_tal_xfm, $tal_to_7_xfm],
          prereqs => ["stx_register"] });
 
-#Must now set the completion condition.
+    #Must now set the completion condition.
 
     my $Linear_Transforms_complete = ["stx_tal_to_6", "stx_tal_to_7"];
 

@@ -25,9 +25,6 @@ sub create_pipeline {
     my $Non_Linear_Target = "${nl_model}.mnc";
     my $model_head_mask = "${nl_model}_mask.mnc";
 
-# New stuff from July 13, 2006 that hopefully will not fail most of the times.
-# We supply the brain mask to minctracc.
-
     ${$pipeline_ref}->addStage(
          { name => "nlfit",
          label => "creation of nonlinear transform",

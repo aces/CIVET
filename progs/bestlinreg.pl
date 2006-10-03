@@ -26,23 +26,22 @@ use File::Temp qw/ tempdir /;
 
 my @conf = (
 
-
    { type        => "blur",
-     trans       => "-est_translations",
+     trans       => [qw/-est_translations/],
      blur_fwhm   => 16,
      steps       => [qw/8 8 8/],
      tolerance   => 0.01,
      simplex     => 32 },
 
    { type        => "blur",
-     trans       => "-est_translations",
+     trans       => undef,
      blur_fwhm   => 8,
      steps       => [qw/4 4 4/],
      tolerance   => 0.004,
      simplex     => 16 },
 
    { type        => "blur",
-     trans       => "-est_translations",
+     trans       => undef,
      blur_fwhm   => 4,
      steps       => [qw/4 4 4/],
      tolerance   => 0.004,
@@ -70,7 +69,7 @@ my(@opt_table, %opt, $source, $target, $outxfm, $outfile, @args, $tmpdir);
 
 $me = &basename($0);
 %opt = (
-   'verbose'   => 0,
+   'verbose'   => 1,
    'clobber'   => 0,
    'fake'      => 0,
    'init_xfm'  => undef,
@@ -170,6 +169,23 @@ if( -e $opt{source_mask} and -e $opt{target_mask} ) {
            $target, $opt{target_mask}, $target_masked );
 }
 
+# initial transformation supplied by the user, applied to both the 
+# source image and its mask.
+
+if( defined $opt{init_xfm} ) { 
+  my $source_resampled = "${tmpdir}/${s_base}_resampled.mnc";
+  &do_cmd( 'mincresample', '-clobber', '-like', $source_masked, 
+           '-transform', $opt{init_xfm}, $source_masked, $source_resampled );
+  $source_masked = $source_resampled;
+
+  my $mask_resampled = "${tmpdir}/${s_base}_mask_resampled.mnc";
+  &do_cmd( 'mincresample', '-clobber', '-like', $opt{source_mask},
+           '-nearest_neighbour', '-transform', $opt{init_xfm}, 
+           $opt{source_mask}, $mask_resampled );
+  $opt{source_mask} = $mask_resampled;
+}
+
+$prev_xfm = undef;
 
 # a fitting we shall go...
 for ($i=0; $i<=$#conf; $i++){
@@ -206,14 +222,13 @@ for ($i=0; $i<=$#conf; $i++){
    @args = ('minctracc', '-clobber', '-xcorr', '-lsq9',
             '-step', @{$conf[$i]{steps}}, '-simplex', $conf[$i]{simplex},
             '-tol', $conf[$i]{tolerance});
-   push(@args, $conf[$i]{trans}) if( defined $conf[$i]{trans} );
 
-   # transformation
-   if($i == 0) {
-     push(@args, (defined $opt{init_xfm}) ? ('-transformation', $opt{init_xfm}) : '-identity')
-   } else {
-     push(@args, '-transformation', $prev_xfm);
-   }
+   # Initial transformation will be computed from the from Principal axis 
+   # transformation (PAT).
+   push(@args, @{$conf[$i]{trans}}) if( defined $conf[$i]{trans} );
+
+   # Current transformation at this step
+   push(@args, '-transformation', $prev_xfm ) if( defined $prev_xfm );
 
    # masks (even if the blurred image is masked, it's still preferable
    # to use the mask in minctracc)
@@ -222,17 +237,25 @@ for ($i=0; $i<=$#conf; $i++){
    
    # add files and run registration
    push(@args, "$tmp_source\_$conf[$i]{type}.mnc", "$tmp_target\_$conf[$i]{type}.mnc", 
-        ($i == $#conf) ? $outxfm : $tmp_xfm);
+        $tmp_xfm);
    &do_cmd(@args);
    
-   $prev_xfm = ($i == $#conf) ? $outxfm : $tmp_xfm;
+   $prev_xfm = $tmp_xfm;
+}
+
+# Concatenate transformations if an initial transformation was given.
+
+if( defined $opt{init_xfm} ) { 
+  &do_cmd( 'xfmconcat', $prev_xfm, $opt{init_xfm}, $outxfm );
+} else {
+  &do_cmd( 'mv', '-f', $prev_xfm, $outxfm );
 }
 
 # resample if required
 if(defined($outfile)){
    print STDOUT "-+- creating $outfile using $outxfm\n".
-   &do_cmd('mincresample', '-clobber', '-like', $target,
-           '-transformation', $outxfm, $source, $outfile);
+   &do_cmd( 'mincresample', '-clobber', '-like', $target,
+            '-transformation', $outxfm, $source, $outfile );
 }
 
 

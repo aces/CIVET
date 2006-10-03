@@ -24,7 +24,8 @@ my $cropNeck=$ARGV[1];
 my $t1_input=$ARGV[2];
 my $t2_input=$ARGV[3];
 my $pd_input=$ARGV[4];
-my $skull_mask=$ARGV[5];
+my $t2pd_t1_xfm=$ARGV[5];
+my $skull_mask=$ARGV[6];
 
 # Directory for temporary files.
 
@@ -40,12 +41,11 @@ my $input_resampled = "${TmpDir}/bet_resampled.mnc";
 
 # Crop the neck if required. This assumes that top-bottom orientation of
 # the head is in the z-direction. If not, this will produce unexpected
-# results. Beware! Check sign +/- of zstep!!! Use only for t1 now (t2/pd
-# may have different zstep). Also, make sure that z-extent is not less
-# than 190mm (see mritotal).
+# results. Also, make sure that z-extent is not less than 190mm (see 
+# mritotal).
 
 my @extend = ();
-if( defined $cropNeck ) {
+if( defined $cropNeck && $cropNeck gt 0 ) {
   my $zlen;
   my $zstep;
   chomp( $zlen = `mincinfo -dimlength zspace $t1_input` );
@@ -74,7 +74,35 @@ my $bet_t1_mask = "${bet_prefix}_t1_mask.mnc";
 &run( "mv", "-f", $bet_t1_mask, $bet_mask );
 
 # Use t2 and pd to obtain a better mask.
+
 if( $maskType eq "multispectral" ) {
+
+  # Crop the neck if required. This assumes that top-bottom orientation of
+  # the head is in the z-direction. If not, this will produce unexpected
+  # results. Also, make sure that z-extent is not less than 190mm (see 
+  # mritotal). Note that t2/pd may have different extents than t1, but
+  # assume same extents for t2 and pd.
+
+  my @extend = ();
+  if( defined $cropNeck && $cropNeck gt 0 ) {
+    my $zlen;
+    my $zstep;
+    my $source = ( -e $t2_input ) ? $t2_input : $pd_input;
+    chomp( $zlen = `mincinfo -dimlength zspace $source` );
+    chomp( $zstep = `mincinfo -attvalue zspace:step $source` );
+  
+    my $total_z = abs( $zlen * $zstep );
+    my $crop_z = $total_z * $cropNeck / 100;
+  
+    # The extents are in mm. No less than 190mm in height after cropping.
+    if( $total_z - $crop_z < 190 ) {
+      $crop_z = $total_z - 190;
+    }
+    @extend = ( "-extend", "0,0", "0,0", "-$crop_z,0" ) if( $crop_z > 0 );
+  }
+
+  my @transform = ();
+  @transform = ( "-transform", $t2pd_t1_xfm ) if( -e $t2pd_t1_xfm );
 
   my $bet_expr = 'out=A[0]*A[1];';
 
@@ -88,9 +116,10 @@ if( $maskType eq "multispectral" ) {
   my $step = "1.0";
 
   if( -e $t2_input ) {
+
     my $bet_t2_mask = "${bet_prefix}_t2_mask.mnc";
-    &run( "autocrop", "-clobber", "-isostep", $step, "-resample",
-          $t2_input, $input_resampled );
+    &run( "autocrop", "-clobber", "-isostep", $step, "-resample", @extend,
+          @transform, $t2_input, $input_resampled );
     &run( "mincbet", $input_resampled, "${bet_prefix}_t2", 
           "-n", "-m", "-f", "0.50" );
     &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
@@ -102,8 +131,8 @@ if( $maskType eq "multispectral" ) {
 
   if( -e $pd_input ) {
     my $bet_pd_mask = "${bet_prefix}_pd_mask.mnc";
-    &run( "autocrop", "-clobber", "-isostep", $step, "-resample",
-          $pd_input, $input_resampled );
+    &run( "autocrop", "-clobber", "-isostep", $step, "-resample", @extend,
+          @transform, $pd_input, $input_resampled );
     &run( "mincbet", $input_resampled, "${bet_prefix}_pd", 
           "-n", "-m", "-f", "0.50" );
     &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
@@ -114,12 +143,9 @@ if( $maskType eq "multispectral" ) {
   }
 }
 
-# getting mincbet data in correct form:
-# Two cases: 1 - native images, only t1 is used since other images
-#                are not aligned (different steps and dimensions)
-#            2 - Talairach images, t1, t2, pd in same space so
-#                -like $t1_input applies to all
-# Conclusion: The resampling below will always work.
+# getting mincbet data in correct form -like $t1_input. This also
+# applies when we have t2 and pd since the latter are coregistered
+# to t1.
 
 &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
       "-like", $t1_input, $bet_mask, $skull_mask );

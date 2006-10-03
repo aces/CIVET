@@ -5,56 +5,6 @@ use strict;
 use PMP::PMP;
 use MRI_Image;
 
-# Discrete classification on masked brain.
-
-sub cls_clean_masked {
-
-    my $pipeline_ref = @_[0];
-    my $Prereqs = @_[1];
-    my $image = @_[2];
-
-    my $inputType = ${$image}->{inputType};
-    my $t1_input = ${$image}->{t1}{final};
-    my $t2_input = ${$image}->{t2}{final};
-    my $pd_input = ${$image}->{pd}{final};
-    my $skull_mask = ${$image}->{skull_mask_tal};
-    my $cls_clean  = ${$image}->{cls_clean};
-
-    my @mask_classify_inputs = ($t1_input);
-    if ($inputType eq "multispectral") {
-      if( -e ${$image}->{t2}{native} and -e ${$image}->{pd}{native} ) {
-        push @mask_classify_inputs, ($t2_input);
-        push @mask_classify_inputs, ($pd_input);
-      } else {
-        print "Warning: need both t2 and pd images for multispectral classification.\n";
-      }
-    }
-
-    # Note: We run with tags without background since skull
-    #       and unwanted tissues have been removed in the mask.
-    #       We use $skull_mask instead of $brain_mask since 
-    #       $skull_mask (from mincbet) keeps the cerebellum
-    #       which contains a lot of the tag points, for a better
-    #       sampling of the voxels of gray intensity.
-
-    ${$pipeline_ref}->addStage(
-         { name => "mask_classify",
-         label => "tissue classification",
-         inputs => [$skull_mask, @mask_classify_inputs],
-         outputs => [$cls_clean],
-         args => ["classify_clean", "-clobber", "-clean_tags",
-                  "-mask", $skull_mask, "-mask_classified", "-mask_tag",
-                  "-tagfile", "ntags_1000_prob_90_nobg.tag",
-                  @mask_classify_inputs, $cls_clean],
-         prereqs => $Prereqs });
-
-
-    my $Classify_complete = ["mask_classify"];
-
-    return( $Classify_complete );
-
-}
-
 # Partial volume estimator on masked brain to obtain
 # final discrete classification.
 
@@ -70,7 +20,7 @@ sub pve {
     my $t2_input = ${$image}->{t2}{final};
     my $pd_input = ${$image}->{pd}{final};
     my $skull_mask = ${$image}->{skull_mask_tal};
-    my $brain_mask = ${$image}->{brain_mask};
+    my $t1_tal_nl_xfm = ${$image}->{t1_tal_nl_xfm};
 
     # these are in temp/ dir
     my $pve_curve_prefix = ${$image}->{curve_prefix};
@@ -104,11 +54,33 @@ sub pve {
       }
     }
 
+    # Discrete classification on masked brain.
+
+    # Note: We run with tags without background since skull
+    #       and unwanted tissues have been removed in the mask.
+    #       We use $skull_mask instead of $brain_mask since 
+    #       $skull_mask (from mincbet) keeps the cerebellum
+    #       which contains a lot of the tag points, for a better
+    #       sampling of the voxels of gray intensity.
+
+    ${$pipeline_ref}->addStage(
+         { name => "mask_classify",
+         label => "tissue classification",
+         inputs => [$skull_mask, @classify_images],
+         outputs => [$cls_clean],
+         args => ["classify_clean", "-clobber", "-clean_tags",
+                  "-mask", $skull_mask, "-mask_classified", "-mask_tag",
+                  "-tagfile", "ntags_1000_prob_90_nobg.tag",
+                  "-tag_transform", $t1_tal_nl_xfm,
+                  @classify_images, $cls_clean],
+         prereqs => $Prereqs });
+
     # Compute pve maps based on masked brain.
     # Note: This needs to be extended to multispectral somehow. The
     #       effect of curve_cg is to enhance the pve_csf, so it is
     #       very useful. However, pd image may yield a better definition
     #       of the csf than t1.
+
     ${$pipeline_ref}->addStage(
          { name => "pve_curvature",
          label => "curvature map from MRI",
@@ -116,7 +88,7 @@ sub pve {
          outputs => [$pve_curvature],
          args => ["pve_curvature", "-clobber", $t1_input,
                   $cls_clean, $skull_mask, $pve_curve_prefix],
-         prereqs => $Prereqs });
+         prereqs => ["mask_classify"] });
 
     ${$pipeline_ref}->addStage(
          { name => "pve",

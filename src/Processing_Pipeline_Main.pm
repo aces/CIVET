@@ -29,10 +29,11 @@ sub create_pipeline{
     my $pipeline_ref = @_[0];  
     my $image = @_[1];
     my $Global_regModel = @_[2];
-    my $Global_intermediate_model = @_[3];
-    my $Global_surf_reg_model = @_[4]; 
-    my $Global_Template = @_[5]; 
-    my $Global_second_model_dir = @_[6];
+    my $Global_surfModel = @_[3];
+    my $Global_intermediate_model = @_[4];
+    my $Global_surf_reg_model = @_[5]; 
+    my $Global_Template = @_[6]; 
+    my $Global_second_model_dir = @_[7];
 
     ##########################################
     ##### Preprocessing the native files #####
@@ -81,9 +82,9 @@ sub create_pipeline{
     );
     my $Linear_Transforms_complete = $res[0];
 
-    #########################
-    ##### Skull masking #####
-    #########################
+    ##############################################
+    ##### Skull masking in stereotaxic space #####
+    ##############################################
 
     @res = Skull_Masking::create_pipeline(
       $pipeline_ref,
@@ -92,55 +93,43 @@ sub create_pipeline{
     );
     my $Skull_Masking_complete = $res[0];
 
-    #########################################################
-    ##### Initial Discrete Classification in Talairach  #####
-    ##### (needed by cortical_surface in Skull Masking) #####
-    #########################################################
-
-    @res = Classify::cls_clean_masked(
-      $pipeline_ref,
-      $Skull_Masking_complete,
-      $image
-    );
-    my $Classify_cls_clean_complete = $res[0];
-
-    ##########################
-    ##### Cortex masking #####
-    ##########################
-
-    @res = Cortex_Mask::create_pipeline(
-      $pipeline_ref,
-      $Classify_cls_clean_complete,
-      $image
-    );
-    my $Cortex_Mask_complete = $res[0];
-
     #####################################
     ##### Non-linear transformation #####
     #####################################
 
     @res = Non_Linear_Transforms::create_pipeline(
       $pipeline_ref,
-      $Cortex_Mask_complete,
+      $Skull_Masking_complete,
       $image,
       $Global_regModel
     );
     my $Non_Linear_Transforms_complete = $res[0];
 
-    ##########################################
-    ##### Discrete tissue classification #####
-    ##########################################
+    ######################################################
+    ##### Tissue classification in stereotaxic space #####
+    ######################################################
 
     @res = Classify::pve(
       $pipeline_ref,
-      $Cortex_Mask_complete,
+      $Non_Linear_Transforms_complete,
       $image
     );
     my $Classify_complete = $res[0];
 
-    ##########################################
-    ##### Discrete tissue classification #####
-    ##########################################
+    ############################################################
+    ##### Cortex masking (used only for white matter mask) #####
+    ############################################################
+
+    @res = Cortex_Mask::create_pipeline(
+      $pipeline_ref,
+      $Classify_complete,
+      $image
+    );
+    my $Cortex_Mask_complete = $res[0];
+
+    ##############################################################
+    ##### Susceptibility artefacts (could use skull mask???) #####
+    ##############################################################
 
     @res = Artefact::create_pipeline(
       $pipeline_ref,
@@ -172,7 +161,7 @@ sub create_pipeline{
     unless (${$image}->{surface} eq "noSURFACE") {
       @res = Surface_Fit::create_pipeline(
         $pipeline_ref,
-        [@{$Non_Linear_Transforms_complete},@{$Classify_complete}],
+        [@{$Cortex_Mask_complete},@{$Classify_complete}],
         $image,
         "smallOnly",
         $Global_second_model_dir
@@ -211,7 +200,8 @@ sub create_pipeline{
       $pipeline_ref,
       $imagePrereqs,
       $image,
-      $Global_regModel
+      $Global_regModel,
+      $Global_surfModel
     );
 
     my $Verify_image_complete = $res[0];

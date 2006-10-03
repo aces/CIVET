@@ -87,7 +87,7 @@ sub create_pipeline {
 
     ${$pipeline_ref}->addStage(
           { name => "create_wm_hemispheres",
-          label => "create white matter hemisperic masks",
+          label => "create white matter hemispheric masks",
           inputs => [$final_classify, $brain_mask],
           outputs => [$wm_left_centered, $wm_right_centered],
           args=>["extract_wm_hemispheres", $final_classify, $brain_mask,

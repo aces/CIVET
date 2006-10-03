@@ -31,7 +31,7 @@ sub create_pipeline {
          inputs => \@skullInputs,
          outputs => [$Skull_Mask],
          args => ["remove_skull", $maskType, undef, $t1_input, $t2_input, 
-                  $pd_input, $Skull_Mask ],
+                  $pd_input, undef, $Skull_Mask ],
          prereqs => $Prereqs });
 
     my $Skull_Masking_complete = [ "skull_removal" ];

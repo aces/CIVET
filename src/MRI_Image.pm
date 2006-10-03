@@ -78,6 +78,7 @@ sub new {
     # Define linear transformation files.
     my $lin_dir = "${Base_Dir}/$image->{directories}{LIN}";
     $image->{t1_tal_xfm} = "${lin_dir}/${prefix}_${dsid}_t1_tal.xfm";
+    $image->{t2pd_t1_xfm} = "${lin_dir}/${prefix}_${dsid}_t2pd_t1.xfm";
     $image->{t2pd_tal_xfm} = "${lin_dir}/${prefix}_${dsid}_t2pd_tal.xfm";
     $image->{tal_to_6_xfm} = "${lin_dir}/${prefix}_${dsid}_t1_tal_to_6.xfm";
     $image->{tal_to_7_xfm} = "${lin_dir}/${prefix}_${dsid}_t1_tal_to_7.xfm";
@@ -211,8 +212,14 @@ sub image {
   my $prefix = shift;
   my $dsid = shift;
 
-  my $h = { source   => "${sourceDir}/${prefix}_${dsid}_${type}.mnc.gz",
-            native   => "${targetDir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_${type}.mnc.gz",
+  # The source file may be zipped or not.
+  my $suffix = "";
+  if( -e "${sourceDir}/${prefix}_${dsid}_${type}.mnc.gz" ) {
+    $suffix = ".gz";
+  }
+
+  my $h = { source   => "${sourceDir}/${prefix}_${dsid}_${type}.mnc${suffix}",
+            native   => "${targetDir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_${type}.mnc${suffix}",
             nuc      => "${targetDir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_${type}_nuc.mnc",
             final    => "${targetDir}/$image->{directories}{FINAL}/${prefix}_${dsid}_${type}_final.mnc"
           };

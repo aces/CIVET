@@ -15,6 +15,7 @@ sub image {
     my $Prereqs = @_[1];
     my $image = @_[2];
     my $nl_model = @_[3];
+    my $surf_model = @_[4];
 
     my $t1_tal_final = ( -e ${$image}->{t1}{native} ) ? ${$image}->{t1}{final} : undef;
     my $t2_tal_final = ( -e ${$image}->{t2}{native} ) ? ${$image}->{t2}{final} : undef;
@@ -39,6 +40,7 @@ sub image {
       my $t1_base = &basename( $t1_tal_final );
       push @verifyRows, ( "-row", "color:gray", 
                           "title:t1 final image ${t1_base}",
+                          "overlay:${surf_model}:red:1.0",
                           $t1_tal_final );
       push @verifyInputs, ( $t1_tal_final );
     }
@@ -47,6 +49,7 @@ sub image {
       my $t2_base = &basename( $t2_tal_final );
       push @verifyRows, ( "-row", "color:gray", 
                           "title:t2 final image ${t2_base}", 
+                          "overlay:${surf_model}:red:1.0",
                           $t2_tal_final );
       push @verifyInputs, ( $t2_tal_final );
     }
@@ -55,6 +58,7 @@ sub image {
       my $pd_base = &basename( $pd_tal_final );
       push @verifyRows, ( "-row", "color:gray",
                           "title:pd final image ${pd_base}", 
+                          "overlay:${surf_model}:red:1.0",
                           $pd_tal_final );
       push @verifyInputs, ( $pd_tal_final );
     }
@@ -74,6 +78,7 @@ sub image {
     my $nl_model_base = &basename( $nl_model );
     push @verifyRows, ( "-row", "color:gray",
                         "title:t1 non-linear registration to ${nl_model_base}", 
+                        "overlay:${surf_model}:red:1.0",
                         $t1_nl_final );
     push @verifyInputs, ( $t1_nl_final );
 
