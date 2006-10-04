@@ -40,26 +40,30 @@ sub stx_register {
     # together and that they are aligned with one another.
 
     my @skullInputs = ($t1_input);
+    push @skullInputs, ($t2_input) if (-e ${$image}->{t2}{native});
+    push @skullInputs, ($pd_input) if (-e ${$image}->{pd}{native});
     my $Coregister_complete = $Prereqs;
 
-    if( -e $t2_input ) {
+    if( -e ${$image}->{t2}{native} ) {
       ${$pipeline_ref}->addStage(
            { name => "t2_pd_coregister",
            label => "co-register t2/pd to t1",
            inputs => [$t1_input, $t2_input],
            outputs => [$t2pd_t1_xfm],
-           args => ["mritoself", "-mi", "-lsq6", $t2_input, $t1_input, $t2pd_t1_xfm ],
+           args => ["mritoself", "-mi", "-lsq6", $t2_input, $t1_input,
+                    $t2pd_t1_xfm ],
            prereqs => $Prereqs } );
       push @skullInputs, ($t2pd_t1_xfm);
       $Coregister_complete = ["t2_pd_coregister"];
     } else {
-      if( -e $pd_input ) {
+      if( -e ${$image}->{pd}{native} ) {
         ${$pipeline_ref}->addStage(
              { name => "t2_pd_coregister",
              label => "co-register t2/pd to t1",
              inputs => [$t1_input, $pd_input],
              outputs => [$t2pd_t1_xfm],
-             args => ["mritoself", "-mi", "-lsq6", $pd_input, $t1_input, $t2pd_t1_xfm ],
+             args => ["mritoself", "-mi", "-lsq6", $pd_input, $t1_input,
+                      $t2pd_t1_xfm ],
              prereqs => $Prereqs } );
         push @skullInputs, ($t2pd_t1_xfm);
         $Coregister_complete = ["t2_pd_coregister"];
