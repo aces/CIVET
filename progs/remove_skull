@@ -119,11 +119,11 @@ if( $maskType eq "multispectral" ) {
 
     my $bet_t2_mask = "${bet_prefix}_t2_mask.mnc";
     &run( "autocrop", "-clobber", "-isostep", $step, "-resample", @extend,
-          @transform, $t2_input, $input_resampled );
+          $t2_input, $input_resampled );
     &run( "mincbet", $input_resampled, "${bet_prefix}_t2", 
           "-n", "-m", "-f", "0.50" );
     &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
-          "-like", $bet_mask, $bet_t2_mask, $input_resampled );
+          "-like", $bet_mask, @transform, $bet_t2_mask, $input_resampled );
     &run( "mv", "-f", $bet_mask, $bet_mask_temp );
     &run( "minccalc", "-clobber", "-expression", $bet_expr,
           $bet_mask_temp, $input_resampled, $bet_mask );
@@ -132,11 +132,11 @@ if( $maskType eq "multispectral" ) {
   if( -e $pd_input ) {
     my $bet_pd_mask = "${bet_prefix}_pd_mask.mnc";
     &run( "autocrop", "-clobber", "-isostep", $step, "-resample", @extend,
-          @transform, $pd_input, $input_resampled );
+          $pd_input, $input_resampled );
     &run( "mincbet", $input_resampled, "${bet_prefix}_pd", 
           "-n", "-m", "-f", "0.50" );
     &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
-          "-like", $bet_mask, $bet_pd_mask, $input_resampled );
+          "-like", $bet_mask, @transform, $bet_pd_mask, $input_resampled );
     &run( "mv", "-f", $bet_mask, $bet_mask_temp );
     &run( "minccalc", "-clobber", "-expression", $bet_expr,
           $bet_mask_temp, $input_resampled, $bet_mask );
