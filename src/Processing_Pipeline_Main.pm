@@ -28,12 +28,13 @@ $PMP::VERSION = '0.6.9'; #Things that have to be defined Poor Man's Pipeline
 sub create_pipeline{
     my $pipeline_ref = @_[0];  
     my $image = @_[1];
-    my $Global_regModel = @_[2];
-    my $Global_surfModel = @_[3];
-    my $Global_intermediate_model = @_[4];
-    my $Global_surf_reg_model = @_[5]; 
-    my $Global_Template = @_[6]; 
-    my $Global_second_model_dir = @_[7];
+    my $Global_LinRegModel = @_[2];
+    my $Global_NLRegModel = @_[3];
+    my $Global_surfModel = @_[4];
+    my $Global_intermediate_model = @_[5];
+    my $Global_surf_reg_model = @_[6]; 
+    my $Global_Template = @_[7]; 
+    my $Global_second_model_dir = @_[8];
 
     ##########################################
     ##### Preprocessing the native files #####
@@ -65,7 +66,7 @@ sub create_pipeline{
       $pipeline_ref,
       $Clean_Scans_complete,
       $image,
-      $Global_regModel,
+      $Global_LinRegModel,
       $Global_intermediate_model
     );
     my $Linear_Registration_complete = $res[0];
@@ -101,7 +102,7 @@ sub create_pipeline{
       $pipeline_ref,
       $Skull_Masking_complete,
       $image,
-      $Global_regModel
+      $Global_NLRegModel
     );
     my $Non_Linear_Transforms_complete = $res[0];
 
@@ -174,13 +175,15 @@ sub create_pipeline{
     ##############################
 
     my $Thickness_complete = undef;
-    if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
-      @res = Cortical_Thickness::create_pipeline(
-        $pipeline_ref,
-        $Surface_Fit_complete,
-        $image
-      );
-      $Thickness_complete = $res[0];
+    unless (${$image}->{surface} eq "noSURFACE") {
+      if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
+        @res = Cortical_Thickness::create_pipeline(
+          $pipeline_ref,
+          $Surface_Fit_complete,
+          $image
+        );
+        $Thickness_complete = $res[0];
+      }
     }
 
     ##############################
@@ -200,7 +203,7 @@ sub create_pipeline{
       $pipeline_ref,
       $imagePrereqs,
       $image,
-      $Global_regModel,
+      $Global_NLRegModel,
       $Global_surfModel
     );
 

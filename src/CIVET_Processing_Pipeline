@@ -40,8 +40,8 @@ use lib "$FindBin::Bin";
 use MRI_Image;
 use Processing_Pipeline_Main;
 
-my $version = "1.0.2";
-my $versionDate= "October 3, 2006";
+my $version = "1.0.1";
+my $versionDate= "September 12, 2006";
 my $authors= "Yasser Ad-Dab'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -89,8 +89,10 @@ my $resetRunning = 1;
 ############# User defined registration target models 
 ############# (defaults defined below in the 'registration targets' section)
 my $TemplateSize = "1.00";
-my $regModelDir = undef;
-my $regModel = undef;
+my $regNLModelDir = undef;
+my $regNLModel = undef;
+my $regLinModelDir = undef;
+my $regLinModel = undef;
 my $groupModel = undef;
 my $groupModelDir = undef;
 my $smallSurfRegModelDir = undef;
@@ -152,8 +154,14 @@ my @argTbl = (
           ["Pipeline options", "section"],
           ["-template", "string", 1, \$TemplateSize, 
            "Define the template for image processing (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00)."],
-          ["-registration-model", "string", 1, \$regModel, "Define the target model for registration."],
-          ["-registration-modeldir", "string", 1, \$regModelDir, "Define the directory of the target model for registration."],
+          ["-registration-lin-model", "string", 1, \$regLinModel, 
+           "Define the target model for linear registration."],
+          ["-registration-lin-modeldir", "string", 1, \$regLinModelDir, 
+           "Define the directory of the target model for linear registration."],
+          ["-registration-nl-model", "string", 1, \$regNLModel, 
+           "Define the target model for non-linear registration."],
+          ["-registration-nl-modeldir", "string", 1, \$regNLModelDir, 
+           "Define the directory of the target model for non-linear registration."],
 
 #          ["-82k-surface-model", "string", 1, \$smallSurfRegModel, "Define the surface registration model."],
 #          ["-82k-surface-modeldir", "string", 1, \$smallSurfRegModelDir, "Define the directory for the surface registration model."],
@@ -255,23 +263,33 @@ my $Template = "${ICBM_dir}/icbm_template_${TemplateSize}mm.mnc";
 my $fullpath_surfmodel = MNI::DataDir::dir("avg305")."average_305_mask.obj";
 
 ############# Define registration targets and directories and print them
-unless ($regModelDir) {
-    $regModelDir = MNI::DataDir::dir("mni_autoreg");
+unless ($regLinModelDir) {
+    $regLinModelDir = MNI::DataDir::dir("mni_autoreg");
 }
-print "* Registration model directory is:\n  $regModelDir \n";
-
-unless ($regModel) {
-    $regModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
+unless ($regNLModelDir) {
+    $regNLModelDir = MNI::DataDir::dir("mni_autoreg");
 }
-print "* Registration model is:\n   $regModel \n";
+print "* Registration linear model directory is:    \n  $regNLModelDir \n";
+print "* Registration non-linear model directory is:\n  $regNLModelDir \n";
 
+unless ($regLinModel) {
+    $regLinModel = "icbm_avg_152_t1_tal_lin_symmetric";
+}
+unless ($regNLModel) {
+    $regNLModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
+}
+my $fullpath_linregmodel = "${regLinModelDir}/${regLinModel}";
+my $fullpath_nlregmodel = "${regNLModelDir}/${regNLModel}";
+
+print "* Registration linear model is:    \n   $regLinModel \n";
+print "* Registration non-linear model is:\n   $regNLModel \n";
 
 ############# Define intermediate registration targets and directories and print them
- my $intermediate_model = undef;
- if ($groupReg){
-     my $tempy =  MNI::DataDir::dir("mni_autoreg");
-     $intermediate_model = "${tempy}/nih_chp_avg";
-     print "* Group registration model directory is:\n $groupModelDir \n";
+my $intermediate_model = undef;
+if ($groupReg){
+    my $tempy =  MNI::DataDir::dir("mni_autoreg");
+    $intermediate_model = "${tempy}/nih_chp_avg";
+    print "* Group registration model directory is:\n $groupModelDir \n";
 }
 
 
@@ -311,7 +329,6 @@ elsif ($reset and $resetRunning eq 0){
 print "\n\n\n* Data-set Subject ID(s) is/are: '@dsids'\n\n\n";
 
 my $second_model_dir = "$FindBin::Bin/models";
-my $fullpath_regmodel = "${regModelDir}/${regModel}";
 
 system("mkdir -p ${target}") if (! -d ${target});
 
@@ -375,7 +392,8 @@ foreach my $dsid (@dsids) {
     CIVET_Main::create_pipeline(
                         \$pipeline,
                         \$image,
-                        $fullpath_regmodel,
+                        $fullpath_linregmodel,
+                        $fullpath_nlregmodel,
                         $fullpath_surfmodel,
                         $intermediate_model, 
                         $smallSurfRegModel,

@@ -155,9 +155,9 @@ $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 # set up filename base
 my($i, $s_base, $t_base, $tmp_xfm, $tmp_source, $tmp_target, $prev_xfm);
 $s_base = &basename($source);
-$s_base =~ s/\.mnc$//;
+$s_base =~ s/\.mnc(.gz)?$//;
 $t_base = &basename($target);
-$t_base =~ s/\.mnc$//;
+$t_base =~ s/\.mnc(.gz)?$//;
 
 # Run inormalize if required. minctracc likes it better when the
 # intensities of the source and target are similar.
