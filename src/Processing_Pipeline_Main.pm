@@ -47,24 +47,13 @@ sub create_pipeline{
     );
     my $Link_Native_complete  = $res[0];
 
-    #######################################################
-    ##### Non-uniformity correction (in native space) #####
-    #######################################################
-
-    @res = Clean_Scans::create_pipeline(
-      $pipeline_ref,
-      $Link_Native_complete,
-      $image
-    );
-    my $Clean_Scans_complete = $res[0];
-
     ################################################
     ##### Calculation of linear transformation #####
     ################################################
 
     @res = Linear_Transforms::stx_register(
       $pipeline_ref,
-      $Clean_Scans_complete,
+      $Link_Native_complete,
       $image,
       $Global_LinRegModel,
       $Global_intermediate_model
@@ -83,13 +72,24 @@ sub create_pipeline{
     );
     my $Linear_Transforms_complete = $res[0];
 
+    ############################################################
+    ##### Non-uniformity correction (in stereotaxic space) #####
+    ############################################################
+
+    @res = Clean_Scans::create_pipeline(
+      $pipeline_ref,
+      $Linear_Transforms_complete,
+      $image
+    );
+    my $Clean_Scans_complete = $res[0];
+
     ##############################################
     ##### Skull masking in stereotaxic space #####
     ##############################################
 
     @res = Skull_Masking::create_pipeline(
       $pipeline_ref,
-      $Linear_Transforms_complete,
+      $Clean_Scans_complete,
       $image
     );
     my $Skull_Masking_complete = $res[0];

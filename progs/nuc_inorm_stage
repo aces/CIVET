@@ -1,7 +1,25 @@
 #!/usr/bin/env perl
 
 # Using N3, these stages will run an initial correction of intensity
-# non-uniformity on the linearly registered images. 
+# non-uniformity on the native or linearly registered images. 
+#
+# Here is how nu_correct works:
+#   - a brain mask should always be given to nu_correct, as nu_correct
+#     needs one
+#   - if no brain mask is given, nu_correct will build one (-auto_mask)
+#     * the image is in Talairach space, in this case use avg305 mask
+#     * the image is not in Talairach space, in this case use biModalT
+#       to get some kind of mask, but this mask usually includes some
+#       of the skull and neck tissues (and does not produce great results)
+# Procedure to follow:
+#   - doing some iterations of nu_correct on a native image (without a
+#     mask) is better than nothing and is generally necessary in order 
+#     to extract a reliable brain mask
+#   - using the avg305 mask in Talairach space is sufficient to remove
+#     non-uniformities (start from non-corrected native image) and to
+#     extract the final brain mask (in fact, using the avg305 mask may
+#     be advantageous when mincbet fails to remove all the skull, eyes,
+#     neck)
 # 
 # Be careful: the input file might come as .mnc.gz.
 #
@@ -13,10 +31,7 @@
 # this created hot spots in the corrected images when the spline was not able 
 # to represent non-uniformities at a smaller wavelength. (This likely depends
 # on the scanner too.) In the new way, d=25 to 50 seems to give reliable
-# results. Finally, at one point, it was believed that masking the skull
-# gave better results. This can be true if d is too large, but at the right
-# d, the skull can and should be kept. In fact, the skull is scanned too and 
-# subjected to the same non-uniformities as the brain tissues.
+# results. 
 #
 # Note: We remove the .imp file as it is relative to the previous
 #       iteration, thus meaningless globally.
@@ -52,6 +67,7 @@ if ( -e $input ) {
   for( my $i = 0; $i < $nuc_cycles; $i++ ) {
     &run( "nu_correct", "-clobber", "-iter", $nuc_iters, "-stop", 0.0001,
           "-fwhm", 0.1, "-distance", $nuc_dist, $tmp_input, $output );
+    # -mask $skull_mask
     &run( "mv", "-f", $output, $tmp );
     $tmp_input = $tmp;
   }

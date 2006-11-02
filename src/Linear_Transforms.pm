@@ -1,5 +1,19 @@
-# Generate the linear tal transforms for simple t1 pipeline
-
+# Generate the linear transforms to stereotaxic space.
+# For best results:
+#   1 - apply some preliminary nu_correct in native space
+#       (this is technically incorrect as nu_correct assumes
+#       that the image is in stereotaxic space, but in general
+#       this really helps enough to remove non-uniformities 
+#       for mincbet to produce a good mask and bestlinreg to
+#       compute a good linear transformation).
+#   2 - compute a brain mask in native space, using mincbet,
+#       for use by bestlinreg for registration.
+#   3 - finally compute the linear transformation
+#   4 - apply linear transformation to native files
+# Note: We will rerun nu_correct in stereotaxic space for use
+#       by the classifier so everything will be fine. A new
+#       brain mask will also be computed.
+#
 package Linear_Transforms;
 use strict;
 use PMP::PMP;
@@ -17,10 +31,6 @@ sub stx_register {
     my $regModel = @_[3];
     my $intermediateModel = @_[4];
 
-    my $t1_input   = ${$image}->{t1}{nuc};
-    my $t2_input   = ${$image}->{t2}{nuc};
-    my $pd_input   = ${$image}->{pd}{nuc};
-
     my $maskType = ${$image}->{maskType};
     my $cropNeck = (defined ${$image}->{cropNeck}) ? ${$image}->{cropNeck} : 0;
     my $skull_mask = ${$image}->{skull_mask_native};
@@ -34,15 +44,46 @@ sub stx_register {
     my $regModelDir  = dirname( $regModel);
     my $regModelName = basename( $regModel);
 
+    # Preliminary nu_correct on the native images to improve the 
+    # results of mincbet and bestlinreg. Run only 100 iterations.
+    # No need to be too fancy at this stage.
+
+    my $native_files = ${$image}->get_hash( "native" );
+    my $nuc_files = ${$image}->get_hash( "nuc" );
+    my $nuc_dist = ${$image}->{nuc_dist};
+    my $nuc_cycles = 1;
+    my $nuc_iters = 100;
+
+    my @nuc_complete = ();
+
+    foreach my $type ( keys %{ $native_files } ) {
+      my $input = $native_files->{$type};
+      my $output = $nuc_files->{$type};
+      if( -e $input ) {
+        ${$pipeline_ref}->addStage(
+             { name => "nuc_${type}_native",
+             label => "non-uniformity correction on native ${type}",
+             inputs => [ $input ],
+             outputs => [ $output ],
+             args => ["nuc_inorm_stage", $input, $output, $nuc_dist, $nuc_cycles, $nuc_iters],
+             prereqs => $Prereqs } );
+        push @nuc_complete, ("nuc_${type}_native");
+      }
+    }
+
     # Compute the transformation necessary to align t2/pd to t1. Use
     # the images after correction of non-uniformities. In case both t2 
     # and pd exist, use t2. Assume that t2 and pd have been acquired 
     # together and that they are aligned with one another.
 
+    my $t1_input = ${$image}->{t1}{nuc};
+    my $t2_input = ${$image}->{t2}{nuc};
+    my $pd_input = ${$image}->{pd}{nuc};
+
     my @skullInputs = ($t1_input);
     push @skullInputs, ($t2_input) if (-e ${$image}->{t2}{native});
     push @skullInputs, ($pd_input) if (-e ${$image}->{pd}{native});
-    my $Coregister_complete = $Prereqs;
+    my $Coregister_complete = \@nuc_complete;
 
     if( -e ${$image}->{t2}{native} ) {
       ${$pipeline_ref}->addStage(
@@ -52,7 +93,7 @@ sub stx_register {
            outputs => [$t2pd_t1_xfm],
            args => ["mritoself", "-mi", "-lsq6", $t2_input, $t1_input,
                     $t2pd_t1_xfm ],
-           prereqs => $Prereqs } );
+           prereqs => \@nuc_complete } );
       push @skullInputs, ($t2pd_t1_xfm);
       $Coregister_complete = ["t2_pd_coregister"];
     } else {
@@ -64,7 +105,7 @@ sub stx_register {
              outputs => [$t2pd_t1_xfm],
              args => ["mritoself", "-mi", "-lsq6", $pd_input, $t1_input,
                       $t2pd_t1_xfm ],
-             prereqs => $Prereqs } );
+             prereqs => \@nuc_complete } );
         push @skullInputs, ($t2pd_t1_xfm);
         $Coregister_complete = ["t2_pd_coregister"];
       }
@@ -170,9 +211,9 @@ sub transform {
     my $t1_native = (-e ${$image}->{t1}{native}) ? ${$image}->{t1}{nuc} : undef;
     my $t2_native = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{nuc} : undef;
     my $pd_native = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{nuc} : undef;
-    my $t1_final  = (-e ${$image}->{t1}{native}) ? ${$image}->{t1}{final} : undef;
-    my $t2_final  = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{final} : undef;
-    my $pd_final  = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{final} : undef;
+    my $t1_tal  = (-e ${$image}->{t1}{native}) ? ${$image}->{t1}{tal} : undef;
+    my $t2_tal  = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{tal} : undef;
+    my $pd_tal  = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{tal} : undef;
 
     my $t1_tal_xfm    = ${$image}->{t1_tal_xfm};
     my $t2pd_tal_xfm  = ${$image}->{t2pd_tal_xfm};
@@ -180,41 +221,41 @@ sub transform {
 
     if( $t1_native ) {
       ${$pipeline_ref}->addStage(
-           { name => "final_t1",
+           { name => "tal_t1",
            label => "resample t1 into stereotaxic space",
            inputs => [$t1_native, $t1_tal_xfm],
-           outputs => [$t1_final],
+           outputs => [$t1_tal],
            args => ["mincresample", "-clobber", "-transform",
                    $t1_tal_xfm, "-like", $Template,
-                   $t1_native, $t1_final],
+                   $t1_native, $t1_tal],
            prereqs => $Prereqs});
-      push @Transform_complete, ("final_t1");
+      push @Transform_complete, ("tal_t1");
     }
  
     if( $t2_native ) {
       ${$pipeline_ref}->addStage(
-           { name => "final_t2",
+           { name => "tal_t2",
            label => "resample t2 into stereotaxic space",
            inputs => [$t2_native, $t2pd_tal_xfm],
-           outputs => [$t2_final],
+           outputs => [$t2_tal],
            args => ["mincresample", "-clobber", "-transform",
                    $t2pd_tal_xfm, "-like", $Template,
-                   $t2_native, $t2_final],
+                   $t2_native, $t2_tal],
            prereqs => $Prereqs});
-      push @Transform_complete, ("final_t2");
+      push @Transform_complete, ("tal_t2");
     }
 
     if( $pd_native ) {
       ${$pipeline_ref}->addStage(
-           { name => "final_pd",
+           { name => "tal_pd",
            label => "resample pd into stereotaxic space",
            inputs => [$pd_native, $t2pd_tal_xfm],
-           outputs => [$pd_final],
+           outputs => [$pd_tal],
            args => ["mincresample", "-clobber", "-transform",
                    $t2pd_tal_xfm, "-like", $Template,
-                   $pd_native, $pd_final],
+                   $pd_native, $pd_tal],
            prereqs => $Prereqs});
-      push @Transform_complete, ("final_pd");
+      push @Transform_complete, ("tal_pd");
     }
 
     return( \@Transform_complete );

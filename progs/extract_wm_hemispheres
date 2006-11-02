@@ -109,6 +109,9 @@ my $flip_right_xfm =  "${hemi_model_dir}/flip_right.xfm";
 
 &do_cmd("mincresample","-clobber","-like",$wm_preflip_right,"-transform",$flip_right_xfm,$wm_preflip_right,$output_right_hemi);
 
+&do_cmd("mincdefrag",$output_left_hemi, $output_left_hemi ,"1","6","100000");
+
+&do_cmd("mincdefrag",$output_right_hemi,$output_right_hemi,"1","6","100000");
 
 
 sub do_cmd { 

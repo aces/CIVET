@@ -40,23 +40,58 @@ use lib "$FindBin::Bin";
 use MRI_Image;
 use Processing_Pipeline_Main;
 
-my $version = "1.0.1";
-my $versionDate= "September 12, 2006";
+# Set interrupt handler (for cleaning of lock files)
+$SIG{'INT'} = 'CLEANUP';
+$SIG{'TERM'} = 'CLEANUP';
+
+my $version = "1.1.0";
+my $versionDate= "November 2, 2006";
 my $authors= "Yasser Ad-Dab'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
 $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile> &\n\n";
 
-=pod
-Although technically optional, you should add the following at the end of the command line:
-"> logfile.txt &", as is shown in the "my $usage" line above...
-this writes the pipeline output to a log file in the working directory, and allows the pipeline to
-run in the background.
-Also note that CIVET.pl will optionally run with a text file listing the id's as input, instead of
-typing a series of 'idn' in the command line. This is especially useful when processing a large
-number of id's at once, which when typed individually could lead the command line to exceed the
-character number limts.
-=cut
+my $whatsnew = <<NEW;
+    *************************************************************************
+    New in $versionDate quarantine, version $version
+
+    The major flaws in the Sep-12-2006 quarantine have been discovered and
+    fixed and the former quarantine should no longer be used for any reason.
+    The Sep-12-2006 quarantine would give too much white matter, thus bad 
+    white surfaces and consequently wrong cortical thickness. All simulations 
+    done with the Sep-12-2006 quarantine should be redone using the current 
+    one.
+
+    1 - nu_correct must be performed in Talairach space after linear
+        registration, where a suitable brain mask is available.
+    2 - multispectral brain mask now available in native space (was
+        available only in Talairach space before)
+    3 - fixed minc interface to mincbet to copy direction cosines of
+        axes (was responsible for small rotation of brain in Talairach)
+    4 - linear registration is more robust and is now really "best"
+    5 - application of the non-linear transformation to the tag points
+        used by classify_clean (essential for young children with small
+        ventricles or AD subjects with large ventricles)
+
+    There are several other minor enhancements that will not change the
+    results but that will make your like easier:
+
+    1 - verify.png image has an outline for the brain mask in Talairach 
+        so that you can easily see if the linear registration has been
+        successful
+    2 - clean-up of the lock files when CIVET is interrupted
+    3 - source and target directories may use relative paths
+    4 - source files may or may not be gzipped. 
+
+    More to come soon:
+
+    1 - iterative correction to the mean and variance of the tissue types 
+        inside pve as the process converges (available in beta version only)
+    2 - improved mincbet for hyperintense voxels in t1 and detection of
+        csf in t2/pd
+    3 - surface transformation to native space, surface registration, etc
+    *************************************************************************
+NEW
 
 my $help = <<HELP;
 
@@ -71,6 +106,7 @@ $ProgramName, version $version, released $versionDate.
     segmentations, symmetry analyses, regional thickness, surface areas 
     and volumes for brain lobes.
 
+$whatsnew
 HELP
 Getopt::Tabular::SetHelp($help, $usage);
 
@@ -85,6 +121,13 @@ my $pbsQueue = "long";
 my $pbsHosts = "yorick:bullcalf";
 my $sgeQueue = "aces.q";
 my $resetRunning = 1;
+
+############# Default settings for pipeline
+#my $DefaultRegLinModel = "icbm_avg_152_t1_tal_lin_symmetric";
+my $DefaultRegLinModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
+my $DefaultRegNLModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
+my $DefaultRegLinDir = MNI::DataDir::dir("mni_autoreg");
+my $DefaultRegNLDir = MNI::DataDir::dir("mni_autoreg");
 
 ############# User defined registration target models 
 ############# (defaults defined below in the 'registration targets' section)
@@ -155,13 +198,13 @@ my @argTbl = (
           ["-template", "string", 1, \$TemplateSize, 
            "Define the template for image processing (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00)."],
           ["-registration-lin-model", "string", 1, \$regLinModel, 
-           "Define the target model for linear registration."],
+           "Define the target model for linear registration (default $DefaultRegLinModel)."],
           ["-registration-lin-modeldir", "string", 1, \$regLinModelDir, 
-           "Define the directory of the target model for linear registration."],
+           "Define the directory of the target model for linear registration (default $DefaultRegLinDir)."],
           ["-registration-nl-model", "string", 1, \$regNLModel, 
-           "Define the target model for non-linear registration."],
+           "Define the target model for non-linear registration (default $DefaultRegNLModel)."],
           ["-registration-nl-modeldir", "string", 1, \$regNLModelDir, 
-           "Define the directory of the target model for non-linear registration."],
+           "Define the directory of the target model for non-linear registration (default $DefaultRegNLDir)."],
 
 #          ["-82k-surface-model", "string", 1, \$smallSurfRegModel, "Define the surface registration model."],
 #          ["-82k-surface-modeldir", "string", 1, \$smallSurfRegModelDir, "Define the directory for the surface registration model."],
@@ -264,19 +307,19 @@ my $fullpath_surfmodel = MNI::DataDir::dir("avg305")."average_305_mask.obj";
 
 ############# Define registration targets and directories and print them
 unless ($regLinModelDir) {
-    $regLinModelDir = MNI::DataDir::dir("mni_autoreg");
+    $regLinModelDir = $DefaultRegLinDir;
 }
 unless ($regNLModelDir) {
-    $regNLModelDir = MNI::DataDir::dir("mni_autoreg");
+    $regNLModelDir = $DefaultRegNLDir;
 }
-print "* Registration linear model directory is:    \n  $regNLModelDir \n";
+print "* Registration linear model directory is:    \n  $regLinModelDir \n";
 print "* Registration non-linear model directory is:\n  $regNLModelDir \n";
 
 unless ($regLinModel) {
-    $regLinModel = "icbm_avg_152_t1_tal_lin_symmetric";
+    $regLinModel = $DefaultRegLinModel;
 }
 unless ($regNLModel) {
-    $regNLModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
+    $regNLModel = $DefaultRegNLModel;
 }
 my $fullpath_linregmodel = "${regLinModelDir}/${regLinModel}";
 my $fullpath_nlregmodel = "${regNLModelDir}/${regNLModel}";
@@ -463,6 +506,9 @@ elsif ($command eq "makeFilenameGraph") {
 elsif ($command eq "run") { 
     # register all the programs
     $pipes->registerPrograms();
+    # Allow a maximum of 10 jobs to be queued at once (to favour
+    # finishing subjects first - due to a SGE bug with priorities)
+    #### $pipes->maxQueued(10);
     $pipes->run();
 }
 
@@ -471,3 +517,12 @@ else {
 }
 
 ############# Voila!! #############
+
+# Set interrupt handler (for cleaning of lock files)
+
+sub CLEANUP {
+  print "\nCaught signal - cleaning up all lock files\n\n";
+  $pipes->cleanup();
+  exit(1);
+}
+

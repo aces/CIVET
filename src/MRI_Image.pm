@@ -221,6 +221,7 @@ sub image {
   my $h = { source   => "${sourceDir}/${prefix}_${dsid}_${type}.mnc${suffix}",
             native   => "${targetDir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_${type}.mnc${suffix}",
             nuc      => "${targetDir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_${type}_nuc.mnc",
+            tal      => "${targetDir}/$image->{directories}{FINAL}/${prefix}_${dsid}_${type}_tal.mnc",
             final    => "${targetDir}/$image->{directories}{FINAL}/${prefix}_${dsid}_${type}_final.mnc"
           };
 

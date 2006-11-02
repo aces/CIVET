@@ -11,8 +11,8 @@ sub create_pipeline {
     my $Prereqs = @_[1];
     my $image = @_[2];
 
-    my $input_files  = ${$image}->get_hash( "native" );
-    my $output_files = ${$image}->get_hash( "nuc" );
+    my $input_files  = ${$image}->get_hash( "tal" );
+    my $output_files = ${$image}->get_hash( "final" );
     my $nuc_dist = ${$image}->{nuc_dist};
     my $nuc_cycles = 3;
     my $nuc_iters = 100;
@@ -22,7 +22,7 @@ sub create_pipeline {
     foreach my $type ( keys %{ $input_files } ) {
       my $input = $input_files->{$type};
       my $output = $output_files->{$type};
-      if( -e $input ) {
+      if( -e ${$image}->{$type}{native} ) {
         ${$pipeline_ref}->addStage(
              { name => "nuc_inorm_${type}",
              label => "non-uniformity correction and normalization on ${type}",

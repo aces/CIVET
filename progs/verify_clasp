@@ -21,7 +21,7 @@ my @mont_args = ();
 
 $title = "CLASP surfaces" unless defined $title;
 
-# ROW 1: white left hemi surfaces + white top and bottow views
+# ROW 1: white left hemi surfaces + white top and bottom views
 foreach my $pos ('default', 'left', 'right') {
   print "Making left white ${pos} surface\n" unless $quiet;
   make_hemi($white_left, "${tmpdir}/white_left_$pos.rgb", $pos);
@@ -45,7 +45,7 @@ foreach my $pos ('front', 'back') {
   push(@mont_args, "${tmpdir}/white_${pos}.rgb");
 }
 
-# ROW 3: gray left hemi surfaces + gray top and bottow views
+# ROW 3: gray left hemi surfaces + gray top and bottom views
 foreach my $pos ('default', 'left', 'right') {
   print "Making left gray ${pos} surface\n" unless $quiet;
   make_hemi($gray_left, "${tmpdir}/gray_left_$pos.rgb", $pos);
