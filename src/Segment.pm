@@ -26,7 +26,7 @@ sub create_pipeline {
     my $t1_tal_xfm        = ${$image}->{t1_tal_xfm};
     my $t1_tal_nl_xfm     = ${$image}->{t1_tal_nl_xfm};
     my $cls_correct       = ${$image}->{cls_correct};
-    my $brain_mask        = ${$image}->{brain_mask};
+    my $skull_mask        = ${$image}->{skull_mask};
 
     # extra files
 
@@ -59,10 +59,10 @@ sub create_pipeline {
     ${$pipeline_ref}->addStage(
          { name => "segment_mask",
          label => "mask the segmentation",
-         inputs => [$stx_labels, $brain_mask],
+         inputs => [$stx_labels, $skull_mask],
          outputs => [$stx_labels_masked],
          args => ["minccalc", "-clobber", "-expr", $seg_mask_expr,
-                  $stx_labels, $brain_mask, $stx_labels_masked],
+                  $stx_labels, $skull_mask, $stx_labels_masked],
          prereqs => ["segment_volumes"] });
 
     my $Segment_complete = ["segment_mask"];
