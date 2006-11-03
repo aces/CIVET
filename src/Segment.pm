@@ -26,7 +26,7 @@ sub create_pipeline {
     my $t1_tal_xfm        = ${$image}->{t1_tal_xfm};
     my $t1_tal_nl_xfm     = ${$image}->{t1_tal_nl_xfm};
     my $cls_correct       = ${$image}->{cls_correct};
-    my $skull_mask        = ${$image}->{skull_mask};
+    my $skull_mask        = ${$image}->{skull_mask_tal};
 
     # extra files
 
