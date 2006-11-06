@@ -29,7 +29,6 @@ sub image {
     my $t1_nl_xfm = ${$image}->{t1_tal_nl_xfm};
     my $surface_info_file = ${$image}->{surface_qc};
 
-    my $verify1 = ${$image}->{verify};
     my $t1_nl_final = ${$image}->{t1_nl_final};
 
     my @verifyRows;
@@ -109,14 +108,14 @@ sub image {
       push @verifyInputs, ( $white_surface_left, $gray_surface_left, 
                             $white_surface_right, $gray_surface_right );
     }
-    my @verifyCmd = ( "create_verify_image", $verify1, "-clobber", 
+    my @verifyCmd = ( "create_verify_image", ${$image}->{verify}, "-clobber", 
                       "-width", 1200 );
 
     ${$pipeline_ref}->addStage(
       { name => "verify_image",
       label => "create overall verification image",
       inputs => \@verifyInputs,
-      outputs => [$verify1],
+      outputs => [${$image}->{verify}],
       args => [ @verifyCmd, @verifyRows ],
       prereqs => ["verify_image_nlfit"] });
 
@@ -130,10 +129,28 @@ sub clasp {
     my $Prereqs = @_[1];
     my $image = @_[2];
 
+    my $title = "CLASP surfaces";
     my $white_surface_left = ${$image}->{white}{left};
     my $white_surface_right = ${$image}->{white}{right};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
+    my $thickness_left = "none";
+    my $thickness_right = "none";
+    if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
+      $thickness_left = ${$image}->{rms_blur}{left};
+      $thickness_right = ${$image}->{rms_blur}{right};
+    }
+
+    my @claspInputs;
+    push @claspInputs, ( $gray_surface_left );
+    push @claspInputs, ( $gray_surface_right );
+    push @claspInputs, ( $white_surface_left );
+    push @claspInputs, ( $white_surface_right );
+    if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
+      push @claspInputs, ( $thickness_left );
+      push @claspInputs, ( $thickness_right );
+    }
+  
     my $verify_file = ${$image}->{verify_clasp};
 
     my @Verify_CLASP_complete = ( );
@@ -143,12 +160,11 @@ sub clasp {
       ${$pipeline_ref}->addStage(
         { name => "verify_clasp",
         label => "create verification image for surfaces",
-        inputs => [$gray_surface_left, $gray_surface_right, $white_surface_left,
-                   $white_surface_right],
+        inputs => \@claspInputs,
         outputs => [$verify_file],
         args => [ "verify_clasp", $gray_surface_left, $gray_surface_right, 
-                  $white_surface_left, $white_surface_right, $verify_file, 
-                  "CLASP surfaces" ],
+                  $white_surface_left, $white_surface_right, $thickness_left,
+                  $thickness_right, $verify_file, $title ],
         prereqs => $Prereqs });
         push @Verify_CLASP_complete, ("verify_clasp");
     }

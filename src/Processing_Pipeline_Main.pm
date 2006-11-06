@@ -213,6 +213,9 @@ sub create_pipeline{
     my $Verify_CLASP_complete = undef;
     unless (${$image}->{surface} eq "noSURFACE") {
       my $CLASPPrereqs = [ @{$Surface_Fit_complete} ];
+      if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
+        push @{$CLASPPrereqs}, @{$Thickness_complete};
+      }
       @res = Verify::clasp(
         $pipeline_ref,
         $CLASPPrereqs,

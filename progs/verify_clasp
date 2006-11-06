@@ -4,11 +4,13 @@
 
 use strict;
 use warnings "all";
+use List::Util qw( min max );
 use File::Temp qw/ tempdir /;
 
-my ($gray_left, $gray_right, $white_left, $white_right, $output, $title) = @ARGV;
+my ($gray_left, $gray_right, $white_left, $white_right, $thickness_left,
+    $thickness_right, $output, $title) = @ARGV;
 unless($output) {
-  print "Usage: $0 <gray_left.obj> <gray_right.obj> <white_left.obj> <white_right.obj> <output.png> [title]\n";
+  print "Usage: $0 <gray_left.obj> <gray_right.obj> <white_left.obj> <white_right.obj> <thickness_left> <thickness_right> <output.png> [title]\n";
   print "Note that none of the inputs may be compressed!\n";
   exit(1);
 }
@@ -69,10 +71,62 @@ foreach my $pos ('front', 'back') {
   push(@mont_args, "${tmpdir}/gray_${pos}.rgb");
 }
 
+my $num_rows = 4;
+# ROWS 5 - 6: cortical thickness on left and right mid-surfaces
+if( -e $thickness_left && $thickness_left ne "none" &&
+    -e $thickness_right && $thickness_right ne "none" ) {
+  $num_rows+=2;
+  my $mid_left = "${tmpdir}/mid_left.obj";
+  my $mid_right = "${tmpdir}/mid_right.obj";
+  my $mid_rms_left = "${tmpdir}/mid_rms_left.txt";
+  my $mid_rms_right = "${tmpdir}/mid_rms_right.txt";
+
+  my $rms_left_min = `sort -n $thickness_left |head -1`;
+  my $rms_right_min = `sort -n $thickness_right |head -1`;
+  my $rms_left_max = `sort -n $thickness_left |tail -1`;
+  my $rms_right_max = `sort -n $thickness_right |tail -1`;
+  chomp( $rms_left_min );
+  chomp( $rms_right_min );
+  chomp( $rms_left_max );
+  chomp( $rms_right_max );
+
+  my $rms_min = min( $rms_left_min, $rms_right_min );
+  my $rms_max = max( $rms_left_max, $rms_right_max );
+
+  `average_surfaces $mid_left none none 1 $gray_left $white_left`;
+  `average_surfaces $mid_right none none 1 $gray_right $white_right`;
+
+  `colour_object $mid_left $thickness_left $mid_rms_left spectral $rms_min $rms_max`;
+  `colour_object $mid_right $thickness_right $mid_rms_right spectral $rms_min $rms_max`;
+  
+  foreach my $pos ('default', 'left', 'right') {
+    print "Making left mid ${pos} surface\n" unless $quiet;
+    make_hemi($mid_rms_left, "${tmpdir}/mid_left_$pos.rgb", $pos);
+    push(@mont_args, "${tmpdir}/mid_left_$pos.rgb");
+  }
+  foreach my $pos ('top', 'bottom') {
+    print "Making left/right mid ${pos} surface\n" unless $quiet;
+    make_surface( $mid_rms_left, $mid_rms_right, "${tmpdir}/mid_${pos}.rgb", $pos );
+    push(@mont_args, "${tmpdir}/mid_${pos}.rgb");
+  }
+
+  foreach my $pos ('default', 'right', 'left') {
+    print "Making right mid ${pos} surface\n" unless $quiet;
+    make_hemi($mid_rms_right, "${tmpdir}/mid_right_$pos.rgb", $pos);
+    push(@mont_args, "${tmpdir}/mid_right_$pos.rgb");
+  }
+  foreach my $pos ('front', 'back') {
+    print "Making left/right mid ${pos} surface\n" unless $quiet;
+    make_surface( $mid_rms_left, $mid_rms_right, "${tmpdir}/mid_${pos}.rgb", $pos );
+    push(@mont_args, "${tmpdir}/mid_${pos}.rgb");
+  }
+}
+
 # do the montage
 print "Making montage\n" unless $quiet;
-my $cmd = "montage -tile 5x4 -background grey10 -geometry ${tilesize}x${tilesize}+1+1 " .
-	 join(' ', @mont_args)." ${tmpdir}/mont.png";
+my $cmd = "montage -tile 5x${num_rows} -background grey10 " .
+          "-geometry ${tilesize}x${tilesize}+1+1 " .
+	  join(' ', @mont_args)." ${tmpdir}/mont.png";
 print "$cmd\n" if $debug; `$cmd`;
 
 
