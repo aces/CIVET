@@ -20,21 +20,45 @@ sub image {
     my $t1_tal_final = ( -e ${$image}->{t1}{native} ) ? ${$image}->{t1}{final} : undef;
     my $t2_tal_final = ( -e ${$image}->{t2}{native} ) ? ${$image}->{t2}{final} : undef;
     my $pd_tal_final = ( -e ${$image}->{pd}{native} ) ? ${$image}->{pd}{final} : undef;
+
+    my $skull_mask_native = ${$image}->{skull_mask_native};
     my $cls_correct = ${$image}->{cls_correct};
     my $white_surface_left = ${$image}->{white}{left};
     my $white_surface_right = ${$image}->{white}{right};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
 
+    my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
     my $t1_nl_xfm = ${$image}->{t1_tal_nl_xfm};
     my $surface_info_file = ${$image}->{surface_qc};
 
     my $t1_nl_final = ${$image}->{t1_nl_final};
+    my $skull_mask_nat_stx = ${$image}->{skull_mask_nat_stx};
 
     my @verifyRows;
     my @verifyInputs;
 
-    # Row 1a (b,c): registered t1 (t2,pd) images, nu-corrected, inormalized
+    # Row 1: Brain mask in native space, used for linear registration.
+    #        For convenience, transform this mask to stx space for ease
+    #        of comparison with the registered subject.
+
+    ${$pipeline_ref}->addStage(
+      { name => "verify_brain_mask",
+      label => "verification of native brain mask",
+      inputs => [ $skull_mask_native, $t1_tal_xfm ],
+      outputs => [$skull_mask_nat_stx],
+      args => [ "mincresample", "-clobber", "-like", $t1_tal_final, 
+                "-nearest_neighbour", "-transform", $t1_tal_xfm, 
+                $skull_mask_native, $skull_mask_nat_stx ],
+      prereqs => $Prereqs });
+
+    push @verifyRows, ( "-row", "color:gray", 
+                        "title:native skull mask in stx space",
+                        "overlay:${surf_model}:red:1.0",
+                        $skull_mask_nat_stx );
+    push @verifyInputs, ( $skull_mask_nat_stx );
+
+    # Row 2a (b,c): registered t1 (t2,pd) images, nu-corrected, inormalized
     if( $t1_tal_final ) {
       my $t1_base = &basename( $t1_tal_final );
       push @verifyRows, ( "-row", "color:gray", 
@@ -62,7 +86,7 @@ sub image {
       push @verifyInputs, ( $pd_tal_final );
     }
 
-    # Row 2: non-linear registration for t1 image.
+    # Row 3: non-linear registration for t1 image.
 
     ${$pipeline_ref}->addStage(
       { name => "verify_image_nlfit",
@@ -81,13 +105,13 @@ sub image {
                         $t1_nl_final );
     push @verifyInputs, ( $t1_nl_final );
 
-    # Row 3: Classified image.
+    # Row 4: Classified image.
 
     push @verifyRows, ("-row", "color:gray", 
                        "title:classified image", $cls_correct );
     push @verifyInputs, ( $cls_correct );
 
-    # Row 4: Segmentation labels.
+    # Row 5: Segmentation labels.
     unless (${$image}->{animal} eq "noANIMAL") {
         my $stx_labels = ${$image}->{stx_labels};
         push @verifyRows, ("-row", "color:label", 
@@ -95,7 +119,7 @@ sub image {
         push @verifyInputs, ( $stx_labels );
     }
 
-    # Row 5: Cortical white and gray surfaces.
+    # Row 6: Cortical white and gray surfaces.
 
     unless (${$image}->{surface} eq "noSURFACE") {
       push @verifyRows, ( "-row", "color:gray",
@@ -117,7 +141,7 @@ sub image {
       inputs => \@verifyInputs,
       outputs => [${$image}->{verify}],
       args => [ @verifyCmd, @verifyRows ],
-      prereqs => ["verify_image_nlfit"] });
+      prereqs => ["verify_image_nlfit", "verify_brain_mask"] });
 
     my $Verify_Image_complete = [ "verify_image" ];
     return( $Verify_Image_complete );
@@ -137,8 +161,8 @@ sub clasp {
     my $thickness_left = "none";
     my $thickness_right = "none";
     if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
-      $thickness_left = ${$image}->{rms_blur}{left};
-      $thickness_right = ${$image}->{rms_blur}{right};
+      $thickness_left = ${$image}->{rms}{left};
+      $thickness_right = ${$image}->{rms}{right};
     }
 
     my @claspInputs;

@@ -75,6 +75,7 @@ $me = &basename($0);
    'init_xfm'  => undef,
    'source_mask' => undef,
    'target_mask' => undef,
+   'lsqtype'     => "-lsq9"
    );
 
 $Help = <<HELP;
@@ -101,6 +102,10 @@ $Usage = "Usage: $me [options] source.mnc target.mnc output.xfm [output.mnc]\n".
       "source mask to use during fitting" ],
    ["-target_mask", "string", 1, \$opt{target_mask},
       "target mask to use during fitting" ],
+   ["-lsq9", "const", "-lsq9", \$opt{lsqtype},
+      "use 9-parameter transformation (default)" ],
+   ["-lsq12", "const", "-lsq12", \$opt{lsqtype},
+      "use 12-parameter transformation (default -lsq9)" ]
    );
 
 # Check arguments
@@ -157,16 +162,18 @@ $t_base =~ s/\.mnc$(.gz)?//;
 my $source_masked = $source;
 my $target_masked = $target;
 
-if( -e $opt{source_mask} and -e $opt{target_mask} ) {
-  $source_masked = "${tmpdir}/${s_base}_masked.mnc";
-  &do_cmd( 'minccalc', '-clobber',
-           '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
-           $source, $opt{source_mask}, $source_masked );
+if( defined($opt{source_mask}) and defined($opt{target_mask}) ) { 
+  if( -e $opt{source_mask} and -e $opt{target_mask} ) {
+    $source_masked = "${tmpdir}/${s_base}_masked.mnc";
+    &do_cmd( 'minccalc', '-clobber',
+             '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
+             $source, $opt{source_mask}, $source_masked );
 
-  $target_masked = "${tmpdir}/${t_base}_masked.mnc";
-  &do_cmd( 'minccalc', '-clobber',
-           '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
-           $target, $opt{target_mask}, $target_masked );
+    $target_masked = "${tmpdir}/${t_base}_masked.mnc";
+    &do_cmd( 'minccalc', '-clobber',
+             '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
+             $target, $opt{target_mask}, $target_masked );
+  }
 }
 
 # initial transformation supplied by the user, applied to both the 
@@ -219,7 +226,7 @@ for ($i=0; $i<=$#conf; $i++){
    }
    
    # set up registration
-   @args = ('minctracc', '-clobber', '-xcorr', '-lsq9',
+   @args = ('minctracc', '-clobber', '-xcorr', $opt{lsqtype},
             '-step', @{$conf[$i]{steps}}, '-simplex', $conf[$i]{simplex},
             '-tol', $conf[$i]{tolerance});
 

@@ -33,30 +33,42 @@
 # on the scanner too.) In the new way, d=25 to 50 seems to give reliable
 # results. 
 #
-# Note: We remove the .imp file as it is relative to the previous
-#       iteration, thus meaningless globally.
 
 use strict;
 use warnings "all";
+use File::Basename;
+use File::Temp qw/ tempdir /;
 
-use MNI::PathUtilities qw(replace_ext);
-
-# define input variables:
+# Directory for temporary files.
+my $me = &basename($0);
+my $tmpdir = &tempdir( "$me-XXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
 my $input = $ARGV[0];
 my $output = $ARGV[1];
-my $nuc_dist = $ARGV[2];
-my $nuc_cycles = $ARGV[3];
-my $nuc_iters = $ARGV[4];
+my $mask = $ARGV[2];
+my $nuc_dist = $ARGV[3];
+my $nuc_cycles = $ARGV[4];
+my $nuc_iters = $ARGV[5];
 
 # apply non-uniformity correction and intensity normalization on image.
 
 if ( -e $input ) {
 
-  my $tmp = &replace_ext( "nuc.mnc", $output );
-  &run( "cp", "-f", $input, $tmp );
+  my $tmp = "${tmpdir}/nuc.mnc";
 
   my $tmp_input = $input;
+
+  # Use a mask if one is given. Resample the mask to be like the input.
+  # This can happen if a model's mask is used which does not match the
+  # template used to resample the input.
+
+  my @mask_opts = ();
+  if( $mask ne "none" and ( -e $mask ) ) {
+    my $mask_tmp = "${tmpdir}/nuc_mask.mnc";
+    &run( "mincresample", "-like", $input, "-nearest_neighbour",
+          $mask, $mask_tmp );
+    push @mask_opts, ( "-mask", $mask_tmp );
+  }
 
   # Important note: Because of the way nu_correct converges, it is better to
   # do a few sets of 100 iterations rather than a total number of iterations
@@ -66,11 +78,18 @@ if ( -e $input ) {
 
   for( my $i = 0; $i < $nuc_cycles; $i++ ) {
     &run( "nu_correct", "-clobber", "-iter", $nuc_iters, "-stop", 0.0001,
-          "-fwhm", 0.1, "-distance", $nuc_dist, $tmp_input, $output );
-    # -mask $skull_mask
+          "-fwhm", 0.1, "-distance", $nuc_dist, @mask_opts,
+          $tmp_input, $output );
     &run( "mv", "-f", $output, $tmp );
     $tmp_input = $tmp;
   }
+
+  # We remove the .imp file as it is relative to the previous
+  # cycle, thus meaningless globally.
+
+  my $imp_file = $output;
+  $imp_file =~ s/\.[^\.]*$/\.imp/;
+  &run( "rm", "-f", $imp_file );
 
   # remove high extremum (low extremum - background - will be taken care of by the mask).
   my $top;
@@ -81,8 +100,6 @@ if ( -e $input ) {
 
   &run( "minccalc", "-clobber", "-expression", $clip_expr, $tmp, $output );
 
-  # final clean-up
-  &run( "rm", "-f", $tmp, &replace_ext( "imp", $tmp ) );
 }
 
 

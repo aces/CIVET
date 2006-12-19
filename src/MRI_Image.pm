@@ -28,6 +28,7 @@ sub new {
     my $maskType = shift;
     my $cropNeck = shift;
     my $nuc_dist = shift;
+    my $lsqtype = shift;
     my $surface = shift;
     my $animal = shift;
     my $thickness = shift;
@@ -37,6 +38,7 @@ sub new {
     $image->{maskType} = $maskType;
     $image->{cropNeck} = $cropNeck;
     $image->{nuc_dist} = $nuc_dist;
+    $image->{lsqtype} = $lsqtype;
     $image->{animal} = $animal;
     $image->{surface} = $surface;
     $image->{tmethod} = $$thickness[0];
@@ -115,11 +117,17 @@ sub new {
       $image->{label_volumes} = "${seg_dir}/${prefix}_${dsid}_masked.dat";
       $image->{lobe_volumes} = "${seg_dir}/${prefix}_${dsid}_lobes.dat";
       $image->{stx_labels_masked} = "${seg_dir}/${prefix}_${dsid}_stx_labels_masked.mnc";
+      $image->{cls_volumes} = "${seg_dir}/${prefix}_${dsid}_cls_volumes.dat";
+      $image->{lobe_areas}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
+      $image->{lobe_areas}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
     } else {
       $image->{stx_labels} = undef;
       $image->{label_volumes} = undef;
       $image->{lobe_volumes} = undef;
       $image->{stx_labels_masked} = undef;
+      $image->{cls_volumes} = undef;
+      $image->{lobe_areas}{left} = undef;
+      $image->{lobe_areas}{right} = undef;
     }
 
     # Define surface files.
@@ -144,20 +152,30 @@ sub new {
     $image->{white}{right_prelim} = "${tmp_dir}/${prefix}_${dsid}_white_surface_right_81920.obj";
     $image->{white}{right_prelim_flipped} = "${tmp_dir}/${prefix}_${dsid}_white_surface_right_flipped_81920.obj";
 
-
     # Define cortical thickness files.
     my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
-    $image->{mid}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_left.obj";
-    $image->{mid}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_right.obj";
-    $image->{rms}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_left.txt";
-    $image->{rms}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_right.txt";
-    $image->{rms_blur}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_blur_$image->{tkernel}mm_left.txt";
-    $image->{rms_blur}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_blur_$image->{tkernel}mm_right.txt";
+    if( $$thickness[0] && $$thickness[1] ) {
+      $image->{rms}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_left.txt";
+      $image->{rms}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_right.txt";
+      unless ($image->{animal} eq "noANIMAL") {
+        $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_left.dat";
+        $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_right.dat";
+      } else {
+        $image->{lobe_thickness}{left} = undef;
+        $image->{lobe_thickness}{right} = undef;
+      }
+    } else {
+      $image->{rms}{left} = undef;
+      $image->{rms}{right} = undef;
+      $image->{lobe_thickness}{left} = undef;
+      $image->{lobe_thickness}{right} = undef;
+    }
 
     # Define verification files.
     my $verify_dir = "${Base_Dir}/$image->{directories}{VER}";
     $image->{verify} = "${verify_dir}/${prefix}_${dsid}_verify.png";
     $image->{verify_clasp} = "${verify_dir}/${prefix}_${dsid}_clasp.png";
+    $image->{skull_mask_nat_stx} = "${tmp_dir}/${prefix}_${dsid}_skull_mask_native_stx.mnc";
     $image->{t1_nl_final} = "${Base_Dir}/$image->{directories}{FINAL}/${prefix}_${dsid}_t1_nl.mnc";
     $image->{surface_qc} = "${verify_dir}/${prefix}_${dsid}_surface_qc.txt";
 

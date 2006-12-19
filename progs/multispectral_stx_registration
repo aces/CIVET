@@ -35,6 +35,7 @@ my $kiddieModelDir = "$FindBin::Bin/../share/mni_autoreg";
 #my $kiddieModelDir = MNI::DataDir::dir("mni_autoreg");
 my $model = "icbm_avg_152_t1_tal_lin";
 my $sourceMask = "undef";
+my $lsqtype = "-lsq9";
 my $t1suppressed= undef;
 my $threshold = 1;
 my $premodel= 0;
@@ -60,6 +61,10 @@ my @argTbl =
 		"set the default directory to search for initial fit model files in two-stage registration"],
                 ["-source_mask", "string", 1, \$sourceMask,
                 "mask to use on t1 image (masking of target will be activated with this option)"],
+                ["-lsq9", "const", "-lsq9", \$lsqtype,
+                 "use 9-parameter transformation for linear registration (default)" ],
+                ["-lsq12", "const", "-lsq12", \$lsqtype,
+                 "use 12-parameter transformation for linear registration (default -lsq9)" ],
 		["-t1suppressed", "string", 1, \$t1suppressed,
 		"set the suppressed file name in two-stage registration"],
 		["-threshold|-nothreshold", "boolean", undef, \$threshold,
@@ -143,6 +148,8 @@ if ($twoStage) {
           push @mritotalOptions, ("-source_mask", $sourceMask);
           push @mritotalOptions, ("-target_mask", "$modelDir/${model}_mask.mnc" );
         }
+        push @mritotalOptions, ( $lsqtype );
+  
 	Spawn(["bestlinreg.pl", @mritotalOptions, $nativeT1, "$modelDir/${model}.mnc", 
                $T1total]);
 }

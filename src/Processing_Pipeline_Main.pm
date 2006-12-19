@@ -79,7 +79,8 @@ sub create_pipeline{
     @res = Clean_Scans::create_pipeline(
       $pipeline_ref,
       $Linear_Transforms_complete,
-      $image
+      $image,
+      $Global_LinRegModel
     );
     my $Clean_Scans_complete = $res[0];
 
@@ -124,7 +125,8 @@ sub create_pipeline{
     @res = Cortex_Mask::create_pipeline(
       $pipeline_ref,
       $Classify_complete,
-      $image
+      $image,
+      $Global_surfModel
     );
     my $Cortex_Mask_complete = $res[0];
 
@@ -170,9 +172,9 @@ sub create_pipeline{
       $Surface_Fit_complete = $res[0];
     }
 
-    ##############################
-    ##### Cortical Thickness #####
-    ##############################
+    ##############################################
+    ##### Cortical Thickness and Cortex Area #####
+    ##############################################
 
     my $Thickness_complete = undef;
     unless (${$image}->{surface} eq "noSURFACE") {

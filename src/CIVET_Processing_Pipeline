@@ -44,8 +44,8 @@ use Processing_Pipeline_Main;
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.0";
-my $versionDate= "November 2, 2006";
+my $version = "1.1.2";
+my $versionDate= "December 20, 2006";
 my $authors= "Yasser Ad-Dab'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -54,6 +54,36 @@ $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile
 my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
+
+    1 - use the icbm152 mask for nu_correct instead of the avg305 mask,
+        since subject is linearly registered to icbm152, not avg305.
+    2 - transformation of surfaces to native space, with cortical thickness
+        evaluated in native space.
+    3 - quarantine based on minc-1.5 (upgraded versions of pcre, pcre++,
+        CGAL,BOOST for compilation in 64 bits).
+    4 - use icbm152 surface mask for verify image (red lines). Was avg305
+        before.
+    5 - use classified image from pve instead of classify_clean as input
+        to cortical_mask for white matter masking.
+    6 - improved mincbet for hyperintense voxels in t1 for masking meninges
+    7 - verify.png now shows, in the first row, the brain mask that was 
+        used for linear registration (linear registration can live with a
+        mask that is slightly off, but not too wrong however)
+    8 - make all.q the default queue instead of aces.q
+    9 - new flag -lsq12 to CIVET for 12-param linear registration (default
+        is still 9-param)
+   10 - multispectral classification now produces the good result
+
+    More to come soon:
+
+    1 - use CLASP to improve the white matter mask by removing bright
+        meninges classified as white matter.
+    2 - iterative correction to the mean and variance of the tissue types 
+        inside pve as the process converges (available in beta version only)
+    3 - calculation of cortex area for lobes
+    4 - surface registration
+
+    ********** From previous Nov-02-2006 quarantine, version 1.1.0 **********
 
     The major flaws in the Sep-12-2006 quarantine have been discovered and
     fixed and the former quarantine should no longer be used for any reason.
@@ -83,13 +113,6 @@ my $whatsnew = <<NEW;
     3 - source and target directories may use relative paths
     4 - source files may or may not be gzipped. 
 
-    More to come soon:
-
-    1 - iterative correction to the mean and variance of the tissue types 
-        inside pve as the process converges (available in beta version only)
-    2 - improved mincbet for hyperintense voxels in t1 and detection of
-        csf in t2/pd
-    3 - surface transformation to native space, surface registration, etc
     *************************************************************************
 NEW
 
@@ -119,7 +142,7 @@ my $command = "printStatus";
 my $PMPtype = "sge";
 my $pbsQueue = "long";
 my $pbsHosts = "yorick:bullcalf";
-my $sgeQueue = "aces.q";
+my $sgeQueue = "all.q";
 my $resetRunning = 1;
 
 ############# Default settings for pipeline
@@ -159,6 +182,7 @@ my $inputType = "t1only";
 my $maskType = "t1only";
 my $cropNeck = undef;
 my $N3Distance = 200;
+my $lsqtype = "-lsq9";
 my $VBM = "VBM";
 my $animal = "ANIMAL";
 my $surface = "SURFACE";
@@ -225,6 +249,8 @@ my @argTbl = (
            "Percentage of height to crop to remove neck for masking."],
           ["-N3-distance", "string", 1, \$N3Distance, 
            "N3 spline distance in mm (suggested values: 200 for 1.5T scan (default); 25 for 3T scan)."],
+          ["-lsq12", "const", "-lsq12", \$lsqtype,
+           "use full 12-parameter transformation for linear registration (default -lsq9)" ],
           ["-no-surfaces", "const", "noSURFACE", \$surface, "don't build surfaces"],
           ["-no-animal", "const", "noANIMAL", \$animal, "don't run volumetric ANIMAL segmentation."],
           ["-thickness", "string", 2, \@thickness,
@@ -268,6 +294,7 @@ else {
 unless ($prefix && $target && $sourceDir) {
     die "\n\n*******ERROR********: \n     You must specify -prefix, -targetdir, and -sourcedir \n********************\n\n\n";
 }
+$target =~ s#/+$##;      # remove trailing / at end of directory name, if any
 $target = abs_path( $target );
 $sourceDir = abs_path( $sourceDir );
 
@@ -303,7 +330,7 @@ my $classify_dir = MNI::DataDir::dir("classify");
 my $Template = "${ICBM_dir}/icbm_template_${TemplateSize}mm.mnc";
 
 ############# Used for creating verify_image only.
-my $fullpath_surfmodel = MNI::DataDir::dir("avg305")."average_305_mask.obj";
+my $fullpath_surfmodel = MNI::DataDir::dir("mni_autoreg")."icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj";
 
 ############# Define registration targets and directories and print them
 unless ($regLinModelDir) {
@@ -403,6 +430,7 @@ foreach my $dsid (@dsids) {
                                 $maskType,
                                 $cropNeck,
                                 $N3Distance,
+                                $lsqtype,
                                 $surface,
                                 $animal,
                                 \@thickness );

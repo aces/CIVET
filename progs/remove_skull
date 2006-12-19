@@ -64,13 +64,15 @@ if( defined $cropNeck && $cropNeck gt 0 ) {
 # mask non-cortical tissues using mincbet
 
 # run FSL bet on the classified t1 image (output is "${bet_prefix}_mask.mnc")
+# (Use -h switch only for t1.)
 my $bet_t1_mask = "${bet_prefix}_t1_mask.mnc";
 
 &run( "autocrop", "-clobber", "-isostep", "1.0", "-resample", @extend,
       $t1_input, $input_resampled );
 
 &run( "mincbet", $input_resampled, "${bet_prefix}_t1", 
-      "-n", "-m", "-f", "0.50" );
+      "-n", "-m", "-h", "1.15", "-f", "0.50" );
+
 &run( "mv", "-f", $bet_t1_mask, $bet_mask );
 
 # Use t2 and pd to obtain a better mask.

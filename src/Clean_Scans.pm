@@ -10,6 +10,7 @@ sub create_pipeline {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
+    my $regModel = @_[3];
 
     my $input_files  = ${$image}->get_hash( "tal" );
     my $output_files = ${$image}->get_hash( "final" );
@@ -28,7 +29,8 @@ sub create_pipeline {
              label => "non-uniformity correction and normalization on ${type}",
              inputs => [ $input ],
              outputs => [ $output ],
-             args => ["nuc_inorm_stage", $input, $output, $nuc_dist, $nuc_cycles, $nuc_iters],
+             args => ["nuc_inorm_stage", $input, $output, "${regModel}_mask.mnc",
+                      $nuc_dist, $nuc_cycles, $nuc_iters],
              prereqs => $Prereqs } );
         push @Clean_Scans_complete, ("nuc_inorm_${type}");
       }

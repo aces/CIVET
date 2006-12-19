@@ -90,14 +90,15 @@ sub pve {
                   $cls_clean, $skull_mask, $pve_curve_prefix],
          prereqs => ["mask_classify"] });
 
+###  "-iterate",
     ${$pipeline_ref}->addStage(
          { name => "pve",
          label => "partial volume estimation",
          inputs => [$pve_curvature, @classify_images,
                    $skull_mask, $cls_clean],
          outputs => [$pve_gm, $pve_wm, $pve_csf],
-         args => ["pve_script", "-clobber", "-nosubcortical", "-curve",
-                  $pve_curvature, "-mask", $skull_mask,
+         args => ["pve_script", "-clobber", "-nosubcortical",
+                  "-curve", $pve_curvature, "-mask", $skull_mask,
                   "-image", $cls_clean, @classify_images,
                   $pve_prefix],
          prereqs => ["pve_curvature"] });

@@ -65,7 +65,7 @@ sub stx_register {
              label => "non-uniformity correction on native ${type}",
              inputs => [ $input ],
              outputs => [ $output ],
-             args => ["nuc_inorm_stage", $input, $output, $nuc_dist, $nuc_cycles, $nuc_iters],
+             args => ["nuc_inorm_stage", $input, $output, "none", $nuc_dist, $nuc_cycles, $nuc_iters],
              prereqs => $Prereqs } );
         push @nuc_complete, ("nuc_${type}_native");
       }
@@ -162,7 +162,7 @@ sub stx_register {
          inputs => \@registerInputs,
          outputs => \@registerOutputs,
          args => ["multispectral_stx_registration", "-nothreshold",
-                  "-clobber", @extraTransform, 
+                  "-clobber", @extraTransform, ${$image}->{lsqtype},
                   "-modeldir", $regModelDir, "-model", $regModelName,
                   "-source_mask", $skull_mask,
                   $t1_input, $t2_input, $pd_input,
