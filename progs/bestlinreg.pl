@@ -59,7 +59,7 @@ my @conf = (
      blur_fwhm   => 4,
      steps       => [qw/4 4 4/],
      tolerance   => 0.004,
-     simplex     => 2 },
+     simplex     => 2 }
 
    );
 
@@ -105,7 +105,9 @@ $Usage = "Usage: $me [options] source.mnc target.mnc output.xfm [output.mnc]\n".
    ["-lsq9", "const", "-lsq9", \$opt{lsqtype},
       "use 9-parameter transformation (default)" ],
    ["-lsq12", "const", "-lsq12", \$opt{lsqtype},
-      "use 12-parameter transformation (default -lsq9)" ]
+      "use 12-parameter transformation (default -lsq9)" ],
+   ["-lsq6", "const", "-lsq6", \$opt{lsqtype},
+      "use 6-parameter transformation" ]
    );
 
 # Check arguments
@@ -185,11 +187,15 @@ if( defined $opt{init_xfm} ) {
            '-transform', $opt{init_xfm}, $source_masked, $source_resampled );
   $source_masked = $source_resampled;
 
-  my $mask_resampled = "${tmpdir}/${s_base}_mask_resampled.mnc";
-  &do_cmd( 'mincresample', '-clobber', '-like', $opt{source_mask},
-           '-nearest_neighbour', '-transform', $opt{init_xfm}, 
-           $opt{source_mask}, $mask_resampled );
-  $opt{source_mask} = $mask_resampled;
+  # apply it to the mask, if it's defined
+
+  if( defined( $opt{source_mask} ) ) {
+    my $mask_resampled = "${tmpdir}/${s_base}_mask_resampled.mnc";
+    &do_cmd( 'mincresample', '-clobber', '-like', $opt{source_mask},
+             '-nearest_neighbour', '-transform', $opt{init_xfm}, 
+             $opt{source_mask}, $mask_resampled );
+    $opt{source_mask} = $mask_resampled;
+  }
 }
 
 $prev_xfm = undef;

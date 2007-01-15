@@ -91,8 +91,8 @@ sub stx_register {
            label => "co-register t2/pd to t1",
            inputs => [$t1_input, $t2_input],
            outputs => [$t2pd_t1_xfm],
-           args => ["mritoself", "-clobber", "-mi", "-lsq6", $t2_input, $t1_input,
-                    $t2pd_t1_xfm ],
+           args => ["mritoself", "-clobber", "-nothreshold", "-mi", "-lsq6", 
+                    $t2_input, $t1_input, $t2pd_t1_xfm ],
            prereqs => \@nuc_complete } );
       push @skullInputs, ($t2pd_t1_xfm);
       $Coregister_complete = ["t2_pd_coregister"];
@@ -103,8 +103,8 @@ sub stx_register {
              label => "co-register t2/pd to t1",
              inputs => [$t1_input, $pd_input],
              outputs => [$t2pd_t1_xfm],
-             args => ["mritoself", "-clobber", "-mi", "-lsq6", $pd_input, $t1_input,
-                      $t2pd_t1_xfm ],
+             args => ["mritoself", "-clobber", "-nothreshold", "-mi", "-lsq6", 
+                      $pd_input, $t1_input, $t2pd_t1_xfm ],
              prereqs => \@nuc_complete } );
         push @skullInputs, ($t2pd_t1_xfm);
         $Coregister_complete = ["t2_pd_coregister"];

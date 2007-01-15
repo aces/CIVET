@@ -44,8 +44,8 @@ use Processing_Pipeline_Main;
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.2";
-my $versionDate= "December 20, 2006";
+my $version = "1.1.3";
+my $versionDate= "January 15, 2007";
 my $authors= "Yasser Ad-Dab'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -54,6 +54,24 @@ $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile
 my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
+
+    1 - add -nothreshold to mritoself for -spectral_mask. This affects only
+        the multispectral mask, in very rare cases. If the native mask looks
+        wrong and linear registration for no obvious reason, with -spectral_mask,
+        then re-run your subject with this fix.
+    2 - add -lsq6 to bestlinreg.pl and apply initial transform, if given, to
+        mask, only if the mask is given too (does not apply to CIVET).
+
+    More to come soon:
+
+    1 - use CLASP to improve the white matter mask by removing bright
+        meninges classified as white matter.
+    2 - iterative correction to the mean and variance of the tissue types 
+        inside pve as the process converges (available in beta version only)
+    3 - calculation of cortex area for lobes
+    4 - surface registration
+
+    ********** From previous Dec-20-2007 quarantine, version 1.1.2 **********
 
     1 - use the icbm152 mask for nu_correct instead of the avg305 mask,
         since subject is linearly registered to icbm152, not avg305.
@@ -73,15 +91,6 @@ my $whatsnew = <<NEW;
     9 - new flag -lsq12 to CIVET for 12-param linear registration (default
         is still 9-param)
    10 - multispectral classification now produces the good result
-
-    More to come soon:
-
-    1 - use CLASP to improve the white matter mask by removing bright
-        meninges classified as white matter.
-    2 - iterative correction to the mean and variance of the tissue types 
-        inside pve as the process converges (available in beta version only)
-    3 - calculation of cortex area for lobes
-    4 - surface registration
 
     ********** From previous Nov-02-2006 quarantine, version 1.1.0 **********
 
