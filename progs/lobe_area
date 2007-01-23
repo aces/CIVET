@@ -1,0 +1,105 @@
+#!/usr/bin/env perl
+#
+
+# Once the surfaces, thickness values and the ANIMAL labels have been produced,
+# it is now possible to intersect the labels of the brain lobes with the
+# cortical surfaces (in stx space). This allows the calculation of mean 
+# cortical thickness values for these lobes, as well as an estimate of cortical 
+# surface area for each lobe. All of this is done in native space.
+
+use strict;
+use warnings "all";
+
+use Getopt::Tabular;
+use MNI::Startup;
+use MNI::FileUtilities qw(check_output_dirs);
+
+# --- set the help & usage strings ---
+my $help = <<HELP;
+Compute the lobe areas in native space from the white and gray surfaces.
+HELP
+
+my $usage = <<USAGE;
+Usage: $ProgramName [options] white.obj gray.obj thickness.txt stx_labels.mnc lobes_area.txt lobes_thickness.txt
+       $ProgramName -help to list options
+
+USAGE
+
+my $transform_xfm = undef;
+
+my @options =
+  ( @DefaultArgs,     # from MNI::Startup
+    ['-transform', 'string', 1, \$transform_xfm,
+     'transformation from native to stereotaxic (if surfaces in stx space)'],
+  );
+
+Getopt::Tabular::SetHelp( $help, $usage );
+
+GetOptions( \@options, \@ARGV )
+  or exit 1;
+die "$usage\n" unless @ARGV == 6;
+
+# define input variables:
+
+my $white=$ARGV[0];                 # input - white surface in stx space
+my $gray=$ARGV[1];                  # input - gray surface in stx space
+my $thickness=$ARGV[2];             # input - cortical thickness in native space
+my $stx_labels_masked=$ARGV[3];     # input - volume labels from animal in stx space
+my $lobe_areas = $ARGV[4];          # output - areas of the lobes in native space
+my $lobes_thickness = $ARGV[5];     # output - average thickness of the lobes in 
+                                    #          native space
+
+# Directory for temporary files.
+
+MNI::FileUtilities::check_output_dirs($TmpDir)
+or exit 1;
+
+# Compute the cortex area in new space.
+
+# intersect ANIMAL volume segmentation with stx mid surface
+# (NOTE: using the mid-surface should avoid having vertices 
+#        of the gray surface interpolated as csf, since we
+#        want the nearest brain tissue.)
+
+my $midSurface = "${TmpDir}/midSurface.obj";
+&run( "average_surfaces", $midSurface, "none", "none", 1, 
+      $gray, $white );
+
+my $surface_labels = "${TmpDir}/animal_surface_labels.txt";
+&run( "volume_object_evaluate", $stx_labels_masked, $midSurface, 
+      $surface_labels );
+
+# segment stx surface labels into lobes
+
+my $surface_lobes = "${TmpDir}/animal_surface_lobes.txt";
+&run( "remap_to_lobes", $surface_labels, $surface_lobes );
+
+# Transform gray surface from stx to native space to measure area.
+
+my $gray_native = $gray;
+if( defined $transform_xfm ) {
+  $gray_native = "${TmpDir}/gray_native.obj";
+  my $inv_trans = "${TmpDir}/inv_trans.xfm";
+  &run( "xfminvert", $transform_xfm, $inv_trans );
+  &run( "transform_objects", $gray, $inv_trans, $gray_native );
+}
+
+# Define mesh areas at the nodes, applying the lobes on the native
+# gray surface now. (This should probably be blurred too.)
+
+&run( "cortex_area", "-surface", $gray_native, "-zone", $surface_lobes,
+      "-output", $lobe_areas );
+
+# cortical thickness averaged onto the lobes (in native space)
+
+if( -e $thickness ) {
+  &run( "regional_thickness", $thickness, $surface_lobes, $lobes_thickness );
+}
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

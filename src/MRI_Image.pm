@@ -118,8 +118,22 @@ sub new {
       $image->{lobe_volumes} = "${seg_dir}/${prefix}_${dsid}_lobes.dat";
       $image->{stx_labels_masked} = "${seg_dir}/${prefix}_${dsid}_stx_labels_masked.mnc";
       $image->{cls_volumes} = "${seg_dir}/${prefix}_${dsid}_cls_volumes.dat";
-      $image->{lobe_areas}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
-      $image->{lobe_areas}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
+      unless( $surface eq "noSURFACE" ) {
+        $image->{lobe_areas}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
+        $image->{lobe_areas}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
+        if( $$thickness[0] && $$thickness[1] ) {
+          $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_left.dat";
+          $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_right.dat";
+        } else {
+          $image->{lobe_thickness}{left} = undef;
+          $image->{lobe_thickness}{right} = undef;
+        }
+      } else {
+        $image->{lobe_areas}{left} = undef;
+        $image->{lobe_areas}{right} = undef;
+        $image->{lobe_thickness}{left} = undef;
+        $image->{lobe_thickness}{right} = undef;
+      }
     } else {
       $image->{stx_labels} = undef;
       $image->{label_volumes} = undef;
@@ -128,6 +142,8 @@ sub new {
       $image->{cls_volumes} = undef;
       $image->{lobe_areas}{left} = undef;
       $image->{lobe_areas}{right} = undef;
+      $image->{lobe_thickness}{left} = undef;
+      $image->{lobe_thickness}{right} = undef;
     }
 
     # Define surface files.

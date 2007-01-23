@@ -12,7 +12,7 @@ sub create_pipeline {
     my $Prereqs = @_[1];
     my $image = @_[2];
 
-    my $cls_clean = ${$image}->{cls_clean};
+    my $cls = ${$image}->{cls_correct};
     my $skull_mask = ${$image}->{skull_mask_tal};
     my $cortex = ${$image}->{cortex};
     my $brain_mask = ${$image}->{brain_mask};
@@ -24,9 +24,9 @@ sub create_pipeline {
     ${$pipeline_ref}->addStage(
          { name => "cortical_masking",
          label => "masking cortical tissues using cortical_surface",
-         inputs => [$skull_mask, $cls_clean],
+         inputs => [$skull_mask, $cls],
          outputs => [$cortex, $brain_mask],
-         args => ["cortical_mask", $cls_clean, $cortex, 
+         args => ["cortical_mask", $cls, $cortex, 
                   $skull_mask, $brain_mask],
          prereqs => $Prereqs });
 

@@ -15,7 +15,7 @@ use Cortex_Mask;
 use Non_Linear_Transforms;
 use Segment;
 use Surface_Fit;
-use Cortical_Thickness;
+use Cortical_Measurements;
 use Verify_Image;
 # use NL_Surface_Register;
 # use Surface_Segment;
@@ -161,6 +161,9 @@ sub create_pipeline{
     ####################################################
 
     my $Surface_Fit_complete = undef;
+    my $Thickness_complete = undef;
+    my $LobeArea_complete = undef;
+
     unless (${$image}->{surface} eq "noSURFACE") {
       @res = Surface_Fit::create_pipeline(
         $pipeline_ref,
@@ -170,22 +173,35 @@ sub create_pipeline{
         $Global_second_model_dir
       );
       $Surface_Fit_complete = $res[0];
-    }
 
-    ##############################################
-    ##### Cortical Thickness and Cortex Area #####
-    ##############################################
+      ###################################################
+      ##### Cortical Thickness and Cortex Lobe Area #####
+      ###################################################
 
-    my $Thickness_complete = undef;
-    unless (${$image}->{surface} eq "noSURFACE") {
       if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
-        @res = Cortical_Thickness::create_pipeline(
+        @res = Cortical_Measurements::thickness(
           $pipeline_ref,
           $Surface_Fit_complete,
           $image
         );
         $Thickness_complete = $res[0];
       }
+
+      unless (${$image}->{animal} eq "noANIMAL") {
+
+        my $lobePrereqs = [ @{$Surface_Fit_complete}, @{$Segment_complete} ];
+        if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
+          push @{$lobePrereqs}, @{$Thickness_complete};
+        }
+
+        @res = Cortical_Measurements::lobe_area(
+          $pipeline_ref,
+          $lobePrereqs,
+          $image
+        );
+        $LobeArea_complete = $res[0];
+      }
+
     }
 
     ##############################
@@ -210,7 +226,6 @@ sub create_pipeline{
     );
 
     my $Verify_image_complete = $res[0];
-
 
     my $Verify_CLASP_complete = undef;
     unless (${$image}->{surface} eq "noSURFACE") {
