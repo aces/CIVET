@@ -15,6 +15,7 @@ sub pve {
     my $image = @_[2];
 
     my $inputType = ${$image}->{inputType};
+    my $correctPVE = ${$image}->{correctPVE};
 
     my $t1_input = ${$image}->{t1}{final};
     my $t2_input = ${$image}->{t2}{final};
@@ -90,14 +91,16 @@ sub pve {
                   $cls_clean, $skull_mask, $pve_curve_prefix],
          prereqs => ["mask_classify"] });
 
-###  "-iterate",
+    my @extraPVE = ();
+    push @extraPVE, ("-iterate") if( $correctPVE );
+
     ${$pipeline_ref}->addStage(
          { name => "pve",
          label => "partial volume estimation",
          inputs => [$pve_curvature, @classify_images,
                    $skull_mask, $cls_clean],
          outputs => [$pve_gm, $pve_wm, $pve_csf],
-         args => ["pve_script", "-clobber", "-nosubcortical",
+         args => ["pve_script", "-clobber", "-nosubcortical", @extraPVE,
                   "-curve", $pve_curvature, "-mask", $skull_mask,
                   "-image", $cls_clean, @classify_images,
                   $pve_prefix],

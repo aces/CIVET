@@ -25,6 +25,7 @@ sub new {
     my $prefix = shift;
     my $dsid = shift;
     my $inputType = shift;
+    my $correctPVE = shift;
     my $maskType = shift;
     my $cropNeck = shift;
     my $nuc_dist = shift;
@@ -35,6 +36,7 @@ sub new {
 
     #####   $image->{dsid} = $dsid;
     $image->{inputType} = $inputType;
+    $image->{correctPVE} = $correctPVE;
     $image->{maskType} = $maskType;
     $image->{cropNeck} = $cropNeck;
     $image->{nuc_dist} = $nuc_dist;
