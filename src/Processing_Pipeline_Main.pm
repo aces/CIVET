@@ -15,14 +15,13 @@ use Cortex_Mask;
 use Non_Linear_Transforms;
 use Segment;
 use Surface_Fit;
+use Surface_Register;
 use Cortical_Measurements;
 use Verify_Image;
-# use NL_Surface_Register;
-# use Surface_Segment;
 
 # the version number
 
-$PMP::VERSION = '0.6.9'; #Things that have to be defined Poor Man's Pipeline
+$PMP::VERSION = '0.7.0'; #Things that have to be defined Poor Man's Pipeline
 
 
 sub create_pipeline{
@@ -30,11 +29,12 @@ sub create_pipeline{
     my $image = @_[1];
     my $Global_LinRegModel = @_[2];
     my $Global_NLRegModel = @_[3];
-    my $Global_surfModel = @_[4];
-    my $Global_intermediate_model = @_[5];
-    my $Global_surf_reg_model = @_[6]; 
-    my $Global_Template = @_[7]; 
-    my $Global_second_model_dir = @_[8];
+    my $Global_SurfRegModel = @_[4];
+    my $Global_SurfRegDataTerm = @_[5];
+    my $Global_surfMask = @_[6];
+    my $Global_intermediate_model = @_[7];
+    my $Global_Template = @_[8]; 
+    my $Global_second_model_dir = @_[9];
 
     ##########################################
     ##### Preprocessing the native files #####
@@ -107,9 +107,9 @@ sub create_pipeline{
     );
     my $Non_Linear_Transforms_complete = $res[0];
 
-    ######################################################
-    ##### Tissue classification in stereotaxic space #####
-    ######################################################
+    #################################
+    ##### Tissue classification #####
+    #################################
 
     @res = Classify::pve(
       $pipeline_ref,
@@ -126,7 +126,7 @@ sub create_pipeline{
       $pipeline_ref,
       $Classify_complete,
       $image,
-      $Global_surfModel
+      $Global_surfMask
     );
     my $Cortex_Mask_complete = $res[0];
 
@@ -151,20 +151,27 @@ sub create_pipeline{
         $pipeline_ref,
         [@{$Non_Linear_Transforms_complete},@{$Classify_complete}],
         $image,
+        $Global_Template,
         $Global_second_model_dir
       );
       $Segment_complete = $res[0];
     }
 
-    ####################################################
-    ##### CLASP white and gray surfaces extraction #####
-    ####################################################
+    #######################################
+    ##### Cortical surface extraction #####
+    #######################################
 
     my $Surface_Fit_complete = undef;
+    my $SurfReg_complete = undef;
     my $Thickness_complete = undef;
     my $LobeArea_complete = undef;
 
     unless (${$image}->{surface} eq "noSURFACE") {
+
+      ####################################################
+      ##### CLASP white and gray surfaces extraction #####
+      ####################################################
+
       @res = Surface_Fit::create_pipeline(
         $pipeline_ref,
         [@{$Cortex_Mask_complete},@{$Classify_complete}],
@@ -174,6 +181,17 @@ sub create_pipeline{
       );
       $Surface_Fit_complete = $res[0];
 
+      ################################
+      ##### Surface registration #####
+      ################################
+
+      @res = Surface_Register::create_pipeline(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $SurfReg_complete = $res[0];
+
       ###################################################
       ##### Cortical Thickness and Cortex Lobe Area #####
       ###################################################
@@ -181,7 +199,7 @@ sub create_pipeline{
       if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
         @res = Cortical_Measurements::thickness(
           $pipeline_ref,
-          $Surface_Fit_complete,
+          $SurfReg_complete,
           $image
         );
         $Thickness_complete = $res[0];
@@ -189,7 +207,7 @@ sub create_pipeline{
 
       unless (${$image}->{animal} eq "noANIMAL") {
 
-        my $lobePrereqs = [ @{$Surface_Fit_complete}, @{$Segment_complete} ];
+        my $lobePrereqs = [ @{$SurfReg_complete}, @{$Segment_complete} ];
         if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
           push @{$lobePrereqs}, @{$Thickness_complete};
         }
@@ -222,7 +240,7 @@ sub create_pipeline{
       $imagePrereqs,
       $image,
       $Global_NLRegModel,
-      $Global_surfModel
+      $Global_surfMask
     );
 
     my $Verify_image_complete = $res[0];
@@ -241,11 +259,6 @@ sub create_pipeline{
       $Verify_CLASP_complete = $res[0];
     }
 
-#
-#     my $Global_Surface_Segment_Dir = "${Global_Base_Dir}/surface_segment";
-#     system("mkdir -p ${Global_Surface_Segment_Dir}") if (! -d $Global_Surface_Segment_Dir);
-#
-#
 #     $ref = PMP::Surface_Segment::create_pipeline(
 #     $pipeline_ref,
 #     $Surface_Fit_complete,
@@ -264,40 +277,6 @@ sub create_pipeline{
 #     my $Surface_Segment_stx_surface_labels_82k = $res[1];
 #     my $Surface_Segment_stx_surface_lobes_82k = $res[2];
 #
-#
-#
-#     my $Global_Surface_Register_Dir = "${Global_Base_Dir}/surface_transforms";
-#     system("mkdir -p ${Global_Surface_Register_Dir}") if (! -d $Global_Surface_Register_Dir);
-#
-#     $ref = PMP::NL_Surface_Register::create_pipeline(
-#     $pipeline_ref,
-#     $Surface_Fit_complete,
-#     $Global_Surface_Register_Dir,
-#     $Global_Temp_Dir,
-#     $Prefix,
-#     $DSID,
-#     "smallOnly",
-#     $Surface_Fit_white_surface_82k,
-#     undef,   
-#     $Global_surf_reg_model,
-#     undef
-#     );
-#     @res = @{$ref};
-#     my  $NL_Surface_Register_complete = $res[0];
-#     my  $NL_Surface_Register_surface_mapping_82k = $res[1];
-#
-#
-#        ${$pipeline_ref}->addStage(
-#         { name => "signoff",
-#         label => "mark pipeline completed",
-#         inputs => [],
-#         outputs => [],
-#         args => ["touch","${Global_Log_Dir}/${Prefix}_${DSID}.complete"],
-#         prereqs => [@{$NL_Surface_Register_complete},@{$Surface_Segment_complete}]
-#          });
-#
-#
-
 
 #     my $Global_Surface_Measurements_Dir = "${Global_Base_Dir}/surface_measurements";
 #     system("mkdir -p ${Global_Surface_Measurements_Dir}") if (! -d $Global_Surface_Measurements_Dir);

@@ -46,13 +46,15 @@ sub create_pipeline {
     my $slide_right_xfm = "${Second_model_Dir}/slide_right.xfm";
     my $flip_right_xfm  = "${Second_model_Dir}/flip_right.xfm";
 
-    # Final surfaces
+    # Final surfaces in stereotaxic space
     my $left_hemi_white = ${$image}->{white}{left};
     my $right_hemi_white = ${$image}->{white}{right};
     my $left_hemi_white_calibrated = ${$image}->{white}{cal_left};
     my $right_hemi_white_calibrated = ${$image}->{white}{cal_right};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
+    my $mid_surface_left = ${$image}->{mid_surface}{left};
+    my $mid_surface_right = ${$image}->{mid_surface}{right};
 
     my $surface_qc = ${$image}->{surface_qc};
 
@@ -82,7 +84,7 @@ sub create_pipeline {
           );
 
 # ---------------------------------------------------------------------------
-#  Step 2: Extraction of the white surfaces
+#  Step 2: Extraction of the white matter mask for the hemispheres.
 # ---------------------------------------------------------------------------
 
     ${$pipeline_ref}->addStage(
@@ -94,6 +96,10 @@ sub create_pipeline {
                  $Second_model_Dir, $wm_left_centered, $wm_right_centered],
           prereqs =>["surface_classify"] }
           );
+
+# ---------------------------------------------------------------------------
+#  Step 3: Extraction of the white surfaces
+# ---------------------------------------------------------------------------
 
     ${$pipeline_ref}->addStage(
           { name => "extract_white_surface_left",
@@ -218,7 +224,33 @@ sub create_pipeline {
           prereqs => ["laplace_field"] }
           );
 
-    # Find the fitting error for the white and gray surfaces.
+# ---------------------------------------------------------------------------
+#  Step 6: Find the mid-surfaces from calibrated white and gray.
+# ---------------------------------------------------------------------------
+
+    ${$pipeline_ref}->addStage( {
+          name => "mid_surface_left",
+          label => "left mid-surface",
+          inputs => [$left_hemi_white_calibrated, $gray_surface_left],
+          outputs => [$mid_surface_left],
+          args => ["average_surfaces", $mid_surface_left, "none", "none",
+                   1, $left_hemi_white_calibrated, $gray_surface_left ],
+          prereqs => ["gray_surface_left"] }
+          );
+
+    ${$pipeline_ref}->addStage( {
+          name => "mid_surface_right",
+          label => "right mid-surface",
+          inputs => [$right_hemi_white_calibrated, $gray_surface_right],
+          outputs => [$mid_surface_right],
+          args => ["average_surfaces", $mid_surface_right, "none", "none",
+                   1, $right_hemi_white_calibrated, $gray_surface_right ],
+          prereqs => ["gray_surface_right"] }
+          );
+
+# ---------------------------------------------------------------------------
+#  Step 7: Find the fitting error for the white and gray surfaces.
+# ---------------------------------------------------------------------------
 
     ${$pipeline_ref}->addStage(
           { name => "surface_fit_error",
@@ -237,7 +269,9 @@ sub create_pipeline {
           prereqs => ["gray_surface_left", "gray_surface_right"] }
           );
 
-    my $Surface_Fit_complete = [ "surface_fit_error" ];
+    my $Surface_Fit_complete = [ "mid_surface_left",
+                                 "mid_surface_right",
+                                 "surface_fit_error" ];
 
     return( $Surface_Fit_complete );
 }

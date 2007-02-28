@@ -103,6 +103,9 @@ $wmLine = "${TmpDir}/wm_lines.mnc";
 Spawn(["scan_object_to_volume", $filledImage, $wmSurfaceLeft, $wmLineLeft]);
 Spawn(["scan_object_to_volume", $filledImage, $wmSurfaceRight, $wmLineRight]);
 Spawn(["minccalc","-clobber","-expr",'out=A[0]||A[1];',$wmLineLeft,$wmLineRight,$wmLine]);
+unlink( $filledImage );
+unlink( $wmLineLeft );
+unlink( $wmLineRight );
 
 # create a binary white matter mask
 $wmMask = "${TmpDir}/wm_mask.mnc";
@@ -115,6 +118,10 @@ Spawn(["surface_mask2", "-binary_mask", $clsMasked, $wmSurfaceRight, $wmMaskRigh
 Spawn(["minccalc","-clobber","-expr",'out=A[0]||A[1];',$wmMaskLeft,$wmMaskRight,$wmMask2]);
 Spawn(["mincresample", "-like",$clsMasked, $wmMask2, $wmMask]);
 
+unlink( $wmMaskLeft );
+unlink( $wmMaskRight );
+unlink( $wmMask2 );
+
 # resample the CSF skel map to be like the classified map
 $rslCSF = "${TmpDir}/csf_rsl.mnc";
 Spawn(["mincresample", "-nearest_neighbour", "-like", 
@@ -124,7 +131,11 @@ Spawn(["mincresample", "-nearest_neighbour", "-like",
 $expression = 'if(abs(A[4]-1)<0.45){out=10;}else{if(abs(A[4]-2)<0.45){out=5;}else{if(A[2]>0 && A[3]==0){out=0;}else if(A[0]>0 && A[3]==0){out=10;}else if(A[1]<=1.1){out=10;}else if(A[1]>2.5 && A[2]==0){out=10;}else{out=5;}}}';
 $grid = "${TmpDir}/grid.mnc";
 Spawn(["minccalc", "-expression", $expression, $rslCSF, $clsMasked,
-       $wmMask, $wmLine,$callosal_mask,$grid]);
+       $wmMask, $wmLine, $callosal_mask,$grid]);
+
+unlink( $rslCSF );
+unlink( $wmLine );
+unlink( $wmMask );
 
 # remove dangling voxels
 Spawn(["mincdefrag", $grid, $grid, "5", "6"]);
@@ -132,26 +143,45 @@ Spawn(["mincdefrag", $grid, $grid, "10", "27", "20" ]);
 
 # create the laplacian field
 $laplace = "${TmpDir}/laplace.mnc";
-Spawn(["laplacian_thickness", "-like", $minc_model, "-potential_only", "-volume-double", "-from_grid", $grid, "-convergence", "1e-8", "-max_iterations", "500", $output]);
+Spawn(["laplacian_thickness", "-like", $minc_model, "-potential_only", "-volume-double", "-from_grid", $grid, "-convergence", "1e-8", "-max_iterations", "500", $laplace]);
+
+# Output from laplacian_thickness is saved as x, y, z; so resample in the
+# same way as the incoming data (-like $minc_model).
+Spawn(["mincresample", "-clobber", "-nearest_neighbour", "-like", $minc_model,
+       $laplace, $output]);
+unlink( $laplace );
+
+# The next part can be touchy to execute when TmpDir has limited space,
+# in particular at a template of 0.5mm since these files are in float.
+# So process the in_chamfer and out_chamfer separately, even if it would
+# be more efficient to minccalc them together.
 
 # chamfer map in WM area
 $in_chamfer="${TmpDir}/in_chamfer.mnc";
 Spawn(["minccalc", "-expression", 'if(A[0]==0){out=0;}else{out=10;}', $grid, $in_chamfer]);
 Spawn(["mincchamfer", "-max_dist", "10", $in_chamfer, "${TmpDir}/chamfer.mnc"]);
-Spawn(["mincresample", "-clobber", "-like", $output, "${TmpDir}/chamfer.mnc", $in_chamfer]);
 
-# chamfer map in CSF and background area (this is the nearest distance to the "wall" in mm)
+$expression = "if(A[0]>=10){out=A[0];}else{out=A[0]-A[1];}";
+Spawn(["minccalc", "-clobber", "-expression", $expression, $output,
+       "${TmpDir}/chamfer.mnc", $in_chamfer]);
+Spawn(["mv", "-f", $in_chamfer, $output]);
+unlink( "${TmpDir}/chamfer.mnc" );
+
+# chamfer map in CSF and background area
 $out_chamfer="${TmpDir}/out_chamfer.mnc";
 Spawn(["minccalc", "-expression", 'if(A[0]==10){out=0;}else{out=11;}', $grid, $out_chamfer]);
 Spawn(["mincchamfer", "-max_dist", "11", $out_chamfer, "${TmpDir}/chamfer.mnc"]);
-Spawn(["mincresample", "-clobber", "-like", $output, "${TmpDir}/chamfer.mnc", $out_chamfer]);
+
+unlink( $grid );
 
 # combine laplacian field with chamfer maps
 my $step = `mincinfo -attvalue xspace:step $output`;
 chomp( $step );
 $step = 0.5 * $step;
-$expression = "if(A[0]>=10){out=A[0]+A[1]-$step;}else{out=A[0]-A[2];}";
+$expression = "if(A[0]>=10){out=A[0]+A[1]-$step;}else{out=A[0];}";
 
-Spawn(["minccalc", "-clobber", "-expression", $expression, $output, 
-       $out_chamfer, $in_chamfer, "${TmpDir}/chamfer.mnc"]);
-Spawn(["mv", "-f", "${TmpDir}/chamfer.mnc", $output]);
+Spawn(["minccalc", "-clobber", "-expression", $expression, $output,
+       "${TmpDir}/chamfer.mnc", $out_chamfer]);
+Spawn(["mv", "-f", $out_chamfer, $output]);
+unlink( "${TmpDir}/chamfer.mnc" );
+

@@ -35,15 +35,15 @@ sub pve {
     my $cls_clean    = ${$image}->{cls_clean};
     my $cls_correct  = ${$image}->{cls_correct};
 
-   #####################################
-   ##### The classification stages #####
-   #####################################
+    #####################################
+    ##### The classification stages #####
+    #####################################
 
-   # Explanation:
-   # These are the steps that produce 'discretely' classified (segmented)
-   # images from the final images. Basically, using classify_clean
-   # (the main component of INSECT), the intensity of each voxel puts it
-   # into one of 4 categories: Gray matter, white matter, CSF, or background.
+    # Explanation:
+    # These are the steps that produce 'discretely' classified (segmented)
+    # images from the final images. Basically, using classify_clean
+    # (the main component of INSECT), the intensity of each voxel puts it
+    # into one of 4 categories: Gray matter, white matter, CSF, or background.
 
     my @classify_images = ($t1_input);
     if ($inputType eq "multispectral") {

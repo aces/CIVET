@@ -45,8 +45,7 @@ fix_gm( $classified_wm_fixed, $classified_wm_gm_fixed );
 
 # create a midline mask to separate the hemispheres
 
-create_midline_mask( $classified_wm_gm_fixed, $Second_model_Dir,
-                     $final_callosum );
+create_midline_mask( $classified_wm_gm_fixed, $final_callosum );
 
 # final classification
 
@@ -85,10 +84,10 @@ sub make_csf_skel {
   #       and background. This will truncate the gray matter and
   #       make the cortex thinner.
 
-  run( "minccalc", "-clobber", "-expression", "if(A[0]>1.5){out=1;}else{out=0;}", 
-       $cls_correct, $wm_gm_mask );
+  run( "minccalc", "-clobber", "-byte", "-expression",
+       "if(A[0]>1.5){out=1;}else{out=0;}", $cls_correct, $wm_gm_mask );
   run( "dilate_volume", $wm_gm_mask, $wm_gm_maskD, "1", "26", "1" );
-  run( "minccalc", "-clobber", "-expression", 
+  run( "minccalc", "-clobber", "-byte", "-expression", 
        "if((A[1]<1.5&&A[2]>0.5)||A[0]>0.0){out=1;}else{out=0;}",
        $pve_csf, $cls_correct, $wm_gm_maskD, $pve_csf_dil );
   run( "skel", $pve_csf_dil, $skel_csf );
@@ -325,12 +324,11 @@ sub fix_gm {
 # 
 # Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
 # 
-# create_midline_mask classified.mnc model_dir output.mnc\n".
+# create_midline_mask classified.mnc output.mnc\n".
 
 sub create_midline_mask {
 
   my $classify = shift;
-  my $model_dir = shift;
   my $output = shift;
 
   my $me = &basename($0);
@@ -338,10 +336,23 @@ sub create_midline_mask {
   # make tmpdir
   my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
-  my $midline_mask  = "${model_dir}/midline_mask.mnc";
   my $callosum_with_bits  = "${tmpdir}/callosum_with_bits.mnc";
   my $callosal_defrag = "${tmpdir}/callosum_defrag.mnc";
   my $callosal_blur  = "${tmpdir}/callosal_blur.mnc";
+
+  # The creation of the midline mask below will work with
+  # any template (0.5mm, 1.0mm, for example), assuming that
+  # the centerline voxel is at x=0.
+
+  my $filled = "${tmpdir}/filled.mnc";
+  my $mid_tmp = "${tmpdir}/mid_tmp.mnc";
+  my $midline_mask = "${tmpdir}/midline_mask.mnc";
+
+  run( "minccalc", "-clobber", "-byte", "-expr", "out=1;", $classify, $filled );
+  run( "mincresample", "-clobber", "-xstart", 0, "-xnelements", 1,
+       $filled, $mid_tmp );
+  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp,
+       $midline_mask );
 
   run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-3)<0.45&&A[1];",
        $classify, $midline_mask, $callosum_with_bits );
@@ -352,7 +363,8 @@ sub create_midline_mask {
 
   $callosal_blur = "${callosal_blur}_blur.mnc";    
                    
-  run( "minccalc", "-clobber", "-expr", "if(A[0]>0.0001&&A[1]==1){out=1}else{if(A[0]>0.08){out=2}else{out=0;}};", 
+  run( "minccalc", "-clobber", "-byte", "-expr",
+       "if(A[0]>0.0001&&A[1]==1){out=1}else{if(A[0]>0.08){out=2}else{out=0;}};", 
        $callosal_blur, $midline_mask, $output );
 
 }  

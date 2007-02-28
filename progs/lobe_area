@@ -37,7 +37,7 @@ Getopt::Tabular::SetHelp( $help, $usage );
 
 GetOptions( \@options, \@ARGV )
   or exit 1;
-die "$usage\n" unless @ARGV == 6;
+die "$usage\n" unless @ARGV == 7;
 
 # define input variables:
 
@@ -45,8 +45,9 @@ my $white=$ARGV[0];                 # input - white surface in stx space
 my $gray=$ARGV[1];                  # input - gray surface in stx space
 my $thickness=$ARGV[2];             # input - cortical thickness in native space
 my $stx_labels_masked=$ARGV[3];     # input - volume labels from animal in stx space
-my $lobe_areas = $ARGV[4];          # output - areas of the lobes in native space
-my $lobes_thickness = $ARGV[5];     # output - average thickness of the lobes in 
+my $animal_surface_labels=$ARGV[4]; # output - animal surface labels
+my $lobe_areas = $ARGV[5];          # output - areas of the lobes in native space
+my $lobes_thickness = $ARGV[6];     # output - average thickness of the lobes in 
                                     #          native space
 
 # Directory for temporary files.
@@ -65,14 +66,17 @@ my $midSurface = "${TmpDir}/midSurface.obj";
 &run( "average_surfaces", $midSurface, "none", "none", 1, 
       $gray, $white );
 
-my $surface_labels = "${TmpDir}/animal_surface_labels.txt";
-&run( "volume_object_evaluate", $stx_labels_masked, $midSurface, 
-      $surface_labels );
+my $tmp_surface_labels = "${TmpDir}/animal_surface_labels.txt";
+&run( "volume_object_evaluate", "-nearest_neighbour", $stx_labels_masked, 
+      $midSurface, $tmp_surface_labels );
+
+&run( "clean_surface_labels", $midSurface, $tmp_surface_labels,
+      $animal_surface_labels );
 
 # segment stx surface labels into lobes
 
 my $surface_lobes = "${TmpDir}/animal_surface_lobes.txt";
-&run( "remap_to_lobes", $surface_labels, $surface_lobes );
+&run( "remap_to_lobes", $animal_surface_labels, $surface_lobes );
 
 # Transform gray surface from stx to native space to measure area.
 

@@ -23,11 +23,7 @@ sub create_pipeline {
     # t1 image file must always exist.
     if( -e $source_files->{t1} ) {
       system( "ln -fs $source_files->{t1} $native_files->{t1}" );
-      my $image_type = `mincinfo -vartype image $source_files->{t1}`;
-      if( $image_type eq "byte" ) {
-        print "WARNING: Data type for image $source_files->{t1} is byte.\n";
-        print "         This may result in loss of resolution.\n";
-      }
+      check_input_image( $source_files->{t1} );
     } else {
       die "Error: t1 image file $source_files->{t1} must exist for pipeline to continue.\n";
     }
@@ -36,19 +32,11 @@ sub create_pipeline {
     if( ( $maskType eq "multispectral" ) or ($inputType eq "multispectral") ) {
       if( -e $source_files->{t2} ) {
         system( "ln -fs $source_files->{t2} $native_files->{t2}" );
-        my $image_type = `mincinfo -vartype image $source_files->{t2}`;
-        if( $image_type eq "byte" ) {
-          print "WARNING: Data type for image $source_files->{t2} is byte.\n";
-          print "         This may result in loss of resolution.\n";
-        }
+        check_input_image( $source_files->{t2} );
       }
       if( -e $source_files->{pd} ) {
         system( "ln -fs $source_files->{pd} $native_files->{pd}" );
-        my $image_type = `mincinfo -vartype image $source_files->{pd}`;
-        if( $image_type eq "byte" ) {
-          print "WARNING: Data type for image $source_files->{pd} is byte.\n";
-          print "         This may result in loss of resolution.\n";
-        }
+        check_input_image( $source_files->{pd} );
       }
     }
 
@@ -57,5 +45,24 @@ sub create_pipeline {
     return( $Link_Native_complete );
 }
 
+sub check_input_image {
+
+  my $input = shift;
+
+  my $image_type = `mincinfo -vartype image $input`;
+  if( $image_type eq "byte" ) {
+    print "WARNING: Data type for image $input is byte.\n";
+    print "         This may result in loss of resolution.\n";
+  }
+
+  my $xspacing = `mincinfo -attvalue xspace:spacing $input`;
+  my $yspacing = `mincinfo -attvalue yspace:spacing $input`;
+  my $zspacing = `mincinfo -attvalue zspace:spacing $input`;
+  if( $xspacing eq "irregular__" || $yspacing eq "irregular__" ||
+      $zspacing eq "irregular__" ) {
+    die "ERROR: image file $input has irregular slice spacing.\n";
+  }
+
+}
 
 1;

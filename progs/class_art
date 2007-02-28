@@ -9,28 +9,33 @@ use warnings "all";
 use File::Basename;
 use Math::BigFloat;
 
+my $thresh = $ARGV[0];
+my $fwhm = $ARGV[1];
+my $brain_mask = $ARGV[2];
+my $t1_input = $ARGV[3];
+my $output = $ARGV[4];
 
-my @args = ("mincstats","-mask",$ARGV[2],"-mask_binvalue","1","-mean",$ARGV[3]);
+my @args = ("mincstats","-mask",$brain_mask,"-mask_binvalue","1","-mean",$t1_input);
 print @args;
 my $result = `@args`;
 my @line = split/\s+/,$result;
 print $line[1];
-my $intensity_threshold = $line[1] * (0+$ARGV[0]);
+my $intensity_threshold = $line[1] * (0+$thresh);
 
-@args = ("minccalc","-clobber", "-expression","if(A[0]>0&&A[0]<${intensity_threshold}) {out=1;} else {out=0;}",$ARGV[3], "${ARGV[4]}_temp");
+@args = ("minccalc","-clobber", "-expression","if(A[0]>0&&A[0]<${intensity_threshold}) {out=1;} else {out=0;}",$t1_input, "${output}_temp");
 print @args; 
 system(@args)== 0 or die "system @args failed: $?";
 
 
-@args = ("mincblur","-clobber", "-fwhm",$ARGV[1],"${ARGV[4]}_temp", $ARGV[4]);
+@args = ("mincblur","-clobber", "-fwhm",$fwhm,"${output}_temp", $output);
 print @args;
 system(@args)== 0 or die "system @args failed: $?";
 
-@args = ("rm","${ARGV[4]}_temp");
+@args = ("rm","${output}_temp");
 print @args;
 system(@args) == 0 or die "system @args failed: $?";
 
-@args = ("mv","${ARGV[4]}_blur.mnc","${ARGV[4]}");
+@args = ("mv","${output}_blur.mnc","${output}");
 print @args;
 system(@args) == 0 or die "system @args failed: $?";
 

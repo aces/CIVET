@@ -156,16 +156,23 @@ $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 my($i, $s_base, $t_base, $tmp_xfm, $tmp_source, $tmp_target, $prev_xfm);
 $s_base = &basename($source);
 $s_base =~ s/\.mnc(.gz)?$//;
+$s_base = "S${s_base}";
 $t_base = &basename($target);
 $t_base =~ s/\.mnc(.gz)?$//;
+$t_base = "T${t_base}";
 
 # Run inormalize if required. minctracc likes it better when the
-# intensities of the source and target are similar.
+# intensities of the source and target are similar, but honestly
+# this step may be completely useless in CIVET. (Must make sure
+# that source and target are sampled in the same way - only needed
+# by inormalize but not for minctracc).
 
 my $original_source = $source;
 if( $opt{normalize} ) {
   my $inorm_source = "$tmpdir/${s_base}_inorm.mnc";
-  &do_cmd( 'inormalize', '-clobber', '-model', $target, $source, $inorm_source );
+  my $inorm_target = "$tmpdir/${t_base}_inorm.mnc";
+  &do_cmd( "mincresample", "-clobber", "-like", $source, $target, $inorm_target );
+  &do_cmd( 'inormalize', '-clobber', '-model', $inorm_target, $source, $inorm_source );
   $source = $inorm_source;
 }
 

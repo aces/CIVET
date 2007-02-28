@@ -156,8 +156,10 @@ $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 my($i, $s_base, $t_base, $tmp_xfm, $tmp_source, $tmp_target, $prev_xfm);
 $s_base = &basename($source);
 $s_base =~ s/\.mnc(.gz)?$//;
+$s_base = "S${s_base}";
 $t_base = &basename($target);
 $t_base =~ s/\.mnc$(.gz)?//;
+$t_base = "T${t_base}";
 
 # Mask the source and target once before blurring. Both masks must exist.
 

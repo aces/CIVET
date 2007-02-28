@@ -23,6 +23,7 @@
 use strict;
 use FindBin;
 use Cwd qw( abs_path );
+use Env qw( PATH );
 
 # All modules that will be used in either case are declared here
 use Getopt::Tabular;
@@ -40,13 +41,15 @@ use lib "$FindBin::Bin";
 use MRI_Image;
 use Processing_Pipeline_Main;
 
+$PATH = "$FindBin::Bin/progs:${PATH}";
+
 # Set interrupt handler (for cleaning of lock files)
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.4";
-my $versionDate= "January 24, 2007";
-my $authors= "Yasser Ad-Dab'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
+my $version = "1.1.5";
+my $versionDate= "February 28, 2007";
+my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
 $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile> &\n\n";
@@ -55,18 +58,40 @@ my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
 
-    1 - add surface segmentation based on ANIMAL's volume segmentation
-        and calculation of cortex area for lobes (eventually will use
-        surface registration with surface parcellation).
-    2 - iterative correction to the mean and variance of the tissue types 
-        inside pve as the process converges (option -correct-pve)
+    1 - surface registration and resampling of cortical thickness.
+    2 - binary masks in byte format to save disk space.
+    3 - specification of data-processing template for voxel size
+        (0.50mm, 0.75mm, 1.0mm, 2.0mm, etc; default is 1.0mm).
+    4 - check for irregular slice spacing in native images.
+    5 - summary of options printed in logs directory of subject.
+    6 - validation of input parameters for correct values.
+    7 - possibility to easily rerun CIVET with different options
+        for cortical thickness method and fwhm.
+    8 - keep mid-surfaces in stereotaxic space
+    9 - keep surface lobes parcellation at vertices
 
     More to come soon:
 
-    1 - use CLASP to improve the white matter mask by removing bright
+    1 - support for various interpolation methods from native to
+        stereotaxic (linear, cubic, sinc; default is linear). *BETA*
+    2 - susceptibility artefact map now uses brain with cerebellum. *BETA*
+    3 - new ICBM templates compatible with non-linear ICBM152 model. *BETA*
+    4 - run nu_correct in stereotaxic space on the interpolated 
+        original native image, not on the interpolated nu_corrected
+        native image. *BETA*
+    5 - use CLASP to improve the white matter mask by removing bright
         meninges classified as white matter.
-    2 - surface registration
-    3 - surface classification and extraction in native space
+    6 - surface classification and extraction in native space.
+    7 - high-resolution surfaces at 320k polygons.
+    8 - file compression via PMP to save disk space.
+
+    ********** From previous Jan-24-2007 quarantine, version 1.1.4 **********
+
+    1 - add surface segmentation based on ANIMAL\'s volume segmentation
+        and calculation of cortex area for lobes (eventually will use
+        surface registration with surface parcellation).
+    2 - iterative correction to the mean and variance of the tissue types
+        inside pve as the process converges (option -correct-pve)
 
     ********** From previous Jan-15-2007 quarantine, version 1.1.3 **********
 
@@ -156,32 +181,36 @@ my $reset = undef;
 my $command = "printStatus";
 my $PMPtype = "sge";
 my $pbsQueue = "long";
-my $pbsHosts = "yorick:bullcalf";
+my $pbsHosts = "yorick";
 my $sgeQueue = "all.q";
 my $resetRunning = 1;
 
 ############# Default settings for pipeline
-#my $DefaultRegLinModel = "icbm_avg_152_t1_tal_lin_symmetric";
+my $TemplateSize = "1.00";
 my $DefaultRegLinModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
 my $DefaultRegNLModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
 my $DefaultRegLinDir = MNI::DataDir::dir("mni_autoreg");
 my $DefaultRegNLDir = MNI::DataDir::dir("mni_autoreg");
+my $DefaultTemplateDir = MNI::DataDir::dir("ICBM");
+my $DefaultTemplateModel = "icbm_template";
+my $DefaultSurfRegModelDir = "$FindBin::Bin/models";
+my $DefaultSurfRegModel = "surf_reg_model_left.obj";
+my $DefaultSurfRegDataTerm = "surf_reg_model_left.txt";
+
+# old settings
+#my $DefaultRegLinModel = "icbm_avg_152_t1_tal_lin_symmetric";
 
 ############# User defined registration target models 
 ############# (defaults defined below in the 'registration targets' section)
-my $TemplateSize = "1.00";
 my $regNLModelDir = undef;
 my $regNLModel = undef;
 my $regLinModelDir = undef;
 my $regLinModel = undef;
 my $groupModel = undef;
 my $groupModelDir = undef;
-my $smallSurfRegModelDir = undef;
-my $smallSurfRegModel = undef;
-my $smallSurfModelDataTerm = undef;
-my $largeSurfRegModelDir = undef;
-my $largeSurfRegModel = undef;
-my $largeSurfModelDataTerm = undef;
+my $SurfRegModelDir = undef;
+my $SurfRegModel = undef;
+my $SurfRegDataTerm = undef;
 
 ############# Use model specific pre-registration
 my $groupReg = 0;
@@ -232,7 +261,7 @@ my @argTbl = (
           ["-targetdir", "string", 1, \$target, "Directory where processed data will be placed."],
           ["-prefix", "string", 1, \$prefix, "File prefix to be used in naming output files."],
           ["-id-subdir", "const", "IdSubDir", \$sourceSubDir, "Indicate that the source directory contains sub-directories for each id"],
-          ["-id-file", "string", 1, \$idTextFile, "A text file that contains all the subject id's (separated by space, tab, return or comma) that CIVET will run on."],
+          ["-id-file", "string", 1, \$idTextFile, "A text file that contains all the subject id\'s (separated by space, tab, return or comma) that CIVET will run on."],
 
           ["Pipeline options", "section"],
           ["-template", "string", 1, \$TemplateSize, 
@@ -245,12 +274,12 @@ my @argTbl = (
            "Define the target model for non-linear registration (default $DefaultRegNLModel)."],
           ["-registration-nl-modeldir", "string", 1, \$regNLModelDir, 
            "Define the directory of the target model for non-linear registration (default $DefaultRegNLDir)."],
-
-#          ["-82k-surface-model", "string", 1, \$smallSurfRegModel, "Define the surface registration model."],
-#          ["-82k-surface-modeldir", "string", 1, \$smallSurfRegModelDir, "Define the directory for the surface registration model."],
-#          ["-328k-surface-model", "string", 1, \$largeSurfRegModel, "Define the surface registration model."],
-#          ["-328k-surface-modeldir", "string", 1, \$largeSurfRegModelDir, "Define the directory for the surface registration model."],
-#          ["-328k-surface-data-term", "string", 1, \$largeSurfModelDataTerm, "Define the data-term file for surface registration."],
+          ["-surface-model", "string", 1, \$SurfRegModel,
+           "Define the surface registration model (default $DefaultSurfRegModel)."],
+          ["-surface-dataterm", "string", 1, \$SurfRegDataTerm,
+           "Define the surface registration dataterm (default $DefaultSurfRegDataTerm)."],
+          ["-surface-modeldir", "string", 1, \$SurfRegModelDir,
+           "Define the directory for the surface registration model (default $DefaultSurfRegModelDir)."],
 
 #          ["-group-specific-registration|-normal-registration", "boolean", undef, \$groupReg, "Add a ( pediatric) intermediate model registration."],
 #          ["-group-specific-model", "string", 1, \$groupModel, "Define the intermediate registration target for (default pediatric) data."],
@@ -267,10 +296,12 @@ my @argTbl = (
            "Percentage of height to crop to remove neck for masking."],
           ["-N3-distance", "string", 1, \$N3Distance, 
            "N3 spline distance in mm (suggested values: 200 for 1.5T scan (default); 25 for 3T scan)."],
+          ["-lsq6", "const", "-lsq6", \$lsqtype,
+           "use 6-parameter transformation for linear registration (default -lsq9)" ],
           ["-lsq12", "const", "-lsq12", \$lsqtype,
-           "use full 12-parameter transformation for linear registration (default -lsq9)" ],
-          ["-no-surfaces", "const", "noSURFACE", \$surface, "don't build surfaces"],
-          ["-no-animal", "const", "noANIMAL", \$animal, "don't run volumetric ANIMAL segmentation."],
+           "use 12-parameter transformation for linear registration (default -lsq9)" ],
+          ["-no-surfaces", "const", "noSURFACE", \$surface, "don\'t build surfaces"],
+          ["-no-animal", "const", "noANIMAL", \$animal, "don\'t run volumetric ANIMAL segmentation."],
           ["-thickness", "string", 2, \@thickness,
            "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
 
@@ -325,6 +356,7 @@ chomp( $DATE );
 my $UNAME = `uname -s -n -r`;
 chomp( $UNAME );
 print "\n\n* Pipeline started at $DATE on $UNAME \n";
+print "\n* This is CIVET $version, $versionDate \n";
 print "\n* CIVET Command line is:\n       $0 @ARGV \n";
 print "\n* The source directory is: '$sourceDir' \n";
 print "* The target directory is: '$target' \n";
@@ -340,15 +372,15 @@ if ($PMPtype eq "sge") {
 
 
 ############# Some essential directories 
-my $ICBM_dir = MNI::DataDir::dir("ICBM");
 my $classify_dir = MNI::DataDir::dir("classify");
 
 
 ############# The -like template (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00)
-my $Template = "${ICBM_dir}/icbm_template_${TemplateSize}mm.mnc";
+my $Template = "${DefaultTemplateDir}/${DefaultTemplateModel}_${TemplateSize}mm.mnc";
+print "* Template for image-processing is:\n  $Template \n";
 
 ############# Used for creating verify_image only.
-my $fullpath_surfmodel = MNI::DataDir::dir("mni_autoreg")."icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj";
+my $fullpath_surfmask = MNI::DataDir::dir("mni_autoreg")."icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj";
 
 ############# Define registration targets and directories and print them
 unless ($regLinModelDir) {
@@ -382,23 +414,21 @@ if ($groupReg){
 
 
 ############# Define Surface registration targets and directories and print them, or die with error message
-#fixme this is going to change with the hemisphere aproach
-=pod
-unless ($smallSurfRegModelDir) {
-    $smallSurfRegModelDir = MNI::DataDir::dir("surfreg");
+unless ($SurfRegModelDir) {
+    $SurfRegModelDir = $DefaultSurfRegModelDir;
 }
-unless ($smallSurfRegModel) {
-    $smallSurfRegModel = "${smallSurfRegModelDir}/mni_icbm_00244_white_surface_81920.obj";
+unless ($SurfRegModel) {
+    $SurfRegModel = $DefaultSurfRegModel;
 }
+unless ($SurfRegDataTerm) {
+    $SurfRegDataTerm = $DefaultSurfRegDataTerm;
+}
+my $fullpath_surfregmodel = "${SurfRegModelDir}/${SurfRegModel}";
+my $fullpath_surfregdataterm = "${SurfRegModelDir}/${SurfRegDataTerm}";
 
-unless ($smallSurfModelDataTerm) {
-    $smallSurfModelDataTerm = "${smallSurfRegModelDir}/mni_icbm_00244_white_surface_81920_data_term1.vv";
-}
-unless ($largeSurfRegModelDir) {
-    $largeSurfRegModelDir = MNI::DataDir::dir("surfreg");
-}
-=cut
-
+print "* Surface registration model directory is: \n  ${SurfRegModelDir} \n";
+print "* Surface registration model is:    \n   ${SurfRegModel} \n";
+print "* Surface registration dataterm is: \n   ${SurfRegDataTerm} \n";
 
 ############# Print the Pipeline and Stage Control commands
 
@@ -452,7 +482,13 @@ foreach my $dsid (@dsids) {
                                 $lsqtype,
                                 $surface,
                                 $animal,
-                                \@thickness );
+                                \@thickness,
+                                $fullpath_linregmodel,
+                                $fullpath_nlregmodel,
+                                $fullpath_surfregmodel,
+                                $fullpath_surfregdataterm,
+                                $fullpath_surfmask,
+                                $Template );
 
     ##### Create the pipeline environment. #####
 
@@ -484,9 +520,10 @@ foreach my $dsid (@dsids) {
                         \$image,
                         $fullpath_linregmodel,
                         $fullpath_nlregmodel,
-                        $fullpath_surfmodel,
+                        $fullpath_surfregmodel,
+                        $fullpath_surfregdataterm,
+                        $fullpath_surfmask,
                         $intermediate_model, 
-                        $smallSurfRegModel,
                         $Template,
                         $second_model_dir
                         );    

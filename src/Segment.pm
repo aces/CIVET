@@ -15,7 +15,8 @@ sub create_pipeline {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-    my $Second_Model_Dir = @_[3];
+    my $Template = @_[3];
+    my $Second_Model_Dir = @_[4];
 
     # global files for segmentation
 
@@ -42,7 +43,8 @@ sub create_pipeline {
          inputs => [$t1_tal_nl_xfm, $cls_correct],
          outputs => [$stx_labels],
          args => ["stx_segment", "-clobber", "-symmetric_atlas",
-                  $t1_tal_nl_xfm, $identity, $cls_correct, $stx_labels],
+                  $t1_tal_nl_xfm, $identity, "-template", $Template,
+                  $cls_correct, $stx_labels],
          prereqs => $Prereqs });
 
     ${$pipeline_ref}->addStage(
