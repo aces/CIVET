@@ -113,7 +113,7 @@ $ret = `mincstats -sum "${TmpDir}/diff.mnc"`;
 
 # Total for left+right.
 
-my $info = sprintf( "white surface (%5.2f\%), ", 100.0*(${sum_left}+${sum_right})/${sum_white} );
+my $info = sprintf( "white surface (%5.2f%%), ", 100.0*(${sum_left}+${sum_right})/${sum_white} );
 
 # Gray surface:
 
@@ -148,7 +148,7 @@ $sum_gray += 1;
 $ret = `mincstats -sum "${TmpDir}/diff.mnc"`;
 ($bla,$sum) = split(' ',$ret);
 
-$info .= sprintf( "gray surface (%5.2f\%)\n", 100.0*${sum}/${sum_gray} );
+$info .= sprintf( "gray surface (%5.2f%%)\n", 100.0*${sum}/${sum_gray} );
 
 open PIPE, ">$info_file";
 print PIPE $info;
