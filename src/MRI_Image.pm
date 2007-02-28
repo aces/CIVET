@@ -351,16 +351,20 @@ sub validate_options {
   }
 
   # value of tmethod must be tlink, tlaplace, tnear or tnormal
-  if( !( $image->{tmethod} eq "tlink" ||
+  if( $image->{tmethod} ) {
+    if( !( $image->{tmethod} eq "tlink" ||
          $image->{tmethod} eq "tlaplace" ||
          $image->{tmethod} eq "tnear" ||
          $image->{tmethod} eq "tnormal" ) ) {
-    die "ERROR: Cortical thickness method ($image->{tmethod}) must be tlink, tlaplace, tnear, or tnormal.\n";
+      die "ERROR: Cortical thickness method ($image->{tmethod}) must be tlink, tlaplace, tnear, or tnormal.\n";
+    }
   }
 
   # value of tkernel must be a positive integer number or zero
-  if( !check_value( $image->{tkernel}, $PositiveFloat ) ) {
-    die "ERROR: Value of blurring kernel ($image->{tkernel}) must be a positive integer number.\n";
+  if( $image->{tkernel} ) {
+    if( !check_value( $image->{tkernel}, $PositiveFloat ) ) {
+      die "ERROR: Value of blurring kernel ($image->{tkernel}) must be a positive integer number.\n";
+    }
   }
 
   # The following models must exist.

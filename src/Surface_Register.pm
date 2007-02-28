@@ -30,6 +30,8 @@ sub create_pipeline {
 
 # ---------------------------------------------------------------------------
 #  Step 1: Compute data term on mid surfaces using Maxime's depth potential.
+#          We must use alpha=0.05 to be consistent with Oliver's average
+#          surface model.
 # ---------------------------------------------------------------------------
 
     ${$pipeline_ref}->addStage( {
@@ -37,7 +39,7 @@ sub create_pipeline {
           label => "WM left surface depth potential",
           inputs => [$left_mid_surface],
           outputs => [$left_dataterm],
-          args => ["depth_potential", "-depth_potential", 
+          args => ["depth_potential", "-alpha", "0.05", "-depth_potential", 
                    $left_mid_surface, $left_dataterm ],
           prereqs => $Prereqs } );
 
@@ -46,7 +48,7 @@ sub create_pipeline {
           label => "WM right surface depth potential",
           inputs => [$right_mid_surface],
           outputs => [$right_dataterm],
-          args => ["depth_potential", "-depth_potential", 
+          args => ["depth_potential", "-alpha", "0.05", "-depth_potential", 
                    $right_mid_surface, $right_dataterm ],
           prereqs => $Prereqs } );
 
