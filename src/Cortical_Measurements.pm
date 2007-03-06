@@ -73,10 +73,10 @@ sub thickness {
     ${$pipeline_ref}->addStage( {
           name => "resample_left_thickness",
           label => "nonlinear resample left thickness",
-          inputs => [$native_rms_right, $left_surfmap, $left_mid_surface],
+          inputs => [$native_rms_left, $left_surfmap, $left_mid_surface],
           outputs => [$rsl_left_thickness],
           args => ["surface-resample", $surfreg_model, $left_mid_surface,
-                   $native_rms_right, $left_surfmap, $rsl_left_thickness],
+                   $native_rms_left, $left_surfmap, $rsl_left_thickness],
           prereqs => ["thickness_${tmethod}_${tkernel}mm_left"] });
 
     ${$pipeline_ref}->addStage( {
