@@ -33,6 +33,7 @@ sub new {
     my $correctPVE = shift;
     my $maskType = shift;
     my $cropNeck = shift;
+    my $interpMethod = shift;
     my $nuc_dist = shift;
     my $lsqtype = shift;
     my $surface = shift;
@@ -50,6 +51,7 @@ sub new {
     $image->{correctPVE} = $correctPVE;
     $image->{maskType} = $maskType;
     $image->{cropNeck} = $cropNeck;
+    $image->{interpMethod} = $interpMethod;
     $image->{nuc_dist} = $nuc_dist;
     $image->{lsqtype} = $lsqtype;
     $image->{animal} = $animal;
@@ -80,7 +82,7 @@ sub new {
     $image->{directories}{SEG} = "segment" unless( $animal eq "noANIMAL" );
     $image->{directories}{SURF} = "surfaces" unless( $surface eq "noSURFACE" );
     $image->{directories}{SR} = "transforms/surfreg" unless( $surface eq "noSURFACE" );
-    $image->{directories}{THICK} = "thickness" if( $$thickness[0] && $$thickness[1] );
+    $image->{directories}{THICK} = "thickness" if( defined $$thickness[0] && defined $$thickness[1] );
 
     my $Base_Dir = "${Target_Dir}/${dsid}";
     system( "mkdir -p ${Base_Dir}" ) if( ! -d ${Base_Dir} );
@@ -146,7 +148,7 @@ sub new {
         $image->{animal_labels}{right} = "${seg_dir}/${prefix}_${dsid}_animal_surface_labels_right.txt";
         $image->{lobe_areas}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
         $image->{lobe_areas}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
-        if( $$thickness[0] && $$thickness[1] ) {
+        if( defined $$thickness[0] && defined $$thickness[1] ) {
           $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_left.dat";
           $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_right.dat";
         } else {
@@ -204,12 +206,12 @@ sub new {
     my $sr_dir = "${Base_Dir}/$image->{directories}{SR}";
     $image->{dataterm}{left} = "${surf_dir}/${prefix}_${dsid}_left_dataterm.vv";
     $image->{dataterm}{right} = "${surf_dir}/${prefix}_${dsid}_right_dataterm.vv";
-    $image->{surface_map}{left} = "${sr_dir}/${prefix}_${dsid}_left_surfmap.mnc";
-    $image->{surface_map}{right} = "${sr_dir}/${prefix}_${dsid}_right_surfmap.mnc";
+    $image->{surface_map}{left} = "${sr_dir}/${prefix}_${dsid}_left_surfmap.sm";
+    $image->{surface_map}{right} = "${sr_dir}/${prefix}_${dsid}_right_surfmap.sm";
 
     # Define cortical thickness files.
     my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
-    if( $$thickness[0] && $$thickness[1] ) {
+    if( defined $$thickness[0] && defined $$thickness[1] ) {
       $image->{rms}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_left.txt";
       $image->{rms}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_right.txt";
       $image->{rms_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_left.txt";
@@ -237,6 +239,7 @@ sub new {
     $image->{skull_mask_nat_stx} = "${tmp_dir}/${prefix}_${dsid}_skull_mask_native_stx.mnc";
     $image->{t1_nl_final} = "${Base_Dir}/$image->{directories}{FINAL}/${prefix}_${dsid}_t1_nl.mnc";
     $image->{surface_qc} = "${verify_dir}/${prefix}_${dsid}_surface_qc.txt";
+    $image->{brainmask_qc} = "${verify_dir}/${prefix}_${dsid}_brainmask_qc.txt";
 
     return( $image );
 }
@@ -345,13 +348,20 @@ sub validate_options {
     }
   }
 
+  # must be one of trilinear, tricubic, sinc.
+  if( !( $image->{interpMethod} eq "tricubic" ||
+         $image->{interpMethod} eq "trilinear" ||
+         $image->{interpMethod} eq "sinc" ) ) {
+    die "ERROR: Interpolation method must be trilinear, tricubic, or sinc.\n";
+  }
+
   # value of N3-distance must be a positive number
   if( !check_value( $image->{nuc_dist}, $PositiveFloat ) ) {
     die "ERROR: Value of -N3-distance ($image->{nuc_dist}) must be a positive integer number.\n";
   }
 
   # value of tmethod must be tlink, tlaplace, tnear or tnormal
-  if( $image->{tmethod} ) {
+  if( defined $image->{tmethod} ) {
     if( !( $image->{tmethod} eq "tlink" ||
          $image->{tmethod} eq "tlaplace" ||
          $image->{tmethod} eq "tnear" ||
@@ -361,7 +371,7 @@ sub validate_options {
   }
 
   # value of tkernel must be a positive integer number or zero
-  if( $image->{tkernel} ) {
+  if( defined $image->{tkernel} ) {
     if( !check_value( $image->{tkernel}, $PositiveFloat ) ) {
       die "ERROR: Value of blurring kernel ($image->{tkernel}) must be a positive integer number.\n";
     }
@@ -415,10 +425,11 @@ sub print_options {
     if( $image->{correctPVE} );
   print PIPE "Brain masking is $image->{maskType}\n";
   print PIPE "Crop neck at $image->{cropNeck}\%\n" if( $image->{cropNeck} > 0 );
+  print PIPE "Interpolation method from native to stereotaxic is $image->{interpMethod}\n";
   print PIPE "N3 distance is $image->{nuc_dist}mm\n";
   print PIPE "Linear registration type is $image->{lsqtype}\n";
   if( $image->{surface} eq "SURFACE" ) {
-    if( $image->{tmethod} && $image->{tkernel} ) {
+    if( defined $image->{tmethod} && defined $image->{tkernel} ) {
       print PIPE "Cortical thickness using $image->{tmethod}, blurred at $image->{tkernel}mm\n";
     }
   }

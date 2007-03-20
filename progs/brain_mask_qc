@@ -1,0 +1,88 @@
+#! /usr/bin/env perl
+#
+# Evaluate the differences between two minc volumes representing
+# a brain mask.
+#
+# Claude Lepage - claude@bic.mni.mcgill.ca
+#
+
+use strict;
+use warnings "all";
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+
+my($Help, $Usage, $me);
+my $transform_xfm = undef;
+
+$me = &basename($0);
+
+$Help = <<HELP;
+| Evaluate the differences between two minc volumes representing
+| a brain mask.
+| 
+| Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
+HELP
+
+$Usage = "Usage: $me [options] mask1.mnc mask2.mnc\n".
+         "       $me -help to list options\n\n";
+
+my @opt_table = (
+    ['-transform', 'string', 1, \$transform_xfm,
+     'transformation from mask1 to mask2']
+  );
+
+# Check arguments
+&Getopt::Tabular::SetHelp($Help, $Usage);
+&GetOptions (\@opt_table, \@ARGV) || exit 1;
+
+die $Usage if( !( $#ARGV == 1 || $#ARGV == 2 ) );
+
+my $mask1 = shift(@ARGV);
+my $mask2 = shift(@ARGV);
+my $info_file = shift(@ARGV);
+
+# check for files
+die "$me: Couldn't find input file: $mask1\n\n" if (!-e $mask1);
+die "$me: Couldn't find input file: $mask2\n\n" if (!-e $mask2);
+
+# make tmpdir
+my $tmpdir = &tempdir( "$me-XXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+# set up filename base
+my($i, $s_base, $t_base, $tmp_xfm, $tmp_source, $tmp_target, $prev_xfm);
+
+# Transform mask1 to same space as mask2 if needed.
+if( defined $transform_xfm ) {
+  my $mask1_rsl = "${tmpdir}/mask1_resampled.mnc";
+  &run( 'mincresample', '-clobber', '-like', $mask2, '-nearest_neighbour',
+        '-transform', $transform_xfm, $mask1, $mask1_rsl );
+  $mask1 = $mask1_rsl;
+}
+
+# Compare the two masks.
+my $diff = "${tmpdir}/mask_diff.mnc";
+&run( 'minccalc', '-clobber', '-expression', 'A[1]!=A[0];',
+      $mask1, $mask2, $diff );
+
+my $diff_volume;
+chomp( $diff_volume = `mincstats -quiet -sum $diff` );
+my $mask2_volume;
+chomp( $mask2_volume = `mincstats -quiet -sum $mask2` );
+
+my $error = 100.0 * $diff_volume / $mask2_volume;
+
+if( defined $info_file ) {
+  open PIPE, ">$info_file";
+  print PIPE sprintf( "native skull mask in stx space (%5.2f%%)\n", $error );
+  close PIPE;
+} else {
+  print sprintf( "native brain mask error %5.2f%%\n", $error );
+}
+
+
+sub run { 
+   system(@_) == 0 or die;
+}
+       

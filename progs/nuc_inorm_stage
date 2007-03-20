@@ -82,6 +82,8 @@ if ( -e $input ) {
           $tmp_input, $output );
     &run( "mv", "-f", $output, $tmp );
     $tmp_input = $tmp;
+    # Clear minc history to avoid a bug in netCDF-3.6.1 (see Claude)
+    &run( "minc_modify_header", "-sinsert", ":history=\"\"", $tmp );
   }
 
   # We remove the .imp file as it is relative to the previous

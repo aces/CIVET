@@ -47,8 +47,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.5";
-my $versionDate= "February 28, 2007";
+my $version = "1.1.6";
+my $versionDate= "March 2, 2007";
 my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -56,7 +56,33 @@ $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile
 
 my $whatsnew = <<NEW;
     *************************************************************************
+
     New in $versionDate quarantine, version $version
+
+    1 - support for various interpolation methods from native to
+        stereotaxic (linear, cubic, sinc; default is linear).
+    2 - error metric for brain mask in native space (in verify image).
+    3 - shuffle the PMP steps so that -resetAll actually works.
+    4 - file name extension for surface maps is .sm, not .mnc.
+    5 - can use a 0mm blurring kernel for cortical thickness (no blurring).
+    6 - improved cut through callosum to split hemispheres.
+    7 - fixed bug in surface registration for infinite loop (on RedHat).
+    8 - clear history in minc files to go around likely bug in netCDF 3.6.1.
+
+    More to come soon:
+
+    1 - susceptibility artefact map now uses brain with cerebellum. *BETA*
+    2 - new ICBM templates compatible with non-linear ICBM152 model. *BETA*
+    3 - run nu_correct in stereotaxic space on the interpolated 
+        original native image, not on the interpolated nu_corrected
+        native image. *BETA*
+    4 - use CLASP to improve the white matter mask by removing bright
+        meninges classified as white matter.
+    5 - surface classification and extraction in native space.
+    6 - high-resolution surfaces at 320k polygons.
+    7 - file compression via PMP to save disk space.
+
+    ********** From previous Feb-28-2007 quarantine, version 1.1.5 **********
 
     1 - surface registration and resampling of cortical thickness.
     2 - binary masks in byte format to save disk space.
@@ -69,21 +95,6 @@ my $whatsnew = <<NEW;
         for cortical thickness method and fwhm.
     8 - keep mid-surfaces in stereotaxic space
     9 - keep surface lobes parcellation at vertices
-
-    More to come soon:
-
-    1 - support for various interpolation methods from native to
-        stereotaxic (linear, cubic, sinc; default is linear). *BETA*
-    2 - susceptibility artefact map now uses brain with cerebellum. *BETA*
-    3 - new ICBM templates compatible with non-linear ICBM152 model. *BETA*
-    4 - run nu_correct in stereotaxic space on the interpolated 
-        original native image, not on the interpolated nu_corrected
-        native image. *BETA*
-    5 - use CLASP to improve the white matter mask by removing bright
-        meninges classified as white matter.
-    6 - surface classification and extraction in native space.
-    7 - high-resolution surfaces at 320k polygons.
-    8 - file compression via PMP to save disk space.
 
     ********** From previous Jan-24-2007 quarantine, version 1.1.4 **********
 
@@ -226,6 +237,7 @@ my $inputType = "t1only";
 my $correctPVE = 0;
 my $maskType = "t1only";
 my $cropNeck = undef;
+my $interpMethod = "trilinear";
 my $N3Distance = 200;
 my $lsqtype = "-lsq9";
 my $VBM = "VBM";
@@ -294,6 +306,8 @@ my @argTbl = (
            "Use T1, T2 and PD native files for brain masking."],
           ["-crop-neck", "string", 1, \$cropNeck, 
            "Percentage of height to crop to remove neck for masking."],
+          ["-interp", "string", 1, \$interpMethod,
+           "Interpolation method from native to stereotaxic space (\"trilinear\" (default), \"tricubic\", \"sinc\""],
           ["-N3-distance", "string", 1, \$N3Distance, 
            "N3 spline distance in mm (suggested values: 200 for 1.5T scan (default); 25 for 3T scan)."],
           ["-lsq6", "const", "-lsq6", \$lsqtype,
@@ -478,6 +492,7 @@ foreach my $dsid (@dsids) {
                                 $correctPVE,
                                 $maskType,
                                 $cropNeck,
+                                $interpMethod,
                                 $N3Distance,
                                 $lsqtype,
                                 $surface,
@@ -532,26 +547,21 @@ foreach my $dsid (@dsids) {
 # Pipeline management
 ####################################################################################
 
-############# Rerun any failures from a previous run of this subjects pipe
-    $pipeline->resetFailures();
+############# Set the status of the stages.
 
-############# Reset running jobs if that's what the user wants.
-    
-    if ($resetRunning) {
-      $pipeline->resetRunning();
-    }
-   
-############# Restart all stages; restart from a given stage;
-############# or continue from current status.
-
-   $pipeline->updateStatus();
-   if ($reset) {
-      if ($reset eq "resetAll") {
+    if ($reset && ($reset eq "resetAll") ) {
+        # Restart all stages
         $pipeline->resetAll();
-      } else {
-        $pipeline->resetFromStage($reset);
-      }
-   }
+    } else {
+        # restart from a given stage;
+        $pipeline->resetFromStage($reset) if( $reset );
+        # Rerun any failures from a previous run of this subjects pipe
+        $pipeline->resetFailures();
+        # Reset running jobs if that's what the user wants.
+        $pipeline->resetRunning() if ($resetRunning);
+    }
+
+    $pipeline->updateStatus();
  
 ############# Add this pipe to our happy array of pipes
     

@@ -215,8 +215,9 @@ sub transform {
     my $t2_tal  = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{tal} : undef;
     my $pd_tal  = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{tal} : undef;
 
-    my $t1_tal_xfm    = ${$image}->{t1_tal_xfm};
-    my $t2pd_tal_xfm  = ${$image}->{t2pd_tal_xfm};
+    my $t1_tal_xfm   = ${$image}->{t1_tal_xfm};
+    my $t2pd_tal_xfm = ${$image}->{t2pd_tal_xfm};
+    my $interpMethod = "-${$image}->{interpMethod}";
     my @Transform_complete = ();
 
     if( $t1_native ) {
@@ -226,8 +227,8 @@ sub transform {
            inputs => [$t1_native, $t1_tal_xfm],
            outputs => [$t1_tal],
            args => ["mincresample", "-clobber", "-transform",
-                   $t1_tal_xfm, "-like", $Template,
-                   $t1_native, $t1_tal],
+                   $t1_tal_xfm, "-like", $Template, $interpMethod,
+                   "-keep_real_range", $t1_native, $t1_tal],
            prereqs => $Prereqs});
       push @Transform_complete, ("tal_t1");
     }
@@ -239,8 +240,8 @@ sub transform {
            inputs => [$t2_native, $t2pd_tal_xfm],
            outputs => [$t2_tal],
            args => ["mincresample", "-clobber", "-transform",
-                   $t2pd_tal_xfm, "-like", $Template,
-                   $t2_native, $t2_tal],
+                   $t2pd_tal_xfm, "-like", $Template, $interpMethod,
+                   "-keep_real_range", $t2_native, $t2_tal],
            prereqs => $Prereqs});
       push @Transform_complete, ("tal_t2");
     }
@@ -252,8 +253,8 @@ sub transform {
            inputs => [$pd_native, $t2pd_tal_xfm],
            outputs => [$pd_tal],
            args => ["mincresample", "-clobber", "-transform",
-                   $t2pd_tal_xfm, "-like", $Template,
-                   $pd_native, $pd_tal],
+                   $t2pd_tal_xfm, "-like", $Template, $interpMethod,
+                   "-keep_real_range", $pd_native, $pd_tal],
            prereqs => $Prereqs});
       push @Transform_complete, ("tal_pd");
     }

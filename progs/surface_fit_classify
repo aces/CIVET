@@ -357,7 +357,7 @@ sub create_midline_mask {
   run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-3)<0.45&&A[1];",
        $classify, $midline_mask, $callosum_with_bits );
 
-  run( "mincdefrag", $callosum_with_bits, $callosal_defrag, 1, 27, 100 );
+  run( "mincdefrag", $callosum_with_bits, $callosal_defrag, 1, 27, 1000 );
 
   run( "mincblur", "-clobber", "-fwhm", 2, $callosal_defrag, $callosal_blur );
 

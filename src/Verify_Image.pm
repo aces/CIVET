@@ -14,8 +14,10 @@ sub image {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-    my $nl_model = @_[3];
-    my $surf_model = @_[4];
+
+    my $lin_model = ${$image}->{linmodel};
+    my $nl_model = ${$image}->{nlinmodel};
+    my $surf_mask = ${$image}->{surfmask};
 
     my $t1_tal_final = ( -e ${$image}->{t1}{native} ) ? ${$image}->{t1}{final} : undef;
     my $t2_tal_final = ( -e ${$image}->{t2}{native} ) ? ${$image}->{t2}{final} : undef;
@@ -31,6 +33,7 @@ sub image {
     my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
     my $t1_nl_xfm = ${$image}->{t1_tal_nl_xfm};
     my $surface_info_file = ${$image}->{surface_qc};
+    my $brainmask_info_file = ${$image}->{brainmask_qc};
 
     my $t1_nl_final = ${$image}->{t1_nl_final};
     my $skull_mask_nat_stx = ${$image}->{skull_mask_nat_stx};
@@ -52,18 +55,27 @@ sub image {
                 $skull_mask_native, $skull_mask_nat_stx ],
       prereqs => $Prereqs });
 
+    ${$pipeline_ref}->addStage(
+      { name => "brain_mask_qc",
+      label => "native brain mask quality check",
+      inputs => [ $skull_mask_native, $t1_tal_xfm ],
+      outputs => [$brainmask_info_file],
+      args => [ "brain_mask_qc", $skull_mask_native, "${lin_model}_mask.mnc",
+                "-transform", $t1_tal_xfm, $brainmask_info_file ],
+      prereqs => $Prereqs });
+
     push @verifyRows, ( "-row", "color:gray", 
-                        "title:native skull mask in stx space",
-                        "overlay:${surf_model}:red:1.0",
+                        "title:\@${brainmask_info_file}",
+                        "overlay:${surf_mask}:red:1.0",
                         $skull_mask_nat_stx );
-    push @verifyInputs, ( $skull_mask_nat_stx );
+    push @verifyInputs, ( $skull_mask_nat_stx, $brainmask_info_file );
 
     # Row 2a (b,c): registered t1 (t2,pd) images, nu-corrected, inormalized
     if( $t1_tal_final ) {
       my $t1_base = &basename( $t1_tal_final );
       push @verifyRows, ( "-row", "color:gray", 
                           "title:t1 final image ${t1_base}",
-                          "overlay:${surf_model}:red:1.0",
+                          "overlay:${surf_mask}:red:1.0",
                           $t1_tal_final );
       push @verifyInputs, ( $t1_tal_final );
     }
@@ -72,7 +84,7 @@ sub image {
       my $t2_base = &basename( $t2_tal_final );
       push @verifyRows, ( "-row", "color:gray", 
                           "title:t2 final image ${t2_base}", 
-                          "overlay:${surf_model}:red:1.0",
+                          "overlay:${surf_mask}:red:1.0",
                           $t2_tal_final );
       push @verifyInputs, ( $t2_tal_final );
     }
@@ -81,7 +93,7 @@ sub image {
       my $pd_base = &basename( $pd_tal_final );
       push @verifyRows, ( "-row", "color:gray",
                           "title:pd final image ${pd_base}", 
-                          "overlay:${surf_model}:red:1.0",
+                          "overlay:${surf_mask}:red:1.0",
                           $pd_tal_final );
       push @verifyInputs, ( $pd_tal_final );
     }
@@ -101,7 +113,7 @@ sub image {
     my $nl_model_base = &basename( $nl_model );
     push @verifyRows, ( "-row", "color:gray",
                         "title:t1 non-linear registration to ${nl_model_base}", 
-                        "overlay:${surf_model}:red:1.0",
+                        "overlay:${surf_mask}:red:1.0",
                         $t1_nl_final );
     push @verifyInputs, ( $t1_nl_final );
 
@@ -130,7 +142,8 @@ sub image {
                           "overlay:${gray_surface_right}:red:0.5",
                           $cls_correct );
       push @verifyInputs, ( $white_surface_left, $gray_surface_left, 
-                            $white_surface_right, $gray_surface_right );
+                            $white_surface_right, $gray_surface_right,
+                            $surface_info_file );
     }
     my @verifyCmd = ( "create_verify_image", ${$image}->{verify}, "-clobber", 
                       "-width", 1200 );
@@ -141,7 +154,7 @@ sub image {
       inputs => \@verifyInputs,
       outputs => [${$image}->{verify}],
       args => [ @verifyCmd, @verifyRows ],
-      prereqs => ["verify_image_nlfit", "verify_brain_mask"] });
+      prereqs => ["verify_image_nlfit", "verify_brain_mask", "brain_mask_qc"] });
 
     my $Verify_Image_complete = [ "verify_image" ];
     return( $Verify_Image_complete );
@@ -160,7 +173,7 @@ sub clasp {
     my $gray_surface_right = ${$image}->{gray}{right};
     my $thickness_left = "none";
     my $thickness_right = "none";
-    if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
+    if ( defined ${$image}->{tmethod} and defined ${$image}->{tkernel} ) {
       $thickness_left = ${$image}->{rms}{left};
       $thickness_right = ${$image}->{rms}{right};
     }
@@ -170,7 +183,7 @@ sub clasp {
     push @claspInputs, ( $gray_surface_right );
     push @claspInputs, ( $white_surface_left );
     push @claspInputs, ( $white_surface_right );
-    if ( ${$image}->{tmethod} and ${$image}->{tkernel} ) {
+    if ( defined ${$image}->{tmethod} and defined ${$image}->{tkernel} ) {
       push @claspInputs, ( $thickness_left );
       push @claspInputs, ( $thickness_right );
     }

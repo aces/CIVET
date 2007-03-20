@@ -131,7 +131,7 @@ sub lobe_area {
     my @ExtraInputsRight;
     my @ExtraOutputsLeft;
     my @ExtraOutputsRight;
-    if( ${$image}->{tkernel} && ${$image}->{tmethod} ) {
+    if( defined ${$image}->{tkernel} && defined ${$image}->{tmethod} ) {
       push @ExtraInputsLeft, ( $native_rms_left );
       push @ExtraInputsRight, ( $native_rms_right );
       push @ExtraOutputsLeft, ( $lobe_thickness_left );
