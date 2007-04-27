@@ -1,0 +1,81 @@
+#!/usr/bin/env perl
+#
+
+# Compute the gyrification index of a cortical surface. Ideally, this should
+# be done in native space unless lsq6 or lsq7 linear registration is used.
+# Non-uniform scaling factors (lsq9 or lsq12) can change the index if compute
+# in Talairach.
+
+use strict;
+use warnings "all";
+
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+# --- set the help & usage strings ---
+my $help = <<HELP;
+Compute the gyrification index of a cortical surface.
+HELP
+
+my $me = &basename($0);
+my $usage = <<USAGE;
+Usage: $me [options] surface.obj [info_file.txt]
+       $me -help to list options
+
+USAGE
+
+my $transform_xfm = undef;
+
+my @options =
+  ( ['-transform', 'string', 1, \$transform_xfm,
+     'transformation from native to stereotaxic (if surfaces in stx space)'],
+  );
+
+Getopt::Tabular::SetHelp( $help, $usage );
+
+GetOptions( \@options, \@ARGV ) or exit 1;
+
+die "$usage\n" unless ( @ARGV == 1 || @ARGV == 2 );
+
+# define input variables:
+
+my $surface = shift(@ARGV);
+my $info_file = shift(@ARGV);
+
+# Directory for temporary files.
+
+my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+my $surface_native = $surface;
+if( defined $transform_xfm ) {
+  $surface_native = "${tmpdir}/surface_native.obj";
+  my $inv_trans = "${tmpdir}/inv_trans.xfm";
+  &run( "xfminvert", $transform_xfm, $inv_trans );
+  &run( "transform_objects", $surface, $inv_trans, $surface_native );
+}
+
+my $convex_hull = "${tmpdir}/convex_hull.obj";
+&run( "convex_hull", $surface_native, $convex_hull );
+
+my ($bla,$area_surface,$area_hull);
+
+($bla,$area_surface) = split(' ',`measure_surface_area $surface_native`);
+
+($bla,$area_hull) = split(' ',`measure_surface_area $convex_hull`);
+
+if( defined $info_file ) {
+  open PIPE, ">$info_file";
+  print PIPE sprintf( "gyrification index: %5.3f\n", ${area_surface}/${area_hull} );
+  close PIPE;
+} else {
+  print sprintf( "gyrification index: %5.3f\n", ${area_surface}/${area_hull} );
+}
+
+
+#Execute a system call.
+
+sub run {
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

@@ -25,7 +25,7 @@ $Help = <<HELP;
 | Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
 HELP
 
-$Usage = "Usage: $me [options] mask1.mnc mask2.mnc\n".
+$Usage = "Usage: $me [options] mask1.mnc mask2.mnc [info_file.txt]\n".
          "       $me -help to list options\n\n";
 
 my @opt_table = (

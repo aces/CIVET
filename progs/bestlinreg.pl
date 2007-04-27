@@ -261,7 +261,7 @@ for ($i=0; $i<=$#conf; $i++){
 # Concatenate transformations if an initial transformation was given.
 
 if( defined $opt{init_xfm} ) { 
-  &do_cmd( 'xfmconcat', $prev_xfm, $opt{init_xfm}, $outxfm );
+  &do_cmd( 'xfmconcat', $opt{init_xfm}, $prev_xfm, $outxfm );
 } else {
   &do_cmd( 'mv', '-f', $prev_xfm, $outxfm );
 }

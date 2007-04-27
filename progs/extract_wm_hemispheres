@@ -28,7 +28,7 @@ $Help = <<HELP;
 | Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
 HELP
 
-$Usage = "Usage: $me [options] classified.mnc brain_mask.mnc hemi_model_dir output_left_hemi.mnc output_right_hemi.mnc\n".
+$Usage = "Usage: $me [options] classified.mnc t1.mnc brain_mask.mnc hemi_model_dir output_left_hemi.mnc output_right_hemi.mnc\n".
          "       $me -help to list options\n\n";
 
 @opt_table = (
@@ -41,9 +41,11 @@ $Usage = "Usage: $me [options] classified.mnc brain_mask.mnc hemi_model_dir outp
 # Check arguments
 &Getopt::Tabular::SetHelp($Help, $Usage);
 &GetOptions (\@opt_table, \@ARGV) || exit 1;
-die $Usage if($#ARGV != 4);
+
+die $Usage if(@ARGV != 6);
 
 my $classify = shift(@ARGV);
+my $t1 = shift(@ARGV);
 my $brain_mask = shift(@ARGV);
 my $hemi_model_dir= shift(@ARGV);
 my $output_left_hemi = shift(@ARGV);
@@ -67,11 +69,14 @@ my $slide_right_xfm =  "${hemi_model_dir}/slide_right.xfm";
 my $wm_preflip_right = "${tmpdir}/wm_preflip_right.mnc";
 my $flip_right_xfm =  "${hemi_model_dir}/flip_right.xfm";
 
-                
+# create a white matter mask from the current brain_mask
+my $wm_mask = "${tmpdir}/wm_mask.mnc";
+white_matter_mask( $classify, $t1, $brain_mask, $wm_mask, $tmpdir );
+
 # apply brain mask to classified image
 
 &do_cmd( "minccalc", "-clobber", "-expr", "if(A[1]>0.5){out=A[0];}else{out=0;}",
-         $classify, $brain_mask, $classify_masked );
+         $classify, $wm_mask, $classify_masked );
 
 # create left and right masks for hemispheres (this works with any template,
 # assuming the centerline voxel is at x=0).
@@ -135,8 +140,69 @@ $xlen = ( $xlen + 1 ) / 2;
 &do_cmd( "mincdefrag", $output_right_hemi, $output_right_hemi, "1", "6", "100000" );
 
 
+# create a better white matter mask from the current brain_mask
+
+sub white_matter_mask {
+
+  my $cls = shift;
+  my $t1 = shift;
+  my $brain_mask = shift;
+  my $white_mask = shift;
+  my $tmpdir = shift;
+
+  # consider only 5mm around the perimeter of current brain mask
+  # (well, that's 5 layers of voxels, not 5mm).
+
+  my $mask_eroded = "${tmpdir}/mask_eroded.mnc";
+  &do_cmd( "dilate_volume", $brain_mask, $mask_eroded, 0, 6, 5 );
+
+  # compute t1 mean and variance of classified white matter inside the
+  # eroded brain mask (avoid high intensity voxels of skull).
+
+  my $cls_eroded = "${tmpdir}/cls_eroded.mnc";
+  &do_cmd( "minccalc", "-clobber", "-expression", "if(A[1]>0.5){out=A[0];}else{out=0;}",
+           $cls, $mask_eroded, $cls_eroded );
+  my $white_mean = `mincstats -quiet -mask $cls_eroded -mask_binvalue 3 -mean $t1`;
+  my $white_std = `mincstats -quiet -mask $cls_eroded -mask_binvalue 3 -std $t1`;
+  my $white_thresh = $white_mean + 2.0 * $white_std;
+
+  # mask out the t1 high intensity voxels in the eroded region of the
+  # brain mask. Keep only those classified white voxels to remove.
+
+  my $expr = "if(A[0]>2.5&&A[2]<0.5&&A[3]>0.5&&A[1]>$white_thresh){out=10;}else{out=0;}";
+
+  &do_cmd( "minccalc", "-clobber", "-expression", $expr, $cls, $t1, $mask_eroded,
+           $brain_mask, $cls_eroded );
+
+  # blur the bright voxels to remove to diffuse effect to immediate neighbours.
+
+  my $cls_blur = "${tmpdir}/cls_blur.mnc";
+  my $cls_blur_prefix = "${tmpdir}/cls";
+  &do_cmd( "mincblur", "-clobber", "-fwhm", 2, $cls_eroded, $cls_blur_prefix );
+
+  # remove the bright voxels and their immediate neighbours.
+
+  &do_cmd( "minccalc", "-clobber", "-byte", "-expression",
+           "if(A[0]>2.5&&A[2]>1.5){out=1;}else{if(A[1]>0.5){out=A[0];}else{out=0;}}",
+           $cls, $brain_mask, $cls_blur, $white_mask );
+
+  # remove loose bits of white matter.
+
+  &do_cmd( "mincdefrag", $white_mask, $white_mask, 3, 6 );
+
+  # blur the masked classified image.
+
+  &do_cmd( "mincblur", "-clobber", "-fwhm", 5, $white_mask, $cls_blur_prefix );
+
+  # threshold at 1.5 (csf-gm border) to obtain the final white matter mask.
+  &do_cmd( "minccalc", "-clobber", "-byte", "-expression", "if(A[0]>1.5||A[1]>0.5){out=1;}else{out=0;}",
+           $cls_blur, $mask_eroded, $white_mask );
+}
+
+
 sub do_cmd { 
    print STDOUT "@_\n" if ($verbose);
    system(@_) == 0 or die;
 }
+
 

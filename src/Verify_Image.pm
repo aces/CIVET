@@ -34,6 +34,7 @@ sub image {
     my $t1_nl_xfm = ${$image}->{t1_tal_nl_xfm};
     my $surface_info_file = ${$image}->{surface_qc};
     my $brainmask_info_file = ${$image}->{brainmask_qc};
+    my $classify_info_file = ${$image}->{classify_qc};
 
     my $t1_nl_final = ${$image}->{t1_nl_final};
     my $skull_mask_nat_stx = ${$image}->{skull_mask_nat_stx};
@@ -119,9 +120,17 @@ sub image {
 
     # Row 4: Classified image.
 
+    ${$pipeline_ref}->addStage(
+      { name => "classify_qc",
+      label => "classification quality check",
+      inputs => [ $cls_correct ],
+      outputs => [$classify_info_file],
+      args => [ "classify_qc", $cls_correct, $classify_info_file ],
+      prereqs => $Prereqs });
+
     push @verifyRows, ("-row", "color:gray", 
-                       "title:classified image", $cls_correct );
-    push @verifyInputs, ( $cls_correct );
+                       "title:\@${classify_info_file}", $cls_correct );
+    push @verifyInputs, ( $cls_correct, $classify_info_file );
 
     # Row 5: Segmentation labels.
     unless (${$image}->{animal} eq "noANIMAL") {
@@ -154,7 +163,8 @@ sub image {
       inputs => \@verifyInputs,
       outputs => [${$image}->{verify}],
       args => [ @verifyCmd, @verifyRows ],
-      prereqs => ["verify_image_nlfit", "verify_brain_mask", "brain_mask_qc"] });
+      prereqs => ["verify_image_nlfit", "verify_brain_mask", "brain_mask_qc",
+                  "classify_qc"] });
 
     my $Verify_Image_complete = [ "verify_image" ];
     return( $Verify_Image_complete );
@@ -171,22 +181,18 @@ sub clasp {
     my $white_surface_right = ${$image}->{white}{right};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
-    my $thickness_left = "none";
-    my $thickness_right = "none";
-    if ( defined ${$image}->{tmethod} and defined ${$image}->{tkernel} ) {
-      $thickness_left = ${$image}->{rms}{left};
-      $thickness_right = ${$image}->{rms}{right};
-    }
+    my $thickness_left = ${$image}->{rms}{left};
+    my $thickness_right = ${$image}->{rms}{right};
+    my $native_gi_left = ${$image}->{gyrification_index}{left};
+    my $native_gi_right = ${$image}->{gyrification_index}{right};
 
     my @claspInputs;
     push @claspInputs, ( $gray_surface_left );
     push @claspInputs, ( $gray_surface_right );
     push @claspInputs, ( $white_surface_left );
     push @claspInputs, ( $white_surface_right );
-    if ( defined ${$image}->{tmethod} and defined ${$image}->{tkernel} ) {
-      push @claspInputs, ( $thickness_left );
-      push @claspInputs, ( $thickness_right );
-    }
+    push @claspInputs, ( $thickness_left );
+    push @claspInputs, ( $thickness_right );
   
     my $verify_file = ${$image}->{verify_clasp};
 
@@ -201,10 +207,12 @@ sub clasp {
         outputs => [$verify_file],
         args => [ "verify_clasp", $gray_surface_left, $gray_surface_right, 
                   $white_surface_left, $white_surface_right, $thickness_left,
-                  $thickness_right, $verify_file, $title ],
+                  $thickness_right, $verify_file, "\@${native_gi_left}",
+                  "\@${native_gi_right}", "${$image}->{tmethod}\_${$image}->{tkernel}mm" ],
         prereqs => $Prereqs });
         push @Verify_CLASP_complete, ("verify_clasp");
     }
+
 
     return( \@Verify_CLASP_complete );
 }

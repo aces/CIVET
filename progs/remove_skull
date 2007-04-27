@@ -3,13 +3,10 @@
 
 # This step eliminates the skull and meninges using mincbet.
 # For better performance by mincbet, use uniform steps for 
-# (x,y,z). Also, resample in the same way as the original
+# (x,y,z). Also, resample in the same way as the original t1
 # image (the mincbet mask is z-y-x so if the original image
 # is different, do a mincresample in order to be able to 
-# apply the mask to its image). By the way, steps of 0.50mm
-# also work very well for t2 and pd since the layer of csf 
-# can be very thin.
-
+# apply the mask to its image).
 
 use strict;
 use warnings "all";
@@ -20,12 +17,11 @@ use MNI::FileUtilities qw(check_output_dirs);
 # define input variables:
 
 my $maskType=$ARGV[0];
-my $cropNeck=$ARGV[1];
-my $t1_input=$ARGV[2];
-my $t2_input=$ARGV[3];
-my $pd_input=$ARGV[4];
-my $t2pd_t1_xfm=$ARGV[5];
-my $skull_mask=$ARGV[6];
+my $t1_input=$ARGV[1];
+my $t2_input=$ARGV[2];
+my $pd_input=$ARGV[3];
+my $t2pd_t1_xfm=$ARGV[4];
+my $skull_mask=$ARGV[5];
 
 # Directory for temporary files.
 
@@ -39,27 +35,7 @@ my $bet_mask = "${bet_prefix}_mask.mnc";
 my $bet_mask_temp = "${bet_prefix}_mask_temp.mnc";
 my $input_resampled = "${TmpDir}/bet_resampled.mnc";
 
-# Crop the neck if required. This assumes that top-bottom orientation of
-# the head is in the z-direction. If not, this will produce unexpected
-# results. Also, make sure that z-extent is not less than 190mm (see 
-# mritotal).
-
-my @extend = ();
-if( defined $cropNeck && $cropNeck gt 0 ) {
-  my $zlen;
-  my $zstep;
-  chomp( $zlen = `mincinfo -dimlength zspace $t1_input` );
-  chomp( $zstep = `mincinfo -attvalue zspace:step $t1_input` );
-
-  my $total_z = abs( $zlen * $zstep );
-  my $crop_z = $total_z * $cropNeck / 100;
-
-  # The extents are in mm. No less than 190mm in height after cropping.
-  if( $total_z - $crop_z < 190 ) {
-    $crop_z = $total_z - 190;
-  }
-  @extend = ( "-extend", "0,0", "0,0", "-$crop_z,0" ) if( $crop_z > 0 );
-}
+my $mincbet = "mincbet_new";
 
 # mask non-cortical tissues using mincbet
 
@@ -67,10 +43,7 @@ if( defined $cropNeck && $cropNeck gt 0 ) {
 # (Use -h switch only for t1.)
 my $bet_t1_mask = "${bet_prefix}_t1_mask.mnc";
 
-&run( "autocrop", "-clobber", "-isostep", "1.0", "-resample", @extend,
-      $t1_input, $input_resampled );
-
-&run( "mincbet", $input_resampled, "${bet_prefix}_t1", 
+&run( $mincbet, $t1_input, "${bet_prefix}_t1", 
       "-n", "-m", "-h", "1.15", "-f", "0.50" );
 
 &run( "mv", "-f", $bet_t1_mask, $bet_mask );
@@ -79,50 +52,14 @@ my $bet_t1_mask = "${bet_prefix}_t1_mask.mnc";
 
 if( $maskType eq "multispectral" ) {
 
-  # Crop the neck if required. This assumes that top-bottom orientation of
-  # the head is in the z-direction. If not, this will produce unexpected
-  # results. Also, make sure that z-extent is not less than 190mm (see 
-  # mritotal). Note that t2/pd may have different extents than t1, but
-  # assume same extents for t2 and pd.
-
-  my @extend = ();
-  if( defined $cropNeck && $cropNeck gt 0 ) {
-    my $zlen;
-    my $zstep;
-    my $source = ( -e $t2_input ) ? $t2_input : $pd_input;
-    chomp( $zlen = `mincinfo -dimlength zspace $source` );
-    chomp( $zstep = `mincinfo -attvalue zspace:step $source` );
-  
-    my $total_z = abs( $zlen * $zstep );
-    my $crop_z = $total_z * $cropNeck / 100;
-  
-    # The extents are in mm. No less than 190mm in height after cropping.
-    if( $total_z - $crop_z < 190 ) {
-      $crop_z = $total_z - 190;
-    }
-    @extend = ( "-extend", "0,0", "0,0", "-$crop_z,0" ) if( $crop_z > 0 );
-  }
-
   my @transform = ();
   @transform = ( "-transform", $t2pd_t1_xfm ) if( -e $t2pd_t1_xfm );
 
   my $bet_expr = 'out=A[0]*A[1];';
 
-  # In the current way mincbet works, searching for a local minimum,
-  # it can be better to refine the sampling with t2 and pd. For t1 only,
-  # which usually has a weaker outline for csf, it is better to leave
-  # the sampling at 1.0mm rather than risking propagating skull
-  # everywhere at a smaller sampling. However, sampling at 0.5mm has
-  # not proved to be overly conclusive, so leave it at 1.0mm.
-
-  my $step = "1.0";
-
   if( -e $t2_input ) {
-
     my $bet_t2_mask = "${bet_prefix}_t2_mask.mnc";
-    &run( "autocrop", "-clobber", "-isostep", $step, "-resample", @extend,
-          $t2_input, $input_resampled );
-    &run( "mincbet", $input_resampled, "${bet_prefix}_t2", 
+    &run( $mincbet, $t2_input, "${bet_prefix}_t2", 
           "-n", "-m", "-f", "0.50" );
     &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
           "-like", $bet_mask, @transform, $bet_t2_mask, $input_resampled );
@@ -133,9 +70,7 @@ if( $maskType eq "multispectral" ) {
 
   if( -e $pd_input ) {
     my $bet_pd_mask = "${bet_prefix}_pd_mask.mnc";
-    &run( "autocrop", "-clobber", "-isostep", $step, "-resample", @extend,
-          $pd_input, $input_resampled );
-    &run( "mincbet", $input_resampled, "${bet_prefix}_pd", 
+    &run( $mincbet, $pd_input, "${bet_prefix}_pd", 
           "-n", "-m", "-f", "0.50" );
     &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
           "-like", $bet_mask, @transform, $bet_pd_mask, $input_resampled );
@@ -145,12 +80,21 @@ if( $maskType eq "multispectral" ) {
   }
 }
 
+# fill up holes when mincbet fails (rare case of inverted surface).
+
+my $bet_filled = "${bet_prefix}_filled.mnc";
+&run( "dilate_volume", $bet_mask, $bet_filled, 1, 6, 1 );
+&run( "mincdefrag", $bet_filled, $bet_filled, 0, 6 );
+&run( "dilate_volume", $bet_filled, $bet_filled, 0, 6, 2 );
+&run( "minccalc", "-clobber", "-expression", "if(A[0]+A[1]>0.5){out=1;}else{out=0;}",
+      $bet_mask, $bet_filled, $bet_mask_temp );
+
 # getting mincbet data in correct form -like $t1_input. This also
 # applies when we have t2 and pd since the latter are coregistered
 # to t1.
 
 &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
-      "-like", $t1_input, $bet_mask, $skull_mask );
+      "-like", $t1_input, $bet_mask_temp, $skull_mask );
 
 #Execute a system call.
 

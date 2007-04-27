@@ -32,7 +32,6 @@ sub stx_register {
     my $intermediateModel = @_[4];
 
     my $maskType = ${$image}->{maskType};
-    my $cropNeck = (defined ${$image}->{cropNeck}) ? ${$image}->{cropNeck} : 0;
     my $skull_mask = ${$image}->{skull_mask_native};
 
     my $t1_tal_xfm    = ${$image}->{t1_tal_xfm};
@@ -119,7 +118,7 @@ sub stx_register {
          label => "masking of skull in native space",
          inputs => \@skullInputs,
          outputs => [$skull_mask],
-         args => ["remove_skull", $maskType, $cropNeck, $t1_input, $t2_input,
+         args => ["remove_skull", $maskType, $t1_input, $t2_input,
                   $pd_input, $t2pd_t1_xfm, $skull_mask ],
          prereqs => $Coregister_complete });
 
@@ -220,6 +219,13 @@ sub transform {
     my $interpMethod = "-${$image}->{interpMethod}";
     my @Transform_complete = ();
 
+    # Note: Do not use -keep_real_range as it doesn't really do what we
+    #       want. It doesn't clip out of bound values; instead, it only
+    #       resets the min/max range without changing values. Values that
+    #       are out of bounds will be clipped in nuc_inorm_stage (next
+    #       step). It also fails for images in float: it sets the real
+    #       range to (0,1).
+
     if( $t1_native ) {
       ${$pipeline_ref}->addStage(
            { name => "tal_t1",
@@ -228,7 +234,7 @@ sub transform {
            outputs => [$t1_tal],
            args => ["mincresample", "-clobber", "-transform",
                    $t1_tal_xfm, "-like", $Template, $interpMethod,
-                   "-keep_real_range", $t1_native, $t1_tal],
+                   $t1_native, $t1_tal],
            prereqs => $Prereqs});
       push @Transform_complete, ("tal_t1");
     }
@@ -241,7 +247,7 @@ sub transform {
            outputs => [$t2_tal],
            args => ["mincresample", "-clobber", "-transform",
                    $t2pd_tal_xfm, "-like", $Template, $interpMethod,
-                   "-keep_real_range", $t2_native, $t2_tal],
+                   $t2_native, $t2_tal],
            prereqs => $Prereqs});
       push @Transform_complete, ("tal_t2");
     }
@@ -254,7 +260,7 @@ sub transform {
            outputs => [$pd_tal],
            args => ["mincresample", "-clobber", "-transform",
                    $t2pd_tal_xfm, "-like", $Template, $interpMethod,
-                   "-keep_real_range", $pd_native, $pd_tal],
+                   $pd_native, $pd_tal],
            prereqs => $Prereqs});
       push @Transform_complete, ("tal_pd");
     }

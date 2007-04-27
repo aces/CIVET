@@ -32,7 +32,6 @@ sub new {
     my $inputType = shift;
     my $correctPVE = shift;
     my $maskType = shift;
-    my $cropNeck = shift;
     my $interpMethod = shift;
     my $nuc_dist = shift;
     my $lsqtype = shift;
@@ -50,7 +49,6 @@ sub new {
     $image->{inputType} = $inputType;
     $image->{correctPVE} = $correctPVE;
     $image->{maskType} = $maskType;
-    $image->{cropNeck} = $cropNeck;
     $image->{interpMethod} = $interpMethod;
     $image->{nuc_dist} = $nuc_dist;
     $image->{lsqtype} = $lsqtype;
@@ -82,7 +80,7 @@ sub new {
     $image->{directories}{SEG} = "segment" unless( $animal eq "noANIMAL" );
     $image->{directories}{SURF} = "surfaces" unless( $surface eq "noSURFACE" );
     $image->{directories}{SR} = "transforms/surfreg" unless( $surface eq "noSURFACE" );
-    $image->{directories}{THICK} = "thickness" if( defined $$thickness[0] && defined $$thickness[1] );
+    $image->{directories}{THICK} = "thickness";
 
     my $Base_Dir = "${Target_Dir}/${dsid}";
     system( "mkdir -p ${Base_Dir}" ) if( ! -d ${Base_Dir} );
@@ -148,13 +146,8 @@ sub new {
         $image->{animal_labels}{right} = "${seg_dir}/${prefix}_${dsid}_animal_surface_labels_right.txt";
         $image->{lobe_areas}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
         $image->{lobe_areas}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
-        if( defined $$thickness[0] && defined $$thickness[1] ) {
-          $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_left.dat";
-          $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_right.dat";
-        } else {
-          $image->{lobe_thickness}{left} = undef;
-          $image->{lobe_thickness}{right} = undef;
-        }
+        $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_left.dat";
+        $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_right.dat";
       } else {
         $image->{animal_labels}{left} = undef;
         $image->{animal_labels}{right} = undef;
@@ -211,26 +204,28 @@ sub new {
 
     # Define cortical thickness files.
     my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
-    if( defined $$thickness[0] && defined $$thickness[1] ) {
-      $image->{rms}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_left.txt";
-      $image->{rms}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_right.txt";
-      $image->{rms_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_left.txt";
-      $image->{rms_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_right.txt";
-      unless ($image->{animal} eq "noANIMAL") {
-        $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_left.dat";
-        $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_right.dat";
-      } else {
-        $image->{lobe_thickness}{left} = undef;
-        $image->{lobe_thickness}{right} = undef;
-      }
+    $image->{rms}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_left.txt";
+    $image->{rms}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_right.txt";
+    $image->{rms_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_left.txt";
+    $image->{rms_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_right.txt";
+    unless ($image->{animal} eq "noANIMAL") {
+      $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_left.dat";
+      $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_right.dat";
     } else {
-      $image->{rms}{left} = undef;
-      $image->{rms}{right} = undef;
-      $image->{rms_rsl}{left} = undef;
-      $image->{rms_rsl}{right} = undef;
       $image->{lobe_thickness}{left} = undef;
       $image->{lobe_thickness}{right} = undef;
     }
+
+    # Define cortical mean curvature files.
+    my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
+    $image->{mc}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_left.txt";
+    $image->{mc}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_right.txt";
+    $image->{mc_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_left.txt";
+    $image->{mc_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_right.txt";
+
+    # Define cortical mean curvature files.
+    $image->{gyrification_index}{left} = "${surf_dir}/${prefix}_${dsid}_gi_left.dat";
+    $image->{gyrification_index}{right} = "${surf_dir}/${prefix}_${dsid}_gi_right.dat";
 
     # Define verification files.
     my $verify_dir = "${Base_Dir}/$image->{directories}{VER}";
@@ -240,6 +235,7 @@ sub new {
     $image->{t1_nl_final} = "${Base_Dir}/$image->{directories}{FINAL}/${prefix}_${dsid}_t1_nl.mnc";
     $image->{surface_qc} = "${verify_dir}/${prefix}_${dsid}_surface_qc.txt";
     $image->{brainmask_qc} = "${verify_dir}/${prefix}_${dsid}_brainmask_qc.txt";
+    $image->{classify_qc} = "${verify_dir}/${prefix}_${dsid}_classify_qc.txt";
 
     return( $image );
 }
@@ -341,13 +337,6 @@ sub validate_options {
 
   # The following parameters are direct inputs from user so check them.
 
-  # value of cropNeck must be a positive number, if a number is given
-  if( defined $image->{cropNeck} ) {
-    if( !check_value( $image->{cropNeck}, $PositiveFloat ) ) {
-      die "ERROR: Value of -crop-neck ($image->{cropNeck}) must be a positive integer number.\n";
-    }
-  }
-
   # must be one of trilinear, tricubic, sinc.
   if( !( $image->{interpMethod} eq "tricubic" ||
          $image->{interpMethod} eq "trilinear" ||
@@ -361,20 +350,16 @@ sub validate_options {
   }
 
   # value of tmethod must be tlink, tlaplace, tnear or tnormal
-  if( defined $image->{tmethod} ) {
-    if( !( $image->{tmethod} eq "tlink" ||
-         $image->{tmethod} eq "tlaplace" ||
-         $image->{tmethod} eq "tnear" ||
-         $image->{tmethod} eq "tnormal" ) ) {
-      die "ERROR: Cortical thickness method ($image->{tmethod}) must be tlink, tlaplace, tnear, or tnormal.\n";
-    }
+  if( !( $image->{tmethod} eq "tlink" ||
+       $image->{tmethod} eq "tlaplace" ||
+       $image->{tmethod} eq "tnear" ||
+       $image->{tmethod} eq "tnormal" ) ) {
+    die "ERROR: Cortical thickness method ($image->{tmethod}) must be tlink, tlaplace, tnear, or tnormal.\n";
   }
 
   # value of tkernel must be a positive integer number or zero
-  if( defined $image->{tkernel} ) {
-    if( !check_value( $image->{tkernel}, $PositiveFloat ) ) {
-      die "ERROR: Value of blurring kernel ($image->{tkernel}) must be a positive integer number.\n";
-    }
+  if( !check_value( $image->{tkernel}, $PositiveFloat ) ) {
+    die "ERROR: Value of blurring kernel ($image->{tkernel}) must be a positive integer number.\n";
   }
 
   # The following models must exist.
@@ -424,14 +409,11 @@ sub print_options {
   print PIPE "PVE iterative correction to mean and variance is ON\n"
     if( $image->{correctPVE} );
   print PIPE "Brain masking is $image->{maskType}\n";
-  print PIPE "Crop neck at $image->{cropNeck}\%\n" if( $image->{cropNeck} > 0 );
   print PIPE "Interpolation method from native to stereotaxic is $image->{interpMethod}\n";
   print PIPE "N3 distance is $image->{nuc_dist}mm\n";
   print PIPE "Linear registration type is $image->{lsqtype}\n";
   if( $image->{surface} eq "SURFACE" ) {
-    if( defined $image->{tmethod} && defined $image->{tkernel} ) {
-      print PIPE "Cortical thickness using $image->{tmethod}, blurred at $image->{tkernel}mm\n";
-    }
+    print PIPE "Cortical thickness using $image->{tmethod}, blurred at $image->{tkernel}mm\n";
   }
   print PIPE "Model for linear registration is\n  $image->{linmodel}\n";
   print PIPE "Model for non-linear registration is\n  $image->{nlinmodel}\n";

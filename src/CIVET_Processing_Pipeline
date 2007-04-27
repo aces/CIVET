@@ -47,8 +47,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.6";
-my $versionDate= "March 2, 2007";
+my $version = "1.1.7";
+my $versionDate= "March 30, 2007";
 my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -59,28 +59,38 @@ my $whatsnew = <<NEW;
 
     New in $versionDate quarantine, version $version
 
-    1 - support for various interpolation methods from native to
-        stereotaxic (linear, cubic, sinc; default is linear).
-    2 - error metric for brain mask in native space (in verify image).
-    3 - shuffle the PMP steps so that -resetAll actually works.
-    4 - file name extension for surface maps is .sm, not .mnc.
-    5 - can use a 0mm blurring kernel for cortical thickness (no blurring).
-    6 - improved cut through callosum to split hemispheres.
-    7 - fixed bug in surface registration for infinite loop (on RedHat).
-    8 - clear history in minc files to go around likely bug in netCDF 3.6.1.
+    1 - added mean curvature on native mid surfaces.
+    2 - added gyrification index.
+    3 - cortical thickness now always produced, with tlink method 
+        and 20mm blurring kernel as defaults.
+    4 - added percentages for tissue types in verify image.
+    5 - much improved brain mask, remove -crop-neck option.
 
     More to come soon:
 
+    0 - improved method to do surface parcellation using non-linear
+        surface map.
     1 - susceptibility artefact map now uses brain with cerebellum. *BETA*
     2 - new ICBM templates compatible with non-linear ICBM152 model. *BETA*
     3 - run nu_correct in stereotaxic space on the interpolated 
         original native image, not on the interpolated nu_corrected
         native image. *BETA*
-    4 - use CLASP to improve the white matter mask by removing bright
-        meninges classified as white matter.
-    5 - surface classification and extraction in native space.
+    5 - classification and surface extraction in native space.
     6 - high-resolution surfaces at 320k polygons.
     7 - file compression via PMP to save disk space.
+
+    ********** From previous Mar-20-2007 quarantine, version 1.1.6 **********
+
+    1 - support for various interpolation methods from native to
+        stereotaxic (linear, cubic, sinc; default is linear).
+    2 - error metric for brain mask in native space (in verify image).
+    3 - shuffle the PMP steps so that -resetAll actually works.
+    4 - file name extension for surface maps is .sm, not .mnc.
+        (use rename 's/\.mnc$/\.sm/' */transforms/surfreg/*.mnc).
+    5 - can use a 0mm blurring kernel for cortical thickness (no blurring).
+    6 - improved cut through callosum to split hemispheres.
+    7 - fixed bug in surface registration for infinite loop (on RedHat).
+    8 - clear history in minc files to go around likely bug in netCDF 3.6.1.
 
     ********** From previous Feb-28-2007 quarantine, version 1.1.5 **********
 
@@ -236,14 +246,13 @@ my $statusReportFile = "CIVET_status_report.csv";
 my $inputType = "t1only";
 my $correctPVE = 0;
 my $maskType = "t1only";
-my $cropNeck = undef;
 my $interpMethod = "trilinear";
 my $N3Distance = 200;
 my $lsqtype = "-lsq9";
 my $VBM = "VBM";
 my $animal = "ANIMAL";
 my $surface = "SURFACE";
-my @thickness = (undef,undef);
+my @thickness = ("tlink","20");
 
 ############# Some directories that the user will need to specify
 my $sourceDir = undef;
@@ -279,19 +288,19 @@ my @argTbl = (
           ["-template", "string", 1, \$TemplateSize, 
            "Define the template for image processing (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00)."],
           ["-registration-lin-model", "string", 1, \$regLinModel, 
-           "Define the target model for linear registration (default $DefaultRegLinModel)."],
+           "Define the target model for linear registration [default $DefaultRegLinModel]."],
           ["-registration-lin-modeldir", "string", 1, \$regLinModelDir, 
-           "Define the directory of the target model for linear registration (default $DefaultRegLinDir)."],
+           "Define the directory of the target model for linear registration [default $DefaultRegLinDir]."],
           ["-registration-nl-model", "string", 1, \$regNLModel, 
-           "Define the target model for non-linear registration (default $DefaultRegNLModel)."],
+           "Define the target model for non-linear registration [default $DefaultRegNLModel]."],
           ["-registration-nl-modeldir", "string", 1, \$regNLModelDir, 
-           "Define the directory of the target model for non-linear registration (default $DefaultRegNLDir)."],
+           "Define the directory of the target model for non-linear registration [default $DefaultRegNLDir]."],
           ["-surface-model", "string", 1, \$SurfRegModel,
-           "Define the surface registration model (default $DefaultSurfRegModel)."],
+           "Define the surface registration model [default $DefaultSurfRegModel]."],
           ["-surface-dataterm", "string", 1, \$SurfRegDataTerm,
-           "Define the surface registration dataterm (default $DefaultSurfRegDataTerm)."],
+           "Define the surface registration dataterm [default $DefaultSurfRegDataTerm]."],
           ["-surface-modeldir", "string", 1, \$SurfRegModelDir,
-           "Define the directory for the surface registration model (default $DefaultSurfRegModelDir)."],
+           "Define the directory for the surface registration model [default $DefaultSurfRegModelDir]."],
 
 #          ["-group-specific-registration|-normal-registration", "boolean", undef, \$groupReg, "Add a ( pediatric) intermediate model registration."],
 #          ["-group-specific-model", "string", 1, \$groupModel, "Define the intermediate registration target for (default pediatric) data."],
@@ -304,16 +313,14 @@ my @argTbl = (
            "Apply correction to the mean and variance of tissue types at pve iterations."],
           ["-spectral_mask", "const", "multispectral", \$maskType, 
            "Use T1, T2 and PD native files for brain masking."],
-          ["-crop-neck", "string", 1, \$cropNeck, 
-           "Percentage of height to crop to remove neck for masking."],
           ["-interp", "string", 1, \$interpMethod,
-           "Interpolation method from native to stereotaxic space (\"trilinear\" (default), \"tricubic\", \"sinc\""],
+           "Interpolation method from native to stereotaxic space (\"trilinear\", \"tricubic\", \"sinc\""],
           ["-N3-distance", "string", 1, \$N3Distance, 
-           "N3 spline distance in mm (suggested values: 200 for 1.5T scan (default); 25 for 3T scan)."],
+           "N3 spline distance in mm (suggested values: 200 for 1.5T scan; 25 for 3T scan)."],
           ["-lsq6", "const", "-lsq6", \$lsqtype,
-           "use 6-parameter transformation for linear registration (default -lsq9)" ],
+           "use 6-parameter transformation for linear registration [default -lsq9]" ],
           ["-lsq12", "const", "-lsq12", \$lsqtype,
-           "use 12-parameter transformation for linear registration (default -lsq9)" ],
+           "use 12-parameter transformation for linear registration [default -lsq9]" ],
           ["-no-surfaces", "const", "noSURFACE", \$surface, "don\'t build surfaces"],
           ["-no-animal", "const", "noANIMAL", \$animal, "don\'t run volumetric ANIMAL segmentation."],
           ["-thickness", "string", 2, \@thickness,
@@ -491,7 +498,6 @@ foreach my $dsid (@dsids) {
                                 $inputType,
                                 $correctPVE,
                                 $maskType,
-                                $cropNeck,
                                 $interpMethod,
                                 $N3Distance,
                                 $lsqtype,

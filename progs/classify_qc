@@ -1,0 +1,69 @@
+#! /usr/bin/env perl
+#
+# Compute the percentages of classified CSF, WM, GM.
+# 
+# Note: This is for the whole head, including brain stem and cerebellum,
+#       so not ideal to represent the WM and GM we want.
+#
+# Claude Lepage - claude@bic.mni.mcgill.ca
+#
+
+use strict;
+use warnings "all";
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+
+my($Help, $Usage, $me);
+my $transform_xfm = undef;
+
+$me = &basename($0);
+
+$Help = <<HELP;
+| Compute the percentages of classified CSF, WM, GM.
+| 
+| Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
+HELP
+
+$Usage = "Usage: $me cls.mnc [info_file.txt]\n\n";
+
+# Check arguments
+&Getopt::Tabular::SetHelp($Help, $Usage);
+
+die $Usage if( !( $#ARGV == 0 || $#ARGV == 1 ) );
+
+my $cls = shift(@ARGV);
+my $info_file = shift(@ARGV);
+
+# check for files
+die "$me: Couldn't find input file: $cls\n\n" if (!-e $cls);
+
+my $csf_vol;
+chomp( $csf_vol = `mincstats -quiet -sum -mask $cls -mask_binvalue 1 $cls` );
+
+my $gm_vol;
+chomp( $gm_vol = `mincstats -quiet -sum -mask $cls -mask_binvalue 2 $cls` );
+$gm_vol /= 2;
+
+my $wm_vol;
+chomp( $wm_vol = `mincstats -quiet -sum -mask $cls -mask_binvalue 3 $cls` );
+$wm_vol /= 3;
+
+my $total_vol = $csf_vol + $gm_vol + $wm_vol;
+
+my $csf_pct = 100.0 * $csf_vol / $total_vol;
+my $gm_pct = 100.0 * $gm_vol / $total_vol;
+my $wm_pct = 100.0 * $wm_vol / $total_vol;
+
+if( defined $info_file ) {
+  open PIPE, ">$info_file";
+  print PIPE sprintf( "classified image CSF %5.2f%%  GM %5.2f%%  WM %5.2f%%\n", 
+                      $csf_pct, $gm_pct, $wm_pct );
+  close PIPE;
+} else {
+  print sprintf( "classified image CSF %5.2f%%  GM %5.2f%%  WM %5.2f%%\n", 
+                 $csf_pct, $gm_pct, $wm_pct );
+}
+
+

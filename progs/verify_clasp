@@ -8,9 +8,9 @@ use List::Util qw( min max );
 use File::Temp qw/ tempdir /;
 
 my ($gray_left, $gray_right, $white_left, $white_right, $thickness_left,
-    $thickness_right, $output, $title) = @ARGV;
+    $thickness_right, $output, $lg_title, $rg_title, $ct_title) = @ARGV;
 unless($output) {
-  print "Usage: $0 <gray_left.obj> <gray_right.obj> <white_left.obj> <white_right.obj> <thickness_left> <thickness_right> <output.png> [title]\n";
+  print "Usage: $0 <gray_left.obj> <gray_right.obj> <white_left.obj> <white_right.obj> <thickness_left> <thickness_right> <output.png> lg_title rg_title ct_title\n";
   print "Note that none of the inputs may be compressed!\n";
   exit(1);
 }
@@ -20,10 +20,13 @@ my $tilesize = 200;
 my $debug = 0;
 my $quiet = 1;
 my @mont_args = ();
+my @DrawText = ();
 
-$title = "CLASP surfaces" unless defined $title;
+my $xpos = 2*$tilesize;
+my $ypos = 15;
 
 # ROW 1: white left hemi surfaces + white top and bottom views
+push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"CLASP surfaces\"";
 foreach my $pos ('default', 'left', 'right') {
   print "Making left white ${pos} surface\n" unless $quiet;
   make_hemi($white_left, "${tmpdir}/white_left_$pos.rgb", $pos);
@@ -36,6 +39,7 @@ foreach my $pos ('top', 'bottom') {
 }
 
 # ROW 2: white right hemi surfaces + white front and back views
+$ypos += $tilesize;
 foreach my $pos ('default', 'right', 'left') {
   print "Making right white ${pos} surface\n" unless $quiet;
   make_hemi($white_right, "${tmpdir}/white_right_$pos.rgb", $pos);
@@ -48,6 +52,8 @@ foreach my $pos ('front', 'back') {
 }
 
 # ROW 3: gray left hemi surfaces + gray top and bottom views
+$ypos += $tilesize;
+push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$lg_title\"";
 foreach my $pos ('default', 'left', 'right') {
   print "Making left gray ${pos} surface\n" unless $quiet;
   make_hemi($gray_left, "${tmpdir}/gray_left_$pos.rgb", $pos);
@@ -60,6 +66,8 @@ foreach my $pos ('top', 'bottom') {
 }
 
 # ROW 4: gray right hemi surfaces + gray front and back views
+$ypos += $tilesize;
+push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$rg_title\"";
 foreach my $pos ('default', 'right', 'left') {
   print "Making right gray ${pos} surface\n" unless $quiet;
   make_hemi($gray_right, "${tmpdir}/gray_right_$pos.rgb", $pos);
@@ -75,6 +83,9 @@ my $num_rows = 4;
 # ROWS 5 - 6: cortical thickness on left and right mid-surfaces
 if( -e $thickness_left && $thickness_left ne "none" &&
     -e $thickness_right && $thickness_right ne "none" ) {
+  $ypos += $tilesize;
+  push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$ct_title\"";
+  $ypos += $tilesize;
   $num_rows+=2;
   my $mid_left = "${tmpdir}/mid_left.obj";
   my $mid_right = "${tmpdir}/mid_right.obj";
@@ -132,7 +143,7 @@ print "$cmd\n" if $debug; `$cmd`;
 
 # Add the title
 print "Adding title\n" unless $quiet;
-$cmd = "convert -box white -font 7x13bold -draw 'text 2,15 \"${title}\"' ${tmpdir}/mont.png ${output}";
+$cmd = "convert -box white -stroke green -pointsize 16 @DrawText ${tmpdir}/mont.png ${output}";
 print "$cmd\n" if $debug; `$cmd`;
 
 print "Done\n" unless $quiet;

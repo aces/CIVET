@@ -30,7 +30,7 @@ sub create_pipeline {
          label => "removal of skull (in stereotaxic space)",
          inputs => \@skullInputs,
          outputs => [$Skull_Mask],
-         args => ["remove_skull", $maskType, 0, $t1_input, $t2_input, 
+         args => ["remove_skull", $maskType, $t1_input, $t2_input, 
                   $pd_input, undef, $Skull_Mask ],
          prereqs => $Prereqs });
 

@@ -164,7 +164,9 @@ sub create_pipeline{
     my $Surface_Fit_complete = undef;
     my $SurfReg_complete = undef;
     my $Thickness_complete = undef;
+    my $Mean_Curvature_complete = undef;
     my $LobeArea_complete = undef;
+    my $GyrificationIndex_complete = undef;
 
     unless (${$image}->{surface} eq "noSURFACE") {
 
@@ -181,6 +183,17 @@ sub create_pipeline{
       );
       $Surface_Fit_complete = $res[0];
 
+      ##############################
+      ##### Gyrification Index #####
+      ##############################
+
+      @res = Cortical_Measurements::gyrification_index(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $GyrificationIndex_complete = $res[0];
+
       ################################
       ##### Surface registration #####
       ################################
@@ -192,25 +205,28 @@ sub create_pipeline{
       );
       $SurfReg_complete = $res[0];
 
-      ###################################################
-      ##### Cortical Thickness and Cortex Lobe Area #####
-      ###################################################
+      ###################################################################
+      ##### Cortical Thickness, Mean Curvature and Cortex Lobe Area #####
+      ###################################################################
 
-      if ( defined ${$image}->{tmethod} and defined ${$image}->{tkernel} ) {
-        @res = Cortical_Measurements::thickness(
-          $pipeline_ref,
-          $SurfReg_complete,
-          $image
-        );
-        $Thickness_complete = $res[0];
-      }
+      @res = Cortical_Measurements::thickness(
+        $pipeline_ref,
+        $SurfReg_complete,
+        $image
+      );
+      $Thickness_complete = $res[0];
+
+      @res = Cortical_Measurements::mean_curvature(
+        $pipeline_ref,
+        $SurfReg_complete,
+        $image
+      );
+      $Mean_Curvature_complete = $res[0];
 
       unless (${$image}->{animal} eq "noANIMAL") {
 
         my $lobePrereqs = [ @{$SurfReg_complete}, @{$Segment_complete} ];
-        if ( defined ${$image}->{tmethod} and defined ${$image}->{tkernel} ) {
-          push @{$lobePrereqs}, @{$Thickness_complete};
-        }
+        push @{$lobePrereqs}, @{$Thickness_complete};
 
         @res = Cortical_Measurements::lobe_area(
           $pipeline_ref,
@@ -246,9 +262,8 @@ sub create_pipeline{
     my $Verify_CLASP_complete = undef;
     unless (${$image}->{surface} eq "noSURFACE") {
       my $CLASPPrereqs = [ @{$Surface_Fit_complete} ];
-      if ( defined ${$image}->{tmethod} and defined ${$image}->{tkernel} ) {
-        push @{$CLASPPrereqs}, @{$Thickness_complete};
-      }
+      push @{$CLASPPrereqs}, @{$GyrificationIndex_complete};
+      push @{$CLASPPrereqs}, @{$Thickness_complete};
       @res = Verify::clasp(
         $pipeline_ref,
         $CLASPPrereqs,
