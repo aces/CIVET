@@ -1,0 +1,76 @@
+#! /usr/bin/perl
+#
+
+# March, 2007: Initial implementation. - Claude Lepage
+
+use strict;
+use warnings "all";
+
+use Getopt::Tabular;
+use MNI::Startup;
+use MNI::FileUtilities qw(check_output_dirs);
+
+
+# --- set the help & usage strings ---
+my $help = <<HELP;
+Compute the mean curvature on the mid-surface.
+HELP
+
+my $usage = <<USAGE;
+Usage: $ProgramName [options] mid.obj output.txt
+       $ProgramName -help to list options
+
+USAGE
+
+Getopt::Tabular::SetHelp( $help, $usage );
+
+my $fwhm = 0;
+my $transform_xfm = undef;
+
+my @options =
+  ( @DefaultArgs,     # from MNI::Startup
+    ['-fwhm', 'string', 1, \$fwhm, 'blurring kernel in mm'],
+    ['-transform', 'string', 1, \$transform_xfm, 
+     'transformation from native to stereotaxic (if surfaces in stx space)'],
+  );
+
+GetOptions( \@options, \@ARGV )
+  or exit 1;
+die "$usage\n" unless @ARGV == 2;
+
+my $mid = shift;
+my $output = shift;
+
+# These are temporary files.
+MNI::FileUtilities::check_output_dirs("${TmpDir}")
+  or exit 1;
+
+# Make sure there is only one way to compute the thickness.
+
+if( defined $transform_xfm ) {
+  my $mid_trans = "${TmpDir}/mid_trans.obj";
+  my $inv_trans = "${TmpDir}/inv_trans.xfm";
+  &run( "xfminvert", $transform_xfm, $inv_trans );
+  &run( "transform_objects", $mid, $inv_trans, $mid_trans );
+  $mid = $mid_trans;
+}
+
+&run( "depth_potential", "-mean_curvature", $mid, $output );
+
+# Blur the cortical mean curvature on the mid-surface in new space.
+
+if( $fwhm gt 0 ) {
+  my $output_blurred = "${TmpDir}/mc_blurred.mnc";
+  &run( "diffuse", "-kernel", $fwhm, "-iterations", 1000, "-parametric", 1,
+        $mid, $output, $output_blurred );
+  &run( "mv", "-f", $output_blurred, $output );
+}
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+
