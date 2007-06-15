@@ -74,8 +74,15 @@ sub image {
     # Row 2a (b,c): registered t1 (t2,pd) images, nu-corrected, inormalized
     if( $t1_tal_final ) {
       my $t1_base = &basename( $t1_tal_final );
+      my $dx = `mincinfo -attvalue xspace:step ${$image}->{t1}{native}`;
+      my $dy = `mincinfo -attvalue yspace:step ${$image}->{t1}{native}`;
+      my $dz = `mincinfo -attvalue zspace:step ${$image}->{t1}{native}`;
+      chomp( $dx );
+      chomp( $dy );
+      chomp( $dz );
       push @verifyRows, ( "-row", "color:gray", 
-                          "title:t1 final image ${t1_base}",
+                          sprintf( "title:t1 final image %s (%5.2f x %5.2f x %5.2f mm)", 
+                                   ${t1_base}, abs($dx), abs($dy), abs($dz) ),
                           "overlay:${surf_mask}:red:1.0",
                           $t1_tal_final );
       push @verifyInputs, ( $t1_tal_final );
@@ -83,8 +90,15 @@ sub image {
 
     if( $t2_tal_final ) {
       my $t2_base = &basename( $t2_tal_final );
+      my $dx = `mincinfo -attvalue xspace:step ${$image}->{t2}{native}`;
+      my $dy = `mincinfo -attvalue yspace:step ${$image}->{t2}{native}`;
+      my $dz = `mincinfo -attvalue zspace:step ${$image}->{t2}{native}`;
+      chomp( $dx );
+      chomp( $dy );
+      chomp( $dz );
       push @verifyRows, ( "-row", "color:gray", 
-                          "title:t2 final image ${t2_base}", 
+                          sprintf( "title:t2 final image %s (%5.2f x %5.2f x %5.2f mm)", 
+                                   ${t2_base}, abs($dx), abs($dy), abs($dz) ),
                           "overlay:${surf_mask}:red:1.0",
                           $t2_tal_final );
       push @verifyInputs, ( $t2_tal_final );
@@ -92,8 +106,15 @@ sub image {
 
     if( $pd_tal_final ) {
       my $pd_base = &basename( $pd_tal_final );
+      my $dx = `mincinfo -attvalue xspace:step ${$image}->{pd}{native}`;
+      my $dy = `mincinfo -attvalue yspace:step ${$image}->{pd}{native}`;
+      my $dz = `mincinfo -attvalue zspace:step ${$image}->{pd}{native}`;
+      chomp( $dx );
+      chomp( $dy );
+      chomp( $dz );
       push @verifyRows, ( "-row", "color:gray",
-                          "title:pd final image ${pd_base}", 
+                          sprintf( "title:pd final image %s (%5.2f x %5.2f x %5.2f mm)", 
+                                   ${pd_base}, abs($dx), abs($dy), abs($dz) ),
                           "overlay:${surf_mask}:red:1.0",
                           $pd_tal_final );
       push @verifyInputs, ( $pd_tal_final );

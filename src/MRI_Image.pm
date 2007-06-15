@@ -292,6 +292,10 @@ sub image {
   my $suffix = "";
   if( -e "${sourceDir}/${prefix}_${dsid}_${type}.mnc.gz" ) {
     $suffix = ".gz";
+  } else {
+    if( -e "${sourceDir}/${prefix}_${dsid}_${type}.mnc.Z" ) {
+      $suffix = ".Z";
+    }
   }
 
   my $h = { source   => "${sourceDir}/${prefix}_${dsid}_${type}.mnc${suffix}",
