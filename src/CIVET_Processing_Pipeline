@@ -207,7 +207,7 @@ my $reset = undef;
 my $command = "printStatus";
 
 # Queuing defaults:
-my $PMPtype = "pbs";
+my $PMPtype = "sge";
 my $PMPgranularity = 0;
 my $PMPmaxQueued = 10000;
 my %PMPconf = ( 'spawn' => { 'queue' => undef,
