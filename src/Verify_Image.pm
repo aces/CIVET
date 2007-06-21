@@ -51,7 +51,7 @@ sub image {
       label => "verification of native brain mask",
       inputs => [ $skull_mask_native, $t1_tal_xfm ],
       outputs => [$skull_mask_nat_stx],
-      args => [ "mincresample", "-clobber", "-like", $t1_tal_final, 
+      args => [ "mincresample", "-clobber", "-byte", "-like", $t1_tal_final, 
                 "-nearest_neighbour", "-transform", $t1_tal_xfm, 
                 $skull_mask_native, $skull_mask_nat_stx ],
       prereqs => $Prereqs });
