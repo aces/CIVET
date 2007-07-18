@@ -35,7 +35,7 @@ my $bet_mask = "${bet_prefix}_mask.mnc";
 my $bet_mask_temp = "${bet_prefix}_mask_temp.mnc";
 my $input_resampled = "${TmpDir}/bet_resampled.mnc";
 
-my $mincbet = "mincbet_new";
+my $mincbet = "mincbet";
 
 # mask non-cortical tissues using mincbet
 

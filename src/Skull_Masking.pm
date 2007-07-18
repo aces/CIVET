@@ -1,4 +1,5 @@
-#Creation of a mask for skull masking, using mincbet on t1, t2, pd.
+# Creation of a mask for skull masking, using mincbet on t1, t2, pd
+# in stereotaxic space.
 
 package Skull_Masking;
 use strict;
@@ -12,13 +13,15 @@ sub create_pipeline {
     my $Prereqs = @_[1];
     my $image = @_[2];
 
-    my $maskType = ${$image}->{maskType};
-
     my $t1_input = ${$image}->{t1}{final};
     my $t2_input = ${$image}->{t2}{final};
     my $pd_input = ${$image}->{pd}{final};
 
     my $Skull_Mask = ${$image}->{skull_mask_tal};
+
+    # compute a brain mask in stereotaxic space based on t1, t2, pd.
+
+    my $maskType = ${$image}->{maskType};
 
     my @skullInputs = ();
     push @skullInputs, ($t1_input) if ( -e ${$image}->{t1}{native} );

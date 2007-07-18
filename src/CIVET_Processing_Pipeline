@@ -48,7 +48,7 @@ $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
 my $version = "1.1.8";
-my $versionDate= "June 15, 2007";
+my $versionDate= "July 9, 2007";
 my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -59,21 +59,34 @@ my $whatsnew = <<NEW;
 
     New in $versionDate quarantine, version $version
 
-    1 - simplification of PMP options and -no-granular option.
-    2 - specify native voxel sizes in verify image.
+    1 - ANIMAL segmentation has been disabled as the new default.
+    2 - recompute non-linear transform to linear symmetric icbm152 
+        model when using the old ANIMAL parcellation.
+    3 - simplification of PMP options and new -no-granular mode to
+        submit all stages for one subject in one qsub job.
+    4 - susceptibility artefact map now uses brain with cerebellum.
+    5 - use a t1-native user-defined custom brain mask, if present,
+        of the form SOURCE_DIR/PREFIX_ID_mask.mnc (or .gz) for
+        linear registration and white matter masking.
+    6 - use t1only for native brain mask (no need for multispectral
+        mask in native).
+    7 - run nu_correct in stereotaxic space on the interpolated 
+        original native image, not on the interpolated nu_corrected
+        native image.
+    8 - init environment files are now in the quarantine base 
+        directory (no longer in CIVET directory).
 
     More to come soon:
 
     0 - improved method to do surface parcellation using non-linear
         surface map.
-    1 - susceptibility artefact map now uses brain with cerebellum. *BETA*
+    1 - use new ANIMAL lobe parcellation with non-linear iterative
+        icbm152 generation VI model.
     2 - new ICBM templates compatible with non-linear ICBM152 model. *BETA*
-    3 - run nu_correct in stereotaxic space on the interpolated 
-        original native image, not on the interpolated nu_corrected
-        native image. *BETA*
-    5 - classification and surface extraction in native space.
-    6 - high-resolution surfaces at 320k polygons.
-    7 - file compression via PMP to save disk space.
+    3 - classification and surface extraction in native space.
+    4 - high-resolution surfaces at 320k polygons.
+    5 - file compression via PMP to save disk space.
+    6 - minc2-based quarantine.
 
     ********** From previous Mar-30-2007 quarantine, version 1.1.7 **********
 
@@ -219,41 +232,57 @@ my %PMPconf = ( 'spawn' => { 'queue' => undef,
                 'pbs'   => { 'queue' => "brain",
                              'hosts' => undef,
                              'opts' => "-l ncpus=1" } );
-my $PMPqueue = $PMPconf{$PMPtype}{queue};
-my $PMPhosts = $PMPconf{$PMPtype}{hosts};
-my $PMPopts = $PMPconf{$PMPtype}{opts};
 
 my $resetRunning = 1;
 
-############# Default settings for pipeline
+############# Default models for pipeline
+
+my $CIVETModel = "icbm152nl";
 my $TemplateSize = "1.00";
-my $DefaultRegLinModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
-my $DefaultRegNLModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
-my $DefaultRegLinDir = MNI::DataDir::dir("mni_autoreg");
-my $DefaultRegNLDir = MNI::DataDir::dir("mni_autoreg");
-my $DefaultTemplateDir = MNI::DataDir::dir("ICBM");
-my $DefaultTemplateModel = "icbm_template";
-my $DefaultSurfRegModelDir = "$FindBin::Bin/models";
-my $DefaultSurfRegModel = "surf_reg_model_left.obj";
-my $DefaultSurfRegDataTerm = "surf_reg_model_left.txt";
 
-# old settings
-#my $DefaultRegLinModel = "icbm_avg_152_t1_tal_lin_symmetric";
+### add avg64 model for cortical_surface, sphere models, 
 
-############# User defined registration target models 
-############# (defaults defined below in the 'registration targets' section)
-my $regNLModelDir = undef;
-my $regNLModel = undef;
-my $regLinModelDir = undef;
-my $regLinModel = undef;
-my $groupModel = undef;
-my $groupModelDir = undef;
-my $SurfRegModelDir = undef;
-my $SurfRegModel = undef;
-my $SurfRegDataTerm = undef;
-
-############# Use model specific pre-registration
-my $groupReg = 0;
+my %CIVETmodels = ( 'icbm152nl' => {
+                      'RegLinDir'        => MNI::DataDir::dir("mni_autoreg"),
+                      'RegLinModel'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI",
+                      'RegNLDir'         => MNI::DataDir::dir("mni_autoreg"),
+                      'RegNLModel'       => "icbm_avg_152_t1_tal_nlin_symmetric_VI",
+                      'TemplateDir'      => MNI::DataDir::dir("ICBM"),
+                      'TemplateModel'    => "icbm_template",
+                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni_autoreg"),
+                      'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
+                      'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
+                      'TagFileDir'       => MNI::DataDir::dir("classify"),
+                      'TagFile'          => "n/a",
+                      'AnimalAtlas'      => "-symmetric_atlas",
+                      'AnimalNLRegDir'   => MNI::DataDir::dir("mni_autoreg"),
+                      'AnimalNLRegModel' => "icbm_avg_152_t1_tal_lin_symmetric"
+                      # not yet ready and it you try to use this it will break. CL.
+                      # 'AnimalAtlas'      => "-lobe_atlas",
+                      # 'AnimalNLRegDir'   => MNI::DataDir::dir("mni_autoreg"),
+                      # 'AnimalNLRegModel' => "icbm_avg_152_t1_tal_nlin_symmetric_VI"
+                    },
+                    'icbm152lin' => {
+                      'RegLinDir'        => MNI::DataDir::dir("mni_autoreg"),
+                      'RegLinModel'      => "icbm_avg_152_t1_tal_lin_symmetric",
+                      'RegNLDir'         => MNI::DataDir::dir("mni_autoreg"),
+                      'RegNLModel'       => "icbm_avg_152_t1_tal_lin_symmetric",
+                      'TemplateDir'      => MNI::DataDir::dir("ICBM"),
+                      'TemplateModel'    => "icbm_template",
+                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni_autoreg"),
+                      'SurfaceMask'      => "icbm_avg_152_t1_tal_lin_symmetric_mask.obj",
+                      'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
+                      'TagFileDir'       => MNI::DataDir::dir("classify"),
+                      'TagFile'          => "n/a",
+                      'AnimalAtlas'      => "-symmetric_atlas",
+                      'AnimalNLRegDir'   => MNI::DataDir::dir("mni_autoreg"),
+                      'AnimalNLRegModel' => "icbm_avg_152_t1_tal_lin_symmetric"
+                    }
+                  );
 
 ############# The status report filename:
 my $statusReportFile = "CIVET_status_report.csv";
@@ -268,7 +297,7 @@ my $interpMethod = "trilinear";
 my $N3Distance = 200;
 my $lsqtype = "-lsq9";
 my $VBM = "VBM";
-my $animal = "ANIMAL";
+my $animal = "noANIMAL";
 my $surface = "SURFACE";
 my @thickness = ("tlink","20");
 
@@ -279,7 +308,6 @@ my $prefix = undef;
 my $sourceSubDir = "noIdSubDir";
 my $idTextFile = undef;
 
-
 ############# Options table
 my @leftOverArgs;
 my @argTbl = (
@@ -287,9 +315,9 @@ my @argTbl = (
           ["-spawn", "const", "spawn", \$PMPtype, "Use the perl system interface to spawn jobs"],
           ["-sge", "const", "sge", \$PMPtype, "Use SGE to spawn jobs."],
           ["-pbs", "const", "pbs", \$PMPtype, "Use PBS to spawn jobs"],
-          ["-queue", "string", 1, \$PMPqueue, "Which queue to use"],
-          ["-hosts", "string", 1, \$PMPhosts, "Colon separated list of hosts"],
-          ["-qopts", "string", 1, \$PMPopts, "Extra options to queuing system"],
+          ["-queue", "string", 1, \$PMPconf{$PMPtype}{queue}, "Which queue to use"],
+          ["-hosts", "string", 1, \$PMPconf{$PMPtype}{hosts}, "Colon separated list of hosts"],
+          ["-qopts", "string", 1, \$PMPconf{$PMPtype}{opts}, "Extra options to queuing system"],
           ["-no-granular|-granular", "boolean", 1, \$PMPgranularity, 
            "Granularity level for submission of jobs using queueing system."],
           ["-maxqueued", "string", 1, \$PMPmaxQueued, 
@@ -305,24 +333,8 @@ my @argTbl = (
           ["Pipeline options", "section"],
           ["-template", "string", 1, \$TemplateSize, 
            "Define the template for image processing in stereotaxic space (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00)."],
-          ["-registration-lin-model", "string", 1, \$regLinModel, 
-           "Define the target model for linear registration [default $DefaultRegLinModel]."],
-          ["-registration-lin-modeldir", "string", 1, \$regLinModelDir, 
-           "Define the directory of the target model for linear registration [default $DefaultRegLinDir]."],
-          ["-registration-nl-model", "string", 1, \$regNLModel, 
-           "Define the target model for non-linear registration [default $DefaultRegNLModel]."],
-          ["-registration-nl-modeldir", "string", 1, \$regNLModelDir, 
-           "Define the directory of the target model for non-linear registration [default $DefaultRegNLDir]."],
-          ["-surface-model", "string", 1, \$SurfRegModel,
-           "Define the surface registration model [default $DefaultSurfRegModel]."],
-          ["-surface-dataterm", "string", 1, \$SurfRegDataTerm,
-           "Define the surface registration dataterm [default $DefaultSurfRegDataTerm]."],
-          ["-surface-modeldir", "string", 1, \$SurfRegModelDir,
-           "Define the directory for the surface registration model [default $DefaultSurfRegModelDir]."],
-
-#          ["-group-specific-registration|-normal-registration", "boolean", undef, \$groupReg, "Add a ( pediatric) intermediate model registration."],
-#          ["-group-specific-model", "string", 1, \$groupModel, "Define the intermediate registration target for (default pediatric) data."],
-#          ["-group-specific-modeldir", "string", 1, \$groupModelDir, "Define the directory of the intermediate registration target for (default pediatric) data."],
+          ["-model", "string", 1, \$CIVETModel,
+           "Define the model for image-processing (icbm152nl or icbm152lin)"],
 
           ["CIVET options", "section"],  
           ["-multispectral", "const", "multispectral", \$inputType, 
@@ -340,7 +352,10 @@ my @argTbl = (
           ["-lsq12", "const", "-lsq12", \$lsqtype,
            "use 12-parameter transformation for linear registration [default -lsq9]" ],
           ["-no-surfaces", "const", "noSURFACE", \$surface, "don\'t build surfaces"],
-          ["-no-animal", "const", "noANIMAL", \$animal, "don\'t run volumetric ANIMAL segmentation."],
+          ["-animal", "const", "ANIMAL", \$animal, 
+           "run volumetric ANIMAL segmentation and cortical surface lobe parcellation [default -no-animal]"],
+          ["-no-animal", "const", "noANIMAL", \$animal, 
+           "don\'t run volumetric ANIMAL segmentation and cortical surface lobe parcellation."],
           ["-thickness", "string", 2, \@thickness,
            "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
 
@@ -387,6 +402,7 @@ $target =~ s#/+$##;      # remove trailing / at end of directory name, if any
 $target = abs_path( $target );
 $sourceDir = abs_path( $sourceDir );
 
+
 ############# Set no file buffering for stdout (buffer is printed every 1 line)
 $| = 1;
 
@@ -402,64 +418,61 @@ print "\n* The source directory is: '$sourceDir' \n";
 print "* The target directory is: '$target' \n";
 print "* The prefix is: '$prefix' \n";
 print "* The PMP class is: '$PMPtype' \n";
-print "* The $PMPtype queue type is: '$PMPqueue' \n";
-print "* The $PMPtype batch host(s) is/are: '$PMPhosts' \n";
-print "* The $PMPtype global options are: '$PMPopts' \n";
+print "* The $PMPtype queue type is: '$PMPconf{$PMPtype}{queue}' \n";
+print "* The $PMPtype batch host(s) is/are: '$PMPconf{$PMPtype}{hosts}' \n";
+print "* The $PMPtype global options are: '$PMPconf{$PMPtype}{opts}' \n";
 
 ############# The -like template (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00)
-my $Template = "${DefaultTemplateDir}/${DefaultTemplateModel}_${TemplateSize}mm.mnc";
+
+my $Template = "$CIVETmodels{$CIVETModel}{TemplateDir}/" .
+               "$CIVETmodels{$CIVETModel}{TemplateModel}_${TemplateSize}mm.mnc";
 print "* Template for image-processing is:\n  $Template \n";
 
-############# Used for creating verify_image only.
-my $fullpath_surfmask = MNI::DataDir::dir("mni_autoreg")."icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj";
-
 ############# Define registration targets and directories and print them
-unless ($regLinModelDir) {
-    $regLinModelDir = $DefaultRegLinDir;
-}
-unless ($regNLModelDir) {
-    $regNLModelDir = $DefaultRegNLDir;
-}
+
+print "* Using $CIVETModel model for data-processing pipeline:\n";
+
+my $regLinModelDir = $CIVETmodels{$CIVETModel}{RegLinDir};
+my $regNLModelDir = $CIVETmodels{$CIVETModel}{RegNLDir};
+
 print "* Registration linear model directory is:    \n  $regLinModelDir \n";
 print "* Registration non-linear model directory is:\n  $regNLModelDir \n";
 
-unless ($regLinModel) {
-    $regLinModel = $DefaultRegLinModel;
-}
-unless ($regNLModel) {
-    $regNLModel = $DefaultRegNLModel;
-}
-my $fullpath_linregmodel = "${regLinModelDir}/${regLinModel}";
-my $fullpath_nlregmodel = "${regNLModelDir}/${regNLModel}";
+my $regLinModel = $CIVETmodels{$CIVETModel}{RegLinModel};
+my $regNLModel = $CIVETmodels{$CIVETModel}{RegNLModel};
 
 print "* Registration linear model is:    \n   $regLinModel \n";
 print "* Registration non-linear model is:\n   $regNLModel \n";
 
 ############# Define intermediate registration targets and directories and print them
 my $intermediate_model = undef;
-if ($groupReg){
-    my $tempy =  MNI::DataDir::dir("mni_autoreg");
-    $intermediate_model = "${tempy}/nih_chp_avg";
-    print "* Group registration model directory is:\n $groupModelDir \n";
-}
 
+############# Define Surface registration targets and directories and print them
 
-############# Define Surface registration targets and directories and print them, or die with error message
-unless ($SurfRegModelDir) {
-    $SurfRegModelDir = $DefaultSurfRegModelDir;
-}
-unless ($SurfRegModel) {
-    $SurfRegModel = $DefaultSurfRegModel;
-}
-unless ($SurfRegDataTerm) {
-    $SurfRegDataTerm = $DefaultSurfRegDataTerm;
-}
-my $fullpath_surfregmodel = "${SurfRegModelDir}/${SurfRegModel}";
-my $fullpath_surfregdataterm = "${SurfRegModelDir}/${SurfRegDataTerm}";
+my $SurfRegModelDir = $CIVETmodels{$CIVETModel}{SurfRegModelDir};
+my $SurfRegModel = $CIVETmodels{$CIVETModel}{SurfRegModel};
+my $SurfRegDataTerm = $CIVETmodels{$CIVETModel}{SurfRegDataTerm};
 
 print "* Surface registration model directory is: \n  ${SurfRegModelDir} \n";
 print "* Surface registration model is:    \n   ${SurfRegModel} \n";
 print "* Surface registration dataterm is: \n   ${SurfRegDataTerm} \n";
+
+############# Define Surface registration targets and directories and print them
+
+my $AnimalNLRegDir = $CIVETmodels{$CIVETModel}{AnimalNLRegDir};
+my $AnimalNLRegModel = $CIVETmodels{$CIVETModel}{AnimalNLRegModel};
+
+if( $animal eq "ANIMAL" ) {
+  print "* ANIMAL non-linear registration model directory is: \n  ${AnimalNLRegDir} \n";
+  print "* ANIMAL non-linear registration model is:    \n   ${AnimalNLRegModel} \n";
+  print "\n";
+  print "*             -WARNING- -WARNING- -WARNING-\n\n";
+  print "* We recommend that you no longer use the ANIMAL segmentation in CIVET\n";
+  print "* until the new lobe segmentation based on the iterative non-linear \n";
+  print "* ICBM152 model is fully validated and released. Current results based\n";
+  print "* on the linear symmetric model are inaccurate and should not be used.\n";
+}
+
 
 ############# Print the Pipeline and Stage Control commands
 
@@ -514,12 +527,8 @@ foreach my $dsid (@dsids) {
                                 $surface,
                                 $animal,
                                 \@thickness,
-                                $fullpath_linregmodel,
-                                $fullpath_nlregmodel,
-                                $fullpath_surfregmodel,
-                                $fullpath_surfregdataterm,
-                                $fullpath_surfmask,
-                                $Template );
+                                $Template,
+                                \$CIVETmodels{$CIVETModel} );
 
     ##### Create the pipeline environment. #####
 
@@ -527,17 +536,18 @@ foreach my $dsid (@dsids) {
 
     if ($PMPtype eq "spawn") {
         $pipeline = PMP::spawn->new();
+        $PMPgranularity = 0;
     } elsif ($PMPtype eq "sge") {
         $pipeline = PMP::sge->new();
-        $pipeline->setQueue($PMPqueue);
-        $pipeline->setHosts($PMPhosts) if( defined $PMPhosts );
-        $pipeline->setQueueOptions($PMPopts) if( defined $PMPopts );
+        $pipeline->setQueue($PMPconf{$PMPtype}{queue});
+        $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
+        $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
 	$pipeline->setPriorityScheme("later-stages");
     } elsif ($PMPtype eq "pbs") {
         $pipeline = PMP::pbs->new();
-        $pipeline->setQueue($PMPqueue);
-        $pipeline->setHosts($PMPhosts) if( defined $PMPhosts );
-        $pipeline->setQueueOptions($PMPopts) if( defined $PMPopts );
+        $pipeline->setQueue($PMPconf{$PMPtype}{queue});
+        $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
+        $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
         $pipeline->setPriorityScheme("later-stages");
     }
 
@@ -553,11 +563,7 @@ foreach my $dsid (@dsids) {
     CIVET_Main::create_pipeline(
                         \$pipeline,
                         \$image,
-                        $fullpath_linregmodel,
-                        $fullpath_nlregmodel,
-                        $fullpath_surfregmodel,
-                        $fullpath_surfregdataterm,
-                        $fullpath_surfmask,
+                        \$CIVETmodels{$CIVETModel},
                         $intermediate_model, 
                         $Template,
                         $second_model_dir

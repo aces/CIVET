@@ -87,13 +87,17 @@ sub create_pipeline {
 #  Step 2: Extraction of the white matter mask for the hemispheres.
 # ---------------------------------------------------------------------------
 
+    my $user_mask = ${$image}->{user_mask};  # not a PMP input
+    my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
+
     ${$pipeline_ref}->addStage(
           { name => "create_wm_hemispheres",
           label => "create white matter hemispheric masks",
-          inputs => [$final_classify, $t1_tal_mnc, $brain_mask],
+          inputs => [$final_classify, $t1_tal_mnc, $brain_mask, $t1_tal_xfm],
           outputs => [$wm_left_centered, $wm_right_centered],
           args=>["extract_wm_hemispheres", $final_classify, $t1_tal_mnc,
-                 $brain_mask, $Second_model_Dir, $wm_left_centered, 
+                 $brain_mask, $user_mask, $t1_tal_xfm,
+                 $Second_model_Dir, $wm_left_centered, 
                  $wm_right_centered],
           prereqs =>["surface_classify"] }
           );

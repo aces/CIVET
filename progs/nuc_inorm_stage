@@ -95,7 +95,7 @@ if ( -e $input ) {
 
   # remove high extremum (low extremum - background - will be taken care of by the mask).
   my $top;
-  my $upper = 99.50;
+  my $upper = 99.950;
   chomp($top = `mincstats -quiet -pctT $upper $tmp`);
 
   my $clip_expr = "if(A[0]<0){out=0;}else{if(A[0]>${top}){out=${top};}else{out=A[0];}}";

@@ -31,7 +31,6 @@ sub stx_register {
     my $regModel = @_[3];
     my $intermediateModel = @_[4];
 
-    my $maskType = ${$image}->{maskType};
     my $skull_mask = ${$image}->{skull_mask_native};
 
     my $t1_tal_xfm    = ${$image}->{t1_tal_xfm};
@@ -40,8 +39,8 @@ sub stx_register {
     my $tal_to_6_xfm  = ${$image}->{tal_to_6_xfm};
     my $tal_to_7_xfm  = ${$image}->{tal_to_7_xfm};
 
-    my $regModelDir  = dirname( $regModel);
-    my $regModelName = basename( $regModel);
+    my $regModelDir  = dirname( $regModel );
+    my $regModelName = basename( $regModel );
 
     # Preliminary nu_correct on the native images to improve the 
     # results of mincbet and bestlinreg. Run only 100 iterations.
@@ -110,17 +109,30 @@ sub stx_register {
       }
     }
 
-    ##### Compute a preliminary skull mask for t1, t2, pd native, to apply
-    ##### during linear registration. 
+    ##### Compute a preliminary skull mask using t1 native only, 
+    ##### to apply during linear registration. Use the user mask
+    ##### if one is given.
 
-    ${$pipeline_ref}->addStage(
-         { name => "skull_masking_native",
-         label => "masking of skull in native space",
-         inputs => \@skullInputs,
-         outputs => [$skull_mask],
-         args => ["remove_skull", $maskType, $t1_input, $t2_input,
-                  $pd_input, $t2pd_t1_xfm, $skull_mask ],
-         prereqs => $Coregister_complete });
+    my $user_mask = ${$image}->{user_mask};
+    if( -e $user_mask ) {
+      ${$pipeline_ref}->addStage(
+           { name => "skull_masking_native",
+           label => "masking of skull in native space",
+           inputs => [],
+           outputs => [$skull_mask],
+           args => ["ln", "-sf", $user_mask, $skull_mask ],
+           prereqs => $Prereqs } );
+
+    } else {
+      ${$pipeline_ref}->addStage(
+           { name => "skull_masking_native",
+           label => "masking of skull in native space",
+           inputs => \@skullInputs,
+           outputs => [$skull_mask],
+           args => ["remove_skull", "t1Only", $t1_input, $t2_input,
+                    $pd_input, $t2pd_t1_xfm, $skull_mask ],
+           prereqs => $Coregister_complete });
+    }
 
     ##### Compute transforms to STX space directly or indirectly #####
 
@@ -207,9 +219,9 @@ sub transform {
     my $image = @_[2];
     my $Template = @_[3];
 
-    my $t1_native = (-e ${$image}->{t1}{native}) ? ${$image}->{t1}{nuc} : undef;
-    my $t2_native = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{nuc} : undef;
-    my $pd_native = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{nuc} : undef;
+    my $t1_native = (-e ${$image}->{t1}{native}) ? ${$image}->{t1}{native} : undef;
+    my $t2_native = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{native} : undef;
+    my $pd_native = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{native} : undef;
     my $t1_tal  = (-e ${$image}->{t1}{native}) ? ${$image}->{t1}{tal} : undef;
     my $t2_tal  = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{tal} : undef;
     my $pd_tal  = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{tal} : undef;

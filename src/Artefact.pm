@@ -12,7 +12,7 @@ sub create_pipeline {
     my $image = @_[2];
 
     my $t1_input = ${$image}->{t1}{final};
-    my $brain_mask = ${$image}->{brain_mask};
+    my $skull_mask = ${$image}->{skull_mask_tal};
 
     my $cls_artefact = ${$image}->{artefact};
 
@@ -22,9 +22,9 @@ sub create_pipeline {
     ${$pipeline_ref}->addStage(
          { name => "artefact",
          label => "susceptability artefacts",
-         inputs => [$brain_mask, $t1_input],
+         inputs => [$skull_mask, $t1_input],
          outputs => [$cls_artefact],
-         args => ["class_art", "0.15", "4", $brain_mask,
+         args => ["class_art", "0.15", "4", $skull_mask,
                   $t1_input, $cls_artefact],
          prereqs => $Prereqs});
 

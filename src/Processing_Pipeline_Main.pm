@@ -21,20 +21,19 @@ use Verify_Image;
 
 # the version number
 
-$PMP::VERSION = '0.7.0'; #Things that have to be defined Poor Man's Pipeline
+$PMP::VERSION = '0.7.1'; #Things that have to be defined Poor Man's Pipeline
 
 
 sub create_pipeline{
     my $pipeline_ref = @_[0];  
     my $image = @_[1];
-    my $Global_LinRegModel = @_[2];
-    my $Global_NLRegModel = @_[3];
-    my $Global_SurfRegModel = @_[4];
-    my $Global_SurfRegDataTerm = @_[5];
-    my $Global_surfMask = @_[6];
-    my $Global_intermediate_model = @_[7];
-    my $Global_Template = @_[8]; 
-    my $Global_second_model_dir = @_[9];
+    my $models = @_[2];
+    my $Global_intermediate_model = @_[3];
+    my $Global_Template = @_[4];
+    my $Global_second_model_dir = @_[5];
+
+    my $Global_LinRegModel = "${$models}->{RegLinDir}/${$models}->{RegLinModel}";
+    my $Global_NLRegModel = "${$models}->{RegNLDir}/${$models}->{RegNLModel}";
 
     ##########################################
     ##### Preprocessing the native files #####
@@ -125,8 +124,7 @@ sub create_pipeline{
     @res = Cortex_Mask::create_pipeline(
       $pipeline_ref,
       $Classify_complete,
-      $image,
-      $Global_surfMask
+      $image
     );
     my $Cortex_Mask_complete = $res[0];
 
@@ -147,12 +145,15 @@ sub create_pipeline{
 
     my $Segment_complete = undef;
     unless (${$image}->{animal} eq "noANIMAL") {
+      my $fullpath_animalregmodel = "${$models}->{AnimalNLRegDir}/${$models}->{AnimalNLRegModel}";
       @res = Segment::create_pipeline(
         $pipeline_ref,
         [@{$Non_Linear_Transforms_complete},@{$Classify_complete}],
         $image,
         $Global_Template,
-        $Global_second_model_dir
+        $Global_second_model_dir,
+        ${$models}->{AnimalAtlas},
+        $fullpath_animalregmodel
       );
       $Segment_complete = $res[0];
     }
@@ -198,10 +199,14 @@ sub create_pipeline{
       ##### Surface registration #####
       ################################
 
+      my $Global_SurfRegModel = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
+      my $Global_SurfRegDataTerm = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
       @res = Surface_Register::create_pipeline(
         $pipeline_ref,
         $Surface_Fit_complete,
-        $image
+        $image,
+        $Global_SurfRegModel,
+        $Global_SurfRegDataTerm
       );
       $SurfReg_complete = $res[0];
 

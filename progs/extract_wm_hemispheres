@@ -42,11 +42,13 @@ $Usage = "Usage: $me [options] classified.mnc t1.mnc brain_mask.mnc hemi_model_d
 &Getopt::Tabular::SetHelp($Help, $Usage);
 &GetOptions (\@opt_table, \@ARGV) || exit 1;
 
-die $Usage if(@ARGV != 6);
+die $Usage if(@ARGV != 8);
 
 my $classify = shift(@ARGV);
 my $t1 = shift(@ARGV);
 my $brain_mask = shift(@ARGV);
+my $user_mask = shift(@ARGV);
+my $t1_tal_xfm = shift(@ARGV);
 my $hemi_model_dir= shift(@ARGV);
 my $output_left_hemi = shift(@ARGV);
 my $output_right_hemi = shift(@ARGV);
@@ -75,8 +77,27 @@ white_matter_mask( $classify, $t1, $brain_mask, $wm_mask, $tmpdir );
 
 # apply brain mask to classified image
 
-&do_cmd( "minccalc", "-clobber", "-expr", "if(A[1]>0.5){out=A[0];}else{out=0;}",
-         $classify, $wm_mask, $classify_masked );
+if( -e $user_mask ) {
+  # apply the user mask if one is supplied. The user mask is in native
+  # space so transform it to stereotaxic space first. The user mask is
+  # applied only on white voxels, not gray.
+
+  my $user_mask_native = "${tmpdir}/user_mask_native.mnc";
+  &do_cmd( "mincresample", "-clobber", "-like", $t1,
+           "-transform", $t1_tal_xfm, "-nearest_neighbour",
+           $user_mask, $user_mask_native );
+
+  &do_cmd( "minccalc", "-clobber", "-expr", 
+           "if(A[1]>0.5){if(A[0]>2.5&&A[2]<0.5){out=0;}else{out=A[0];}}else{out=0;}",
+           $classify, $wm_mask, $user_mask_native, $classify_masked );
+  unlink( $user_mask_native );
+
+} else {
+
+  &do_cmd( "minccalc", "-clobber", "-expr", 
+           "if(A[1]>0.5){out=A[0];}else{out=0;}",
+           $classify, $wm_mask, $classify_masked );
+}
 
 # create left and right masks for hemispheres (this works with any template,
 # assuming the centerline voxel is at x=0).

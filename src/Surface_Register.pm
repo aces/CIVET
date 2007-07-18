@@ -17,9 +17,8 @@ sub create_pipeline {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-
-    my $surfreg_model = ${$image}->{surfregmodel};
-    my $surfreg_dataterm = ${$image}->{surfregdataterm};
+    my $surfreg_model = @_[3];
+    my $surfreg_dataterm = @_[4];
 
     my $left_mid_surface = ${$image}->{mid_surface}{left};
     my $right_mid_surface = ${$image}->{mid_surface}{right};

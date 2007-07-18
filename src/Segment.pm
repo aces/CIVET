@@ -17,6 +17,8 @@ sub create_pipeline {
     my $image = @_[2];
     my $Template = @_[3];
     my $Second_Model_Dir = @_[4];
+    my $atlas = @_[5];
+    my $nl_model = @_[6];
 
     # global files for segmentation
 
@@ -25,8 +27,9 @@ sub create_pipeline {
     my $lobe_volumes      = ${$image}->{lobe_volumes};
     my $stx_labels_masked = ${$image}->{stx_labels_masked}; 
     my $cls_volumes       = ${$image}->{cls_volumes};
+    my $t1_tal_mnc        = ${$image}->{t1}{final};
+    my $t1_tal_nl_animal_xfm = ${$image}->{t1_tal_nl_xfm};
     my $t1_tal_xfm        = ${$image}->{t1_tal_xfm};
-    my $t1_tal_nl_xfm     = ${$image}->{t1_tal_nl_xfm};
     my $cls_correct       = ${$image}->{cls_correct};
     my $skull_mask        = ${$image}->{skull_mask_tal};
 
@@ -34,21 +37,57 @@ sub create_pipeline {
 
     my $identity = "${Second_Model_Dir}/identity.xfm";
 
-### Note: In below, $cls_correct in based on $skull_mask, so it
-###       contains the cerebellum and brain stem.
+    # Compute the non-linear transformation to the model of the atlas,
+    # if not the same as the target for registration.
 
-    ${$pipeline_ref}->addStage(
-         { name => "segment",
-         label => "automatic labelling",
-         inputs => [$t1_tal_nl_xfm, $cls_correct],
-         outputs => [$stx_labels],
-         args => ["stx_segment", "-clobber", "-symmetric_atlas",
-                  $t1_tal_nl_xfm, $identity, "-template", $Template,
-                  $cls_correct, $stx_labels],
-         prereqs => $Prereqs });
+    if( ${nl_model} ne ${$image}->{nlinmodel} ) {
+      # Not pretty, but must add extension .mnc to model name (because stx_register uses
+      # the same model, but without the .mnc extension).
+      my $Non_Linear_Target = "${nl_model}.mnc";
+      my $model_head_mask = "${nl_model}_mask.mnc";
+      $t1_tal_nl_animal_xfm = ${$image}->{t1_tal_nl_animal_xfm};
 
-    ${$pipeline_ref}->addStage(
-         { name => "segment_volumes",
+      ${$pipeline_ref}->addStage( {
+           name => "nlfit_animal",
+           label => "creation of nonlinear transform for ANIMAL segmentation",
+           inputs => [$t1_tal_mnc, $skull_mask ],
+           outputs => [$t1_tal_nl_animal_xfm],
+           args => ["best1stepnlreg.pl", "-clobber", "-source_mask", $skull_mask,
+                    "-normalize", "-target_mask", $model_head_mask, $t1_tal_mnc,
+                    $Non_Linear_Target, $t1_tal_nl_animal_xfm],
+           prereqs => $Prereqs } );
+      $Prereqs = [ "nlfit_animal" ];
+    }
+
+    ### Note: In below, $cls_correct in based on $skull_mask, so it
+    ###       contains the cerebellum and brain stem.
+
+    # Use the old stx_segment or the new lobe_segment.
+
+    if( $atlas eq "-symmetric_atlas" ) {
+      ${$pipeline_ref}->addStage( {
+           name => "segment",
+           label => "automatic labelling",
+           inputs => [$t1_tal_nl_animal_xfm, $cls_correct],
+           outputs => [$stx_labels],
+           args => ["stx_segment", "-clobber", $atlas,
+                    $t1_tal_nl_animal_xfm, $identity, "-template", $Template,
+                    $cls_correct, $stx_labels],
+           prereqs => $Prereqs } );
+    } else {
+      ${$pipeline_ref}->addStage( {
+           name => "segment",
+           label => "automatic labelling",
+           inputs => [$t1_tal_nl_animal_xfm, $cls_correct],
+           outputs => [$stx_labels],
+           args => ["lobe_segment", "-clobber",
+                    $t1_tal_nl_animal_xfm, $identity, "-template", $Template,
+                    $cls_correct, $stx_labels],
+           prereqs => $Prereqs } );
+    }
+
+    ${$pipeline_ref}->addStage( {
+         name => "segment_volumes",
          label => "label and compute lobe volumes in native space",
          inputs => [$t1_tal_xfm, $stx_labels],
          outputs => [$label_volumes, $lobe_volumes],
@@ -59,8 +98,8 @@ sub create_pipeline {
 
     my $seg_mask_expr = 'if(A[1]<0.5){out=0;}else{out=A[0];}';
 
-    ${$pipeline_ref}->addStage(
-         { name => "segment_mask",
+    ${$pipeline_ref}->addStage( {
+         name => "segment_mask",
          label => "mask the segmentation",
          inputs => [$stx_labels, $skull_mask],
          outputs => [$stx_labels_masked],
@@ -68,8 +107,8 @@ sub create_pipeline {
                   $stx_labels, $skull_mask, $stx_labels_masked],
          prereqs => ["segment_volumes"] });
 
-    ${$pipeline_ref}->addStage(
-         { name => "cls_volumes",
+    ${$pipeline_ref}->addStage( {
+         name => "cls_volumes",
          label => "compute tissue volumes in native space",
          inputs => [$t1_tal_xfm, $cls_correct],
          outputs => [$cls_volumes],

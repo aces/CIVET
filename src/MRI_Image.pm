@@ -38,12 +38,8 @@ sub new {
     my $surface = shift;
     my $animal = shift;
     my $thickness = shift;
-    my $linmodel = shift;
-    my $nlinmodel = shift;
-    my $surfregmodel = shift;
-    my $surfregdataterm = shift;
-    my $surfmask = shift;
     my $template = shift;
+    my $models = shift;
 
     #####   $image->{dsid} = $dsid;
     $image->{inputType} = $inputType;
@@ -56,11 +52,11 @@ sub new {
     $image->{surface} = $surface;
     $image->{tmethod} = $$thickness[0];
     $image->{tkernel} = $$thickness[1];
-    $image->{linmodel} = $linmodel;
-    $image->{nlinmodel} = $nlinmodel;
-    $image->{surfregmodel} = $surfregmodel;
-    $image->{surfregdataterm} = $surfregdataterm;
-    $image->{surfmask} = $surfmask;
+    $image->{linmodel} = "${$models}->{RegLinDir}/${$models}->{RegLinModel}";
+    $image->{nlinmodel} = "${$models}->{RegNLDir}/${$models}->{RegNLModel}";
+    $image->{surfregmodel} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
+    $image->{surfregdataterm} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
+    $image->{surfmask} = "${$models}->{SurfaceMaskDir}/${$models}->{SurfaceMask}";
     $image->{template} = $template;
 
     $image->validate_options();
@@ -127,15 +123,22 @@ sub new {
     $image->{curve_cg} = "$image->{curve_prefix}_cg.mnc";
 
     # Define brain-masking files.
+
     my $mask_dir = "${Base_Dir}/$image->{directories}{MASK}";
+    if( -e "${Source_Dir}/${prefix}_${dsid}_mask.mnc.gz" ) {
+      $image->{user_mask} = "${Source_Dir}/${prefix}_${dsid}_mask.mnc.gz",
+    } else {
+      $image->{user_mask} = "${Source_Dir}/${prefix}_${dsid}_mask.mnc",
+    }
     $image->{brain_mask} = "${mask_dir}/${prefix}_${dsid}_brain_mask.mnc";
     $image->{skull_mask_native} = "${mask_dir}/${prefix}_${dsid}_skull_mask_native.mnc";
     $image->{skull_mask_tal} = "${mask_dir}/${prefix}_${dsid}_skull_mask.mnc";
-    $image->{cortex}     = "${mask_dir}/${prefix}_${dsid}_cortex.obj";
+    $image->{cortex} = "${mask_dir}/${prefix}_${dsid}_cortex.obj";
 
     # Define ANIMAL segmentation files.
     my $seg_dir = "${Base_Dir}/$image->{directories}{SEG}";
     unless ($image->{animal} eq "noANIMAL") {
+      $image->{t1_tal_nl_animal_xfm} = "${seg_dir}/${prefix}_${dsid}_nlfit_It.xfm";
       $image->{stx_labels} = "${seg_dir}/${prefix}_${dsid}_stx_labels.mnc";
       $image->{label_volumes} = "${seg_dir}/${prefix}_${dsid}_masked.dat";
       $image->{lobe_volumes} = "${seg_dir}/${prefix}_${dsid}_lobes.dat";
@@ -157,6 +160,7 @@ sub new {
         $image->{lobe_thickness}{right} = undef;
       }
     } else {
+      $image->{t1_tal_nl_animal_xfm} = undef;
       $image->{stx_labels} = undef;
       $image->{label_volumes} = undef;
       $image->{lobe_volumes} = undef;

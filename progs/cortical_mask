@@ -20,7 +20,6 @@ my $cls=$ARGV[0];
 my $cortex=$ARGV[1];
 my $skull_mask=$ARGV[2];
 my $brain_mask=$ARGV[3];
-my $model_surf_mask=$ARGV[4];
 
 # Directory for temporary files.
 
@@ -50,59 +49,6 @@ my $cls_defrag = "${TmpDir}/cls_defrag.mnc";
 
 &run( "surface_mask2", "-binary_mask", $cls, $cortex, $cls_defrag );
 &run( "mincmath", "-clobber", "-mult", $cls_defrag, $skull_mask, $brain_mask );
-
-# THIS IS STILL EXPERIMENTAL AND TOO DANGEROUS TO INCLUDE IN BETA AT THIS TIME. CL.
-
-=pod
-
-# Improvement of the brain_mask using CLASP, to try to remove bright meninges 
-# classified as white matter.
-
-# Keep only the classified gray matter.
-
-&run( "minccalc", "-clobber", "-expression", 
-      'if(A[0]>1.5&&A[0]<2.5){out=1;}else{out=0;}', $cls, $cls_defrag );
-
-# Remove disconnected gray voxels.
-
-&run( "mincdefrag", $cls_defrag, $cls_defrag, 1, 6 );
-
-# Fit a surface to gray matter starting from the model's brain mask.
-
-my $surf_mask = "${TmpDir}/surf_mask.obj";
-my $mask_lines = "${TmpDir}/lines_mask.mnc";
-my $clasp_mask = "${TmpDir}/clasp_mask.mnc";
-
-&run( "subdivide_polygons", $model_surf_mask, $surf_mask, 20480 );
-
-&run( "surface_fit", "-mode", "two", "-surface", $surf_mask, $surf_mask,
-      "-stretch", 500, $surf_mask, -.9, 0, 0, 0, "-boundary", 50, 1,
-      $cls_defrag, 0.5, "-", 3, 15, 0, 0, 3,
-      "-self_intersect", 1, 1.5,
-      "-self_intersect", 10, 1.33444444444444,
-      "-self_intersect", 100, 1.16888888888889,
-      "-self_intersect", 1000, 1.00333333333333,
-      "-self_intersect", 10000, 0.837777777777778,
-      "-self_intersect", 100000, 0.672222222222222,
-      "-self_intersect", 1000000, 0.506666666666667,
-      "-self_intersect", 10000000, 0.341111111111111,
-      "-self_intersect", 100000000, 0.175555555555555,
-      "-self_intersect", 1e8, 0.01,
-      "-step", 1, "-fitting", 250, 5, 0.001, 
-      "-ftol", "1e-06", "-stop", 0.03, 10 );
-
-# masking of brain with the cortical surface. Here it's better to remove the 
-# boundary lines (from scan_object_to_volume).
-
-&run( "surface_mask2", "-binary_mask", $cls, $surf_mask, $clasp_mask );
-&run( "scan_object_to_volume", $cls, $surf_mask, $mask_lines );
-
-&run( "minccalc", "-clobber", "-expression",
-      'if(A[1]>0.5&&abs(A[0]-3)<0.5&&(A[2]-A[3]<0.5)){out=0;}else{out=A[1];}',
-      $cls, $brain_mask, $clasp_mask, $mask_lines, $cls_defrag );
-&run( "mincdefrag", $cls_defrag, $brain_mask, 1, 6 );
-
-=cut
 
 #Execute a system call.
 

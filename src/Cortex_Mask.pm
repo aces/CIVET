@@ -11,7 +11,6 @@ sub create_pipeline {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-    my $surf_model = @_[3];
 
     my $cls = ${$image}->{cls_correct};
     my $skull_mask = ${$image}->{skull_mask_tal};
@@ -27,8 +26,7 @@ sub create_pipeline {
          label => "masking cortical tissues using cortical_surface",
          inputs => [$skull_mask, $cls],
          outputs => [$cortex, $brain_mask],
-         args => ["cortical_mask", $cls, $cortex, 
-                  $skull_mask, $brain_mask, $surf_model],
+         args => ["cortical_mask", $cls, $cortex, $skull_mask, $brain_mask ],
          prereqs => $Prereqs });
 
     my $Cortex_Mask_complete = ["cortical_masking"];
