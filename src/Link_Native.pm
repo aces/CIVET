@@ -58,8 +58,8 @@ sub check_input_image {
   my $xspacing = `mincinfo -attvalue xspace:spacing $input`;
   my $yspacing = `mincinfo -attvalue yspace:spacing $input`;
   my $zspacing = `mincinfo -attvalue zspace:spacing $input`;
-  if( $xspacing eq "irregular__" || $yspacing eq "irregular__" ||
-      $zspacing eq "irregular__" ) {
+  chomp($xspacing,$yspacing,$zspacing);
+  if( ($xspacing || $yspacing || $zspacing) =~ /irregular/ ) {
     die "ERROR: image file $input has irregular slice spacing.\n";
   }
 
