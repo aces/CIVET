@@ -169,6 +169,7 @@ my $N3Distance = 200;
 my $lsqtype = "-lsq9";
 my $VBM_fwhm = 10;
 my $VBM_symmetry = "noSymmetry";
+my $VBM_cerebellum = "Cerebellum";
 my $animal = "noANIMAL";
 my $surface = "SURFACE";
 my @thickness = ("tlink","20");
@@ -240,6 +241,10 @@ my @argTbl = (
            "run symmetry tools [default -no-VBM-symmetry]"],
           ["-no-VBM-symmetry", "const", "noSymmetry", \$VBM_symmetry, 
            "don\'t run symmetry tools"],
+          ["-VBM-cerebellum", "const", "Cerebellum", \$VBM_cerebellum, 
+           "keep cerebellum in VBM maps"],
+          ["-no-VBM-cerebellum", "const", "noCerebellum", \$VBM_cerebellum, 
+           "mask out cerebellum in VBM maps [defaul -VBM-cerebellum]"],
 
           ["Pipeline control", "section"],
           ["-run", "const", "run", \$command, "Run the pipeline."],
@@ -421,6 +426,7 @@ foreach my $dsid (@dsids) {
 
     $image->{VBM_fwhm} = $VBM_fwhm;
     $image->{VBM_symmetry} = $VBM_symmetry;
+    $image->{VBM_cerebellum} = $VBM_cerebellum;
     my $VBM_Dir = "${target}/${dsid}/VBM";
     system( "mkdir -p ${VBM_Dir}" ) if( ! -d "${VBM_Dir}" );
     $image->{VBM_cls_masked} = "${VBM_Dir}/${prefix}_${dsid}_cls_masked.mnc";

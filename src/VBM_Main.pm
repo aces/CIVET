@@ -14,14 +14,13 @@ sub create_pipeline {
     my $image = @_[2];
 
     my $cls = ${$image}->{cls_correct};
-    my $brain_mask = ${$image}->{brain_mask};
+    my $cls_masked = ${$image}->{VBM_cls_masked};
     my $smooth_wm = ${$image}->{VBM_smooth_wm};
     my $smooth_gm = ${$image}->{VBM_smooth_gm};
     my $smooth_csf = ${$image}->{VBM_smooth_csf};
-    my $cls_masked = ${$image}->{VBM_cls_masked};
 
     my $volumeFWHM = ${$image}->{VBM_fwhm};
-    ## my $linear = ${$image}->{VBM_linear};
+    my $cerebellum = ${$image}->{VBM_cerebellum};
 
     ##########################################################################
     #####  Run a smoothing kernel on the different tissue classes of     #####
@@ -30,21 +29,31 @@ sub create_pipeline {
     ##########################################################################
 
     if( !( -e $cls ) ) {
-      print "Warning: $cls must exist to process VBM files.\n";
+      print "Warning: $cls must exist to process VBM maps.\n";
       return( [] );
     }
 
     # Mask the classified image with the brain mask to remove
     # cerebellum and brain steam.
 
-    ${$pipeline_ref}->addStage( {
-         name => "VBM_cls_masked",
-         label => "VBM masking of classified image",
-         inputs => [$cls, $brain_mask],
-         outputs => [$cls_masked],
-         args => ["mincmath", "-clobber", "-mult", $cls, $brain_mask,
-                  $cls_masked],
-         prereqs => $Prereqs });
+    if( $cerebellum eq "noCerebellum" ) {
+      my $brain_mask = ${$image}->{brain_mask};
+      if( !( -e $brain_mask ) ) {
+        print "Warning: $brain_mask must exist to mask out cerebellum for VBM maps.\n";
+        return( [] );
+      }
+      ${$pipeline_ref}->addStage( {
+           name => "VBM_cls_masked",
+           label => "VBM masking of classified image",
+           inputs => [$cls, $brain_mask],
+           outputs => [$cls_masked],
+           args => ["mincmath", "-clobber", "-mult", $cls, $brain_mask,
+                    $cls_masked],
+           prereqs => $Prereqs });
+       $Prereqs = ["VBM_cls_masked"];
+    } else {
+       $cls_masked = $cls;
+    }
 
     ${$pipeline_ref}->addStage( {
          name => "VBM_smooth_${volumeFWHM}_csf",
@@ -53,7 +62,7 @@ sub create_pipeline {
          outputs => [$smooth_csf],
          args => ["smooth_mask", "-clobber", "-binvalue", 1, "-fwhm",
                   $volumeFWHM, $cls_masked, $smooth_csf],
-         prereqs => ["VBM_cls_masked"] });
+         prereqs => $Prereqs });
 
     ${$pipeline_ref}->addStage( {
          name => "VBM_smooth_${volumeFWHM}_wm",
@@ -62,7 +71,7 @@ sub create_pipeline {
          outputs => [$smooth_wm],
          args => ["smooth_mask", "-clobber", "-binvalue", 3, "-fwhm",
                   $volumeFWHM, $cls_masked, $smooth_wm],
-         prereqs => ["VBM_cls_masked"] });
+         prereqs => $Prereqs });
 
     ${$pipeline_ref}->addStage( {
          name => "VBM_smooth_${volumeFWHM}_gm",
@@ -71,7 +80,7 @@ sub create_pipeline {
          outputs => [$smooth_gm],
          args => ["smooth_mask", "-clobber", "-binvalue", 2, "-fwhm",
                   $volumeFWHM, $cls_masked, $smooth_gm],
-         prereqs => ["VBM_cls_masked"] });
+         prereqs => $Prereqs });
 
     my $VBM_complete = ["VBM_smooth_${volumeFWHM}_wm", 
                         "VBM_smooth_${volumeFWHM}_gm", 
