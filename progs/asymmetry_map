@@ -1,0 +1,68 @@
+#! /usr/bin/env perl
+#
+# Make an asymmetry map.
+#
+# Claude Lepage - claude@bic.mni.mcgill.ca
+#
+
+use strict;
+use warnings "all";
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+my($Help, $Usage, $me);
+$me = &basename($0);
+
+$Help = <<HELP;
+| $me Make an asymmetry map for VBM analysis.
+| 
+| Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
+HELP
+
+$Usage = "Usage: $me [options] input.mnc output.mnc\n".
+         "       $me -help to list options\n\n";
+
+my $verbose = 0;
+my $clobber = 0;
+
+my @opt_table = (
+   ["-verbose", "boolean", 0, \$verbose,
+      "be verbose" ],
+   ["-clobber", "boolean", 0, \$clobber,
+      "clobber existing check files" ],
+   );
+
+# Check arguments
+&Getopt::Tabular::SetHelp($Help, $Usage);
+&GetOptions (\@opt_table, \@ARGV) || exit 1;
+die $Usage if( $#ARGV != 1 );
+my $input = shift(@ARGV);
+my $output = shift(@ARGV);
+
+# check for files
+die "$me: Couldn't find input file: $input\n\n" if (!-e $input);
+if(-e $output && !$clobber){
+   die "$me: $output exists, -clobber to overwrite\n\n";
+}
+
+# make tmpdir
+my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
+my $base = &basename($input);
+$base =~ s/\.mnc(.gz)?$//;
+my $input_flipped = "${tmpdir}/${base}_flipped.mnc";
+my $diff = "${tmpdir}/${base}_diff.mnc";
+
+# Flip volume and compute left-right differences.
+
+&do_cmd( 'flip_volume', $input, $input_flipped );
+&do_cmd( 'mincmath', '-clobber', '-sub', $input, $input_flipped, $diff );
+&do_cmd( 'mincreshape', '-clobber', '-short', '-signed', 
+         '-valid_range', '-32000', '32000', '-image_range', '-1', '1',
+         $diff, $output );
+
+sub do_cmd { 
+   print STDOUT "@_\n" if $verbose;
+   system(@_) == 0 or die;
+}
+       

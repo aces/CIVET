@@ -101,6 +101,8 @@ if ( -e $input ) {
   my $clip_expr = "if(A[0]<0){out=0;}else{if(A[0]>${top}){out=${top};}else{out=A[0];}}";
 
   &run( "minccalc", "-clobber", "-expression", $clip_expr, $tmp, $output );
+  # This is ugly! Clear minc history to avoid a bug in netCDF-3.6.1 (see Claude)
+  &run( "minc_modify_header", "-sinsert", ":history=\"\"", $output );
 
 }
 
