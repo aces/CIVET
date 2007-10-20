@@ -244,7 +244,7 @@ my @argTbl = (
           ["-VBM-cerebellum", "const", "Cerebellum", \$VBM_cerebellum, 
            "keep cerebellum in VBM maps"],
           ["-no-VBM-cerebellum", "const", "noCerebellum", \$VBM_cerebellum, 
-           "mask out cerebellum in VBM maps [defaul -VBM-cerebellum]"],
+           "mask out cerebellum in VBM maps [default -VBM-cerebellum]"],
 
           ["Pipeline control", "section"],
           ["-run", "const", "run", \$command, "Run the pipeline."],
@@ -414,13 +414,8 @@ foreach my $dsid (@dsids) {
                                 $surface,
                                 $animal,
                                 \@thickness,
-                                "${regLinModelDir}/${regLinModel}",
-                                "${regNLModelDir}/${regNLModel}",
-                                "${SurfRegModelDir}/${SurfRegModel}",
-                                "${SurfRegModelDir}/${SurfRegDataTerm}",
-                                "$CIVETmodels{$CIVETModel}{SurfaceMaskDir}/" .
-                                "$CIVETmodels{$CIVETModel}{SurfaceMask}",
-                                $Template );
+                                $Template,
+                                \$CIVETmodels{$CIVETModel} );
 
     ##### Add VBM fields to hash table MRI_Image #####
 
