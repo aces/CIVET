@@ -525,9 +525,14 @@ if( $animal eq "ANIMAL" ) {
     $AnimalAtlasDir = MNI::DataDir::dir("ANIMAL_INSECT");
     if( $AnimalAtlas eq "-symmetric_atlas" ) {
       $AnimalAtlasDir .= "icbm152-symmetric-v1.0/";
-    } elsif( $AnimalAtlas eq "-lobe_segment" ) {
+    } elsif( $AnimalAtlas eq "-lobe_atlas" ) {
       $AnimalAtlasDir .= "icbm152-lobes-v1.1/";
     } else {
+      print "Warning: You must specify an atlas directory to use ANIMAL segmentation\n";
+      $AnimalAtlasDir = undef;
+      $animal = "noANIMAL";
+    }
+    if( defined $AnimalAtlasDir && !( -e $AnimalAtlasDir ) ) {
       print "Warning: You must specify an atlas directory to use ANIMAL segmentation\n";
       $AnimalAtlasDir = undef;
       $animal = "noANIMAL";
@@ -543,7 +548,7 @@ if( $animal eq "ANIMAL" ) {
   if( $AnimalAtlas eq "-symmetric_atlas" ) {
     $AnimalNLRegModel = "icbm_avg_152_t1_tal_lin_symmetric";
     $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
-  } elsif( $AnimalAtlas eq "-lobe_segment" ) {
+  } elsif( $AnimalAtlas eq "-lobe_atlas" ) {
     $AnimalNLRegModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
     $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
   } else {
