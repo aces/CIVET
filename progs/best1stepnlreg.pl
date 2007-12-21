@@ -176,8 +176,32 @@ if( $opt{normalize} ) {
   $source = $inorm_source;
 }
 
+# mask the images only once.
+if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
+  my $source_masked = "$tmpdir/${s_base}_masked.mnc";
+  &do_cmd( 'minccalc', '-clobber',
+           '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
+           $source, $opt{source_mask}, $source_masked );
+  $source = $source_masked;
+
+  my $target_masked = "$tmpdir/${t_base}_masked.mnc";
+  &do_cmd( 'minccalc', '-clobber',
+           '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
+           $target, $opt{target_mask}, $target_masked );
+  $target = $target_masked;
+}
+
+
 # a fitting we shall go...
 for ($i=0; $i<=$#conf; $i++){
+
+   # remove blurred image at previous iteration, if no longer needed.
+   if( $i > 0 ) {
+     if( $conf[$i]{blur_fwhm} != $conf[$i-1]{blur_fwhm} ) {
+       unlink( "$tmp_source\_blur.mnc" ) if( -e "$tmp_source\_blur.mnc" );
+       unlink( "$tmp_target\_blur.mnc" ) if( -e "$tmp_target\_blur.mnc" );
+     }
+   }
    
    # set up intermediate files
    $tmp_xfm = "$tmpdir/$s_base\_$i.xfm";
@@ -194,36 +218,13 @@ for ($i=0; $i<=$#conf; $i++){
                 "\n";
    
    # blur the source and target files if required.
-   # mask the source and target provided both masks are supplied.
    if(!-e "$tmp_source\_blur.mnc"){
-      my $source_masked = $source;
-      if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
-        if( -e $opt{source_mask} ) {
-          $source_masked = "${tmp_source}_masked.mnc";
-          if(!-e $source_masked ) {
-            &do_cmd( 'minccalc', '-clobber',
-                     '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
-                     $source, $opt{source_mask}, $source_masked );
-          }
-        }
-      }
       &do_cmd('mincblur', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
-              $source_masked, $tmp_source);
+              $source, $tmp_source);
    }
    if(!-e "$tmp_target\_blur.mnc"){
-      my $target_masked = $target;
-      if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
-        if( -e $opt{target_mask} ) {
-          $target_masked = "${tmp_target}_masked.mnc";
-          if(!-e $target_masked ) {
-            &do_cmd( 'minccalc', '-clobber',
-                     '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
-                     $target, $opt{target_mask}, $target_masked );
-          }
-        }
-      }
       &do_cmd('mincblur', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
-              $target_masked, $tmp_target);
+              $target, $tmp_target);
    }
    
    # set up registration
@@ -243,14 +244,27 @@ for ($i=0; $i<=$#conf; $i++){
 
    # masks (even if the blurred image is masked, it's still preferable
    # to use the mask in minctracc)
-   push(@args, '-source_mask', $opt{source_mask} ) if defined($opt{source_mask});
-   push(@args, '-model_mask', $opt{target_mask}) if defined($opt{target_mask});
+   if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
+     push(@args, '-source_mask', $opt{source_mask} );
+     push(@args, '-model_mask', $opt{target_mask} );
+   }
    
    # add files and run registration
    push(@args, "$tmp_source\_blur.mnc", "$tmp_target\_blur.mnc", 
         ($i == $#conf) ? $outxfm : $tmp_xfm);
    &do_cmd(@args);
-   
+  
+   # remove previous xfm to keep tmpdir usage to a minimum.
+   # (could also remove the previous blurred images).
+
+   if($i > 0) {
+     unlink( $prev_xfm );
+     $prev_xfm =~ s/\.xfm/_grid_0.mnc/;
+     unlink( $prev_xfm );
+   }
+
+   # define starting xfm for next iteration. 
+
    $prev_xfm = ($i == $#conf) ? $outxfm : $tmp_xfm;
 }
 

@@ -18,6 +18,7 @@ use Surface_Fit;
 use Surface_Register;
 use Cortical_Measurements;
 use Verify_Image;
+use VBM;
 
 # the version number
 
@@ -128,6 +129,17 @@ sub create_pipeline{
     );
     my $Cortex_Mask_complete = $res[0];
 
+    ################################################
+    ##### Processing of VBM files for analysis #####
+    ################################################
+
+    @res = VBM::create_pipeline(
+      $pipeline_ref,
+      $Cortex_Mask_complete,
+      $image
+    );
+    my $VBM_complete = $res[0];
+
     ##############################################################
     ##### Susceptibility artefacts (could use skull mask???) #####
     ##############################################################
@@ -153,6 +165,7 @@ sub create_pipeline{
         $Global_Template,
         $Global_second_model_dir,
         ${$models}->{AnimalAtlas},
+        ${$models}->{AnimalAtlasDir},
         $fullpath_animalregmodel
       );
       $Segment_complete = $res[0];

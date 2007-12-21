@@ -18,7 +18,8 @@ sub create_pipeline {
     my $Template = @_[3];
     my $Second_Model_Dir = @_[4];
     my $atlas = @_[5];
-    my $nl_model = @_[6];
+    my $atlasdir = @_[6];
+    my $nl_model = @_[7];
 
     # global files for segmentation
 
@@ -70,31 +71,44 @@ sub create_pipeline {
            label => "automatic labelling",
            inputs => [$t1_tal_nl_animal_xfm, $cls_correct],
            outputs => [$stx_labels],
-           args => ["stx_segment", "-clobber", $atlas,
+           args => ["stx_segment", "-clobber", $atlas, "-modeldir", $atlasdir,
                     $t1_tal_nl_animal_xfm, $identity, "-template", $Template,
                     $cls_correct, $stx_labels],
            prereqs => $Prereqs } );
+
+      # to do: use -lobe_mapping to specify mapping file to lobes:
+      # $LobeMap = "$FindBin::Bin/../share/jacob/" . 
+      #            'seg/jacob_atlas_brain_fine_remap_to_lobes.dat';
+      ${$pipeline_ref}->addStage( {
+           name => "segment_volumes",
+           label => "label and compute lobe volumes in native space",
+           inputs => [$t1_tal_xfm, $stx_labels],
+           outputs => [$label_volumes, $lobe_volumes],
+           args => ["compute_icbm_vols", "-clobber", "-transform", 
+                    $t1_tal_xfm, "-invert", "-lobe_volumes", 
+                    $lobe_volumes, $stx_labels, $label_volumes],
+           prereqs => ["segment"] });
     } else {
       ${$pipeline_ref}->addStage( {
            name => "segment",
            label => "automatic labelling",
            inputs => [$t1_tal_nl_animal_xfm, $cls_correct],
            outputs => [$stx_labels],
-           args => ["lobe_segment", "-clobber",
+           args => ["lobe_segment", "-clobber", "-modeldir", $atlasdir,
                     $t1_tal_nl_animal_xfm, $identity, "-template", $Template,
                     $cls_correct, $stx_labels],
            prereqs => $Prereqs } );
-    }
 
-    ${$pipeline_ref}->addStage( {
-         name => "segment_volumes",
-         label => "label and compute lobe volumes in native space",
-         inputs => [$t1_tal_xfm, $stx_labels],
-         outputs => [$label_volumes, $lobe_volumes],
-         args => ["compute_icbm_vols", "-clobber", "-transform", 
-                  $t1_tal_xfm, "-invert", "-lobe_volumes", 
-                  $lobe_volumes, $stx_labels, $label_volumes],
-         prereqs => ["segment"] });
+      # check this: label_volumes and lobe_volumes should be the same here.
+      ${$pipeline_ref}->addStage( {
+           name => "segment_volumes",
+           label => "label and compute lobe volumes in native space",
+           inputs => [$t1_tal_xfm, $stx_labels],
+           outputs => [$label_volumes],
+           args => ["compute_icbm_vols", "-clobber", "-transform", 
+                    $t1_tal_xfm, "-invert", $stx_labels, $label_volumes],
+           prereqs => ["segment"] });
+    }
 
     my $seg_mask_expr = 'if(A[1]<0.5){out=0;}else{out=A[0];}';
 
@@ -105,7 +119,7 @@ sub create_pipeline {
          outputs => [$stx_labels_masked],
          args => ["minccalc", "-clobber", "-expr", $seg_mask_expr,
                   $stx_labels, $skull_mask, $stx_labels_masked],
-         prereqs => ["segment_volumes"] });
+         prereqs => ["segment"] });
 
     ${$pipeline_ref}->addStage( {
          name => "cls_volumes",
@@ -116,7 +130,7 @@ sub create_pipeline {
                   "-invert", $cls_correct, $cls_volumes],
          prereqs => $Prereqs });
 
-    my $Segment_complete = ["segment_mask", "cls_volumes"];
+    my $Segment_complete = ["segment_mask", "segment_volumes", "cls_volumes"];
 
     return( $Segment_complete );
 }

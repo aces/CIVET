@@ -36,6 +36,10 @@ sub new {
     my $nuc_dist = shift;
     my $lsqtype = shift;
     my $surface = shift;
+    my $vbm = shift;
+    my $VBM_fwhm = shift;
+    my $VBM_symmetry = shift;
+    my $VBM_cerebellum = shift;
     my $animal = shift;
     my $thickness = shift;
     my $template = shift;
@@ -48,6 +52,9 @@ sub new {
     $image->{interpMethod} = $interpMethod;
     $image->{nuc_dist} = $nuc_dist;
     $image->{lsqtype} = $lsqtype;
+    $image->{VBM_fwhm} = $VBM_fwhm;
+    $image->{VBM_symmetry} = $VBM_symmetry;
+    $image->{VBM_cerebellum} = $VBM_cerebellum;
     $image->{animal} = $animal;
     $image->{surface} = $surface;
     $image->{tmethod} = $$thickness[0];
@@ -73,6 +80,7 @@ sub new {
                               'LIN'    => "transforms/linear", 
                               'NL'     => "transforms/nonlinear" };
 
+    $image->{directories}{VBM} = "VBM" unless( $vbm eq "noVBM" );
     $image->{directories}{SEG} = "segment" unless( $animal eq "noANIMAL" );
     $image->{directories}{SURF} = "surfaces" unless( $surface eq "noSURFACE" );
     $image->{directories}{SR} = "transforms/surfreg" unless( $surface eq "noSURFACE" );
@@ -122,8 +130,17 @@ sub new {
     $image->{curve_prefix} = "${tmp_dir}/${prefix}_${dsid}_curve";
     $image->{curve_cg} = "$image->{curve_prefix}_cg.mnc";
 
-    # Define brain-masking files.
+    # Define the VBM files.
+    my $VBM_Dir = "${Base_Dir}/$image->{directories}{VBM}";
+    $image->{VBM_cls_masked} = "${VBM_Dir}/${prefix}_${dsid}_cls_masked.mnc";
+    $image->{VBM_smooth_wm} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_wm.mnc";
+    $image->{VBM_smooth_gm} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_gm.mnc";
+    $image->{VBM_smooth_csf} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_csf.mnc";
+    $image->{VBM_smooth_wm_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_wm_sym.mnc";
+    $image->{VBM_smooth_gm_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_gm_sym.mnc";
+    $image->{VBM_smooth_csf_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_csf_sym.mnc";
 
+    # Define brain-masking files.
     my $mask_dir = "${Base_Dir}/$image->{directories}{MASK}";
     if( -e "${Source_Dir}/${prefix}_${dsid}_mask.mnc.gz" ) {
       $image->{user_mask} = "${Source_Dir}/${prefix}_${dsid}_mask.mnc.gz",
@@ -178,15 +195,18 @@ sub new {
     my $surf_dir = "${Base_Dir}/$image->{directories}{SURF}";
     $image->{white}{left} = "${surf_dir}/${prefix}_${dsid}_white_surface_left_81920.obj";
     $image->{white}{right} = "${surf_dir}/${prefix}_${dsid}_white_surface_right_81920.obj";
+    $image->{white}{full} = "${surf_dir}/${prefix}_${dsid}_white_surface_81920.obj";
 
     $image->{white}{cal_left} = "${surf_dir}/${prefix}_${dsid}_white_surface_left_calibrated_81920.obj";
     $image->{white}{cal_right} = "${surf_dir}/${prefix}_${dsid}_white_surface_right_calibrated_81920.obj";
 
     $image->{gray}{left} = "${surf_dir}/${prefix}_${dsid}_gray_surface_left_81920.obj";
     $image->{gray}{right} = "${surf_dir}/${prefix}_${dsid}_gray_surface_right_81920.obj";
+    $image->{gray}{full} = "${surf_dir}/${prefix}_${dsid}_gray_surface_81920.obj";
 
     $image->{mid_surface}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_left_81920.obj";
     $image->{mid_surface}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_right_81920.obj";
+    $image->{mid_surface}{full} = "${surf_dir}/${prefix}_${dsid}_mid_surface_81920.obj";
 
     # a bunch of associated temporary files for surface extraction (should clean this up!)
     $image->{final_callosum} = "${tmp_dir}/${prefix}_${dsid}_final_callosum.mnc";
@@ -210,15 +230,10 @@ sub new {
     my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
     $image->{rms}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_left.txt";
     $image->{rms}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_right.txt";
+    $image->{rms}{full} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm.txt";
     $image->{rms_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_left.txt";
     $image->{rms_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_right.txt";
-    unless ($image->{animal} eq "noANIMAL") {
-      $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_left.dat";
-      $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_right.dat";
-    } else {
-      $image->{lobe_thickness}{left} = undef;
-      $image->{lobe_thickness}{right} = undef;
-    }
+    $image->{rms_rsl}{full} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm.txt";
 
     # Define cortical mean curvature files.
     my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
@@ -429,6 +444,127 @@ sub print_options {
   print PIPE "Dataterm for surface registration is\n  $image->{surfregdataterm}\n";
   print PIPE "Surface mask for linear registration is\n  $image->{surfmask}\n";
   print PIPE "Template for image-processing is\n  $image->{template}\n";
+  close PIPE;
+}
+
+# Create a list of references to cite for the algorithms used in CIVET.
+
+sub make_references {
+
+  my $image = shift;
+  my $Target_Dir = shift;
+
+  print "\nCreating references ${Target_Dir}/References.txt...\n\n";
+
+  open PIPE, "> ${Target_Dir}/References.txt";
+  print PIPE "The following references must be included in any publication\n";
+  print PIPE "using CIVET.\n\n";
+
+  print PIPE "Non-uniformity corrections\n";
+  print PIPE "==========================\n";
+  print PIPE "  J.G. Sled, A.P. Zijdenbos and A.C. Evans, \"A non-parametric method\n";
+  print PIPE "     for automatic correction of intensity non-uniformity in MRI data\",\n";
+  print PIPE "     in \"IEEE Transactions on Medical Imaging\", vol. 17, n. 1,\n";
+  print PIPE "     pp. 87-97, 1998\n\n";
+
+  print PIPE "Stereotaxic registration\n";
+  print PIPE "========================\n";
+  print PIPE "  [1] D. L. Collins, P. Neelin, T. M. Peters and A. C. Evans,\n";
+  print PIPE "  \"Automatic 3D Inter-Subject Registration of MR Volumetric Data in\n";
+  print PIPE "  Standardized Talairach Space,\" Journal of Computer Assisted\n";
+  print PIPE "  Tomography, 18(2) pp. 192-205, 1994\n\n";
+  print PIPE "  If avg305 model is used, cite:\n";
+  print PIPE "  ------------------------------\n";
+  print PIPE "    Stereotaxic registration of the MRI volumes was achieved using the\n";
+  print PIPI "    mni\_autoreg package (www.bic.mni.mcgill.ca/packages) [1] with the\n";
+  print PIPE "    MNI305 target [2].\n";
+  print PIPE "    [2] A. C. Evans, D. L. Collins, S. R. Mills, E. D. Brown, R. L.\n";
+  print PIPE "    Kelly, and T. M. Peters, \"3D statistical neuroanatomical models from\n";
+  print PIPE "    305 MRI volumes,\" San Francisco, CA, USA, 1994.\n\n";
+  print PIPE "  If icbm152 linear model is used, cite:\n";
+  print PIPE "  --------------------------------------\n";
+  print PIPE "    Stereotaxic registration of the MRI volumes was achieved using the\n";
+  print PIPI "    mni\_autoreg package (www.bic.mni.mcgill.ca/packages) [1] with the\n";
+  print PIPE "    ICBM152 linear target [3].\n";
+  print PIPE "    [3] J. Mazziotta, A. Toga, A. Evans, P. Fox, J. Lancaster, K. Zilles,\n";
+  print PIPE "    R. Woods, T. Paus, G. Simpson, B. Pike, C. Holmes, L. Collins,\n";
+  print PIPE "    P. Thompson, D. MacDonald, M. Iacoboni, T. Schormann, K. Amunts,\n";
+  print PIPE "    N. Palomero-Gallagher, S. Geyer, L. Parsons, K. Narr, N. Kabani,\n";
+  print PIPE "    G. Le Goualher, D. Boomsma, T. Cannon, R. Kawashima, and B. Mazoyer,\n";
+  print PIPE "    \"A probabilistic atlas and reference system for the human\n";
+  print PIPE "    brain: International Consortium for Brain Mapping (ICBM),\"\n";
+  print PIPE "    Philos Trans R Soc Lond B Biol Sci, vol. 356, pp. 1293-322, 2001.\n\n";
+  print PIPE "  If icbm152 non-linear 6th generation symmetric model is used, cite:\n";
+  print PIPE "  -------------------------------------------------------------------\n";
+  print PIPE "    Stereotaxic registration of the MRI volumes was achieved using the\n";
+  print PIPI "    mni\_autoreg package (www.bic.mni.mcgill.ca/packages) [1] with the\n";
+  print PIPE "    ICBM152 non-linear 6th generation target [4].\n";
+  print PIPE "    [4] G. Grabner, A. L. Janke, M. M. Budge, D. Smith, J. Pruessner,\n";
+  print PIPE "    and D. L. Collins, \"Symmetric atlasing and model based segmentation:\n";
+  print PIPE "    an application to the hippocampus in older adults,\" Med Image Comput\n";
+  print PIPE "    Comput Assist Interv Int Conf Med Image Comput Comput Assist Interv,\n";
+  print PIPE "    vol. 9, pp. 58-66, 2006.\n\n";
+
+  print PIPE "Brain-masking\n";
+  print PIPE "=============\n";
+  print PIPE "  S.M. Smith, \"Fast robust automated brain extraction,\" Human Brain\n";
+  print PIPE "  Mapping, 17(3):143-155, November 2002.\n\n";
+
+  print PIPE "Classification\n";
+  print PIPE "==============\n";
+  print PIPE "  Zijdenbos, A., Forghani, R., and Evans, A., \"Automatic Quantification\n";
+  print PIPE "  of MS Lesions in 3D MRI Brain Data Sets: Validation of INSECT,\". In\n";
+  print PIPE "  Medical Image Computing and Computer-Assisted Interventation (MICCAI98),\n";
+  print PIPE "  W.M. Wells, A. Colchester, and S. Delp, eds. (Cambridge, MA, Springer-\n";
+  print PIPE "  Verlag Berlin Heidelberg), pp. 439-448, 1998.\n\n";
+
+  print PIPE "  Tohka, J., Zijdenbos, A., and Evans, A., \"Fast and robust parameter estimation\n";
+  print PIPE "  for statistical partial volume models in brain MRI,\" NeuroImage 23:1, pp. 84-97\n";
+  print PIPE "  2004.\n\n";
+
+  if( $image->{surface} eq "SURFACE" ) {
+    print PIPE "Surface extraction\n";
+    print PIPE "==================\n";
+    print PIPE " ... paper by Oliver Lyttelton (extraction by hemispheres)\n";
+
+    print PIPE "  Kim, J.S., Singh, V., Lee, J.K., Lerch, J., Ad-Dab'bagh, Y., MacDonald, D.,\n";
+    print PIPE "  Lee, J.M., Kim, S.I., and Evans, A.C., \"Automated 3-D extraction and \n";
+    print PIPE "  evaluation of the inner and outer cortical surfaces using a Laplacian \n";
+    print PIPE "  map and partial volume effect classification,\" NeuroImage 27, pp. 210-221,\n";
+    print PIPE "  2005.\n\n";
+
+    print PIPE "  MacDonald, D., Kabani, N., Avis, D., and Evans, A.C., \"Automated 3-D\n";
+    print PIPE "  Extraction of Inner and Outer Surfaces of Cerebral Cortex from MRI.\n";
+    print PIPE "  NeuroImage 12, pp. 340-356, 2000.\n\n";
+
+    print PIPE "Cortical thickness\n";
+    print PIPE "==================\n";
+    print PIPE "  Lerch, J.P. and Evans, A.C., \"Cortical thickness analysis examined through\n";
+    print PIPE "  power analysis and a population simulation,\" NeuroImage 24, pp. 163-173,\n";
+    print PIPE "  2005.\n\n";
+
+    print PIPE "Surface diffusion smoothing\n";
+    print PIPE "===========================\n";
+    print PIPE "  M. K. Chung and J. Taylor, \"Diffusion Smoothing on Brain Surface\n";
+    print PIPE "  via Finite Element Method,\" Biomedical Imaging: Macro to Nano, 2004,\n";
+    print PIPE "  IEEE International Symposium on, vol 1, pp. 432-435, 2004.\n\n";
+
+    print PIPE "Surface registration\n";
+    print PIPE "====================\n";
+    print PIPE "  S.M. Robbins, \"Anatomical Standardization of the Human Brain in Euclidean\n";
+    print PIPE "  3-Space and on the Cortical 2-Manifold,\" Ph.D. Thesis, School of Computer\n";
+    print PIPE "  Science (Montreal, McGill University), 2004.\n\n";
+    print PIPE "  O. Lyttelton, M. Boucher, S. Robbins, and A. Evans, \"An unbiased iterative\n";
+    print PIPE "  group registration template for cortical surface analysis,\" NeuroImage 34,\n";
+    print PIPE "  pp. 1535-1544, 2007\n\n";
+  }
+
+  if( $image->{animal} eq "ANIMAL" ) {
+    # print PIPE "ANIMAL segmentation\n";
+    # print PIPE "===================\n";
+    # print PIPE " ... paper by Louis Collins\n\n";
+  }
+
   close PIPE;
 }
 

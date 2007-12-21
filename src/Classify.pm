@@ -69,7 +69,7 @@ sub pve {
          label => "tissue classification",
          inputs => [$skull_mask, @classify_images],
          outputs => [$cls_clean],
-         args => ["classify_clean", "-clobber", "-clean_tags",
+         args => ["classify_clean", "-clobber", "-clean_tags", "-mask_source",
                   "-mask", $skull_mask, "-mask_classified", "-mask_tag",
                   "-tagfile", "ntags_1000_prob_90_nobg.tag",
                   "-tag_transform", $t1_tal_nl_xfm,

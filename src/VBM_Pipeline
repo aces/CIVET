@@ -425,12 +425,12 @@ foreach my $dsid (@dsids) {
     my $VBM_Dir = "${target}/${dsid}/VBM";
     system( "mkdir -p ${VBM_Dir}" ) if( ! -d "${VBM_Dir}" );
     $image->{VBM_cls_masked} = "${VBM_Dir}/${prefix}_${dsid}_cls_masked.mnc";
-    $image->{VBM_smooth_wm} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}_wm.mnc";
-    $image->{VBM_smooth_gm} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}_gm.mnc";
-    $image->{VBM_smooth_csf} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}_csf.mnc";
-    $image->{VBM_smooth_wm_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}_wm_sym.mnc";
-    $image->{VBM_smooth_gm_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}_gm_sym.mnc";
-    $image->{VBM_smooth_csf_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}_csf_sym.mnc";
+    $image->{VBM_smooth_wm} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_wm.mnc";
+    $image->{VBM_smooth_gm} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_gm.mnc";
+    $image->{VBM_smooth_csf} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_csf.mnc";
+    $image->{VBM_smooth_wm_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_wm_sym.mnc";
+    $image->{VBM_smooth_gm_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_gm_sym.mnc";
+    $image->{VBM_smooth_csf_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_csf_sym.mnc";
 
     ##### Create the pipeline environment. #####
 

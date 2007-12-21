@@ -1,11 +1,11 @@
+# The VBM stages
+
 # Blurring of the classified image for VBM (Voxel-based Morphometry)
 
-package VBM_Main;
+package VBM;
 use strict;
 use PMP::PMP;
 use MRI_Image;
-
-$PMP::VERSION = '0.7.0'; #Things that have to be defined Poor Man's Pipeline
 
 sub create_pipeline {
 
@@ -28,20 +28,11 @@ sub create_pipeline {
     #####  for the purposes of examining symmetry in subsequent stages.  #####
     ##########################################################################
 
-    if( !( -e $cls ) ) {
-      print "Warning: $cls must exist to process VBM maps.\n";
-      return( [] );
-    }
-
     # Mask the classified image with the brain mask to remove
     # cerebellum and brain steam.
 
     if( $cerebellum eq "noCerebellum" ) {
       my $brain_mask = ${$image}->{brain_mask};
-      if( !( -e $brain_mask ) ) {
-        print "Warning: $brain_mask must exist to mask out cerebellum for VBM maps.\n";
-        return( [] );
-      }
       ${$pipeline_ref}->addStage( {
            name => "VBM_cls_masked",
            label => "VBM masking of classified image",

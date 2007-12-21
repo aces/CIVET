@@ -81,7 +81,7 @@ sub image {
       chomp( $dy );
       chomp( $dz );
       push @verifyRows, ( "-row", "color:gray", 
-                          sprintf( "title:t1 final image %s (%5.2f x %5.2f x %5.2f mm)", 
+                          sprintf( "title:t1 final image %s (native at %5.2f x %5.2f x %5.2f mm)", 
                                    ${t1_base}, abs($dx), abs($dy), abs($dz) ),
                           "overlay:${surf_mask}:red:1.0",
                           $t1_tal_final );

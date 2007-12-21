@@ -47,8 +47,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.8";
-my $versionDate= "July 9, 2007";
+my $version = "1.1.9";
+my $versionDate= "December 18, 2007";
 my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -58,6 +58,33 @@ my $whatsnew = <<NEW;
     *************************************************************************
 
     New in $versionDate quarantine, version $version
+
+    1 - minc2-based quarantine.
+    2 - new ICBM templates compatible with non-linear ICBM152 model.
+    3 - asymmetry maps for cortical thickness.
+    4 - cortical surfaces for hemispheres combined into single surface
+        for convenience of visualization.
+    5 - integrated VBM pipeline inside CIVET.
+    6 - list of references produced by CIVET in targetdir.
+    7 - really mask the background t1-image during classification to 
+        avoid confusion between noisy background and csf.
+    8 - fixed tlaplace cortical thickness for extents of volume in native space.
+    9 - ANIMAL segmentation only available as a plug-in module.
+    to do:
+    10 - resample depth potential for group comparison (more useful than
+         mean curvature)
+    11 -
+
+    More to come soon:
+
+    0 - improved method to do surface parcellation using non-linear
+        surface map.
+    1 - use new ANIMAL lobe parcellation with non-linear iterative
+        icbm152 generation VI model.
+    2 - classification and surface extraction in native space.
+    3 - high-resolution surfaces at 320k polygons.
+
+    ********** From Jul-09-2007 quarantine, version 1.1.8 **********
 
     1 - ANIMAL segmentation has been disabled as the new default.
     2 - recompute non-linear transform to linear symmetric icbm152 
@@ -75,18 +102,6 @@ my $whatsnew = <<NEW;
         native image.
     8 - init environment files are now in the quarantine base 
         directory (no longer in CIVET directory).
-
-    More to come soon:
-
-    0 - improved method to do surface parcellation using non-linear
-        surface map.
-    1 - use new ANIMAL lobe parcellation with non-linear iterative
-        icbm152 generation VI model.
-    2 - new ICBM templates compatible with non-linear ICBM152 model. *BETA*
-    3 - classification and surface extraction in native space.
-    4 - high-resolution surfaces at 320k polygons.
-    5 - file compression via PMP to save disk space.
-    6 - minc2-based quarantine.
 
     ********** From previous Mar-30-2007 quarantine, version 1.1.7 **********
 
@@ -256,13 +271,10 @@ my %CIVETmodels = ( 'icbm152nl' => {
                       'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
-                      'AnimalAtlas'      => "-symmetric_atlas",
-                      'AnimalNLRegDir'   => MNI::DataDir::dir("mni_autoreg"),
-                      'AnimalNLRegModel' => "icbm_avg_152_t1_tal_lin_symmetric"
-                      # not yet ready and it you try to use this it will break. CL.
-                      # 'AnimalAtlas'      => "-lobe_atlas",
-                      # 'AnimalNLRegDir'   => MNI::DataDir::dir("mni_autoreg"),
-                      # 'AnimalNLRegModel' => "icbm_avg_152_t1_tal_nlin_symmetric_VI"
+                      'AnimalAtlas'      => undef,
+                      'AnimalAtlasDir'   => undef,
+                      'AnimalNLRegDir'   => undef,
+                      'AnimalNLRegModel' => undef
                     },
                     'icbm152lin' => {
                       'RegLinDir'        => MNI::DataDir::dir("mni_autoreg"),
@@ -278,9 +290,10 @@ my %CIVETmodels = ( 'icbm152nl' => {
                       'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
-                      'AnimalAtlas'      => "-symmetric_atlas",
-                      'AnimalNLRegDir'   => MNI::DataDir::dir("mni_autoreg"),
-                      'AnimalNLRegModel' => "icbm_avg_152_t1_tal_lin_symmetric"
+                      'AnimalAtlas'      => undef,
+                      'AnimalAtlasDir'   => undef,
+                      'AnimalNLRegDir'   => undef,
+                      'AnimalNLRegModel' => undef
                     }
                   );
 
@@ -296,10 +309,21 @@ my $maskType = "t1only";
 my $interpMethod = "trilinear";
 my $N3Distance = 200;
 my $lsqtype = "-lsq9";
-my $VBM = "VBM";
-my $animal = "noANIMAL";
+my $VBM = "noVBM";
+my $VBM_fwhm = 8;
+my $VBM_symmetry = "noSymmetry";
+my $VBM_cerebellum = "Cerebellum";
 my $surface = "SURFACE";
 my @thickness = ("tlink","20");
+
+my $AtlasModel = undef;
+my $AtlasModelDir = undef;
+
+my $animal = "noANIMAL";
+my $AnimalAtlas = undef;
+my $AnimalAtlasDir = undef;
+my $AnimalNLRegDir = undef;
+my $AnimalNLRegModel = undef;
 
 ############# Some directories that the user will need to specify
 my $sourceDir = undef;
@@ -352,12 +376,35 @@ my @argTbl = (
           ["-lsq12", "const", "-lsq12", \$lsqtype,
            "use 12-parameter transformation for linear registration [default -lsq9]" ],
           ["-no-surfaces", "const", "noSURFACE", \$surface, "don\'t build surfaces"],
+          ["-thickness", "string", 2, \@thickness,
+           "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
+
+          ["VBM options", "section"],  
+          ["-VBM", "const", "VBM", \$VBM, 
+           "process VBM files for analysis [default -no-VBM]"],
+          ["-no-VBM", "const", "noVBM", \$VBM, "don\'t process VBM files for analysis"],
+          ["-VBM-fwhm", "string", 1, \$VBM_fwhm, 
+           "blurring kernel size in mm for volume"],
+          ["-VBM-symmetry", "const", "Symmetry", \$VBM_symmetry, 
+           "run symmetry tools [default -no-VBM-symmetry]"],
+          ["-no-VBM-symmetry", "const", "noSymmetry", \$VBM_symmetry, 
+           "don\'t run symmetry tools"],
+          ["-VBM-cerebellum", "const", "Cerebellum", \$VBM_cerebellum, 
+           "keep cerebellum in VBM maps"],
+          ["-no-VBM-cerebellum", "const", "noCerebellum", \$VBM_cerebellum, 
+           "mask out cerebellum in VBM maps [default -VBM-cerebellum]"],
+
+          ["ANIMAL options", "section"],  
           ["-animal", "const", "ANIMAL", \$animal, 
            "run volumetric ANIMAL segmentation and cortical surface lobe parcellation [default -no-animal]"],
           ["-no-animal", "const", "noANIMAL", \$animal, 
-           "don\'t run volumetric ANIMAL segmentation and cortical surface lobe parcellation."],
-          ["-thickness", "string", 2, \@thickness,
-           "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
+           "don\'t run volumetric ANIMAL segmentation and cortical surface lobe parcellation"],
+          ["-symmetric_atlas", "const", "-symmetric_atlas", \$AnimalAtlas, 
+           "Use linear symmetric atlas for ANIMAL segmentation (old way)"],
+          ["-lobe_atlas", "const", "-lobe_atlas", \$AnimalAtlas, 
+           "Use non-linear lobe atlas for ANIMAL segmentation (new way)"],
+          ["-animal-atlas-dir", "string", 1, \$AnimalAtlasDir, 
+           "Directory containing the segmentation atlas"],
 
           ["Pipeline control", "section"],
           ["-run", "const", "run", \$command, "Run the pipeline."],
@@ -459,10 +506,59 @@ print "* Surface registration dataterm is: \n   ${SurfRegDataTerm} \n";
 
 ############# Define Surface registration targets and directories and print them
 
-my $AnimalNLRegDir = $CIVETmodels{$CIVETModel}{AnimalNLRegDir};
-my $AnimalNLRegModel = $CIVETmodels{$CIVETModel}{AnimalNLRegModel};
+# Choose ANIMAL model.
 
 if( $animal eq "ANIMAL" ) {
+  if( !( defined $AnimalAtlas ) ) {
+    print "Warning: You must specify an atlas to use ANIMAL segmentation\n";
+    $AnimalAtlas = undef;
+    $animal = "noANIMAL";
+  }
+  if( defined $AnimalAtlasDir ) {
+    if( !( -e $AnimalAtlasDir ) ) {
+      print "Warning: Specified ANIMAL atlas directory $AnimalAtlasDir does not exist.\n";
+      $AnimalAtlasDir = undef;
+      $animal = "noANIMAL";
+    }
+  } else {
+    # Try to get the default one in the quarantine, if it has been installed.
+    $AnimalAtlasDir = MNI::DataDir::dir("ANIMAL_INSECT");
+    if( $AnimalAtlas eq "-symmetric_atlas" ) {
+      $AnimalAtlasDir .= "icbm152-symmetric-v1.0/";
+    } elsif( $AnimalAtlas eq "-lobe_segment" ) {
+      $AnimalAtlasDir .= "icbm152-lobes-v1.1/";
+    } else {
+      print "Warning: You must specify an atlas directory to use ANIMAL segmentation\n";
+      $AnimalAtlasDir = undef;
+      $animal = "noANIMAL";
+    }
+  }
+  $CIVETmodels{$CIVETModel}{AnimalAtlas} = $AnimalAtlas;
+  $CIVETmodels{$CIVETModel}{AnimalAtlasDir} = $AnimalAtlasDir;
+}
+
+# Choose target for non-linear registration given ANIMAL model.
+
+if( $animal eq "ANIMAL" ) {
+  if( $AnimalAtlas eq "-symmetric_atlas" ) {
+    $AnimalNLRegModel = "icbm_avg_152_t1_tal_lin_symmetric";
+    $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
+  } elsif( $AnimalAtlas eq "-lobe_segment" ) {
+    $AnimalNLRegModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
+    $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
+  } else {
+    print "Warning: Unknown atlas $AnimalAtlas for ANIMAL segmentation\n";
+    $AnimalNLRegModel = undef;
+    $AnimalNLRegDir = undef;
+    $animal = "noANIMAL";
+  }
+  $CIVETmodels{$CIVETModel}{AnimalNLRegDir} = $AnimalNLRegDir;
+  $CIVETmodels{$CIVETModel}{AnimalNLRegModel} = $AnimalNLRegModel;
+}
+
+if( $animal eq "ANIMAL" ) {
+  print "* ANIMAL atlas is $AnimalAtlas \n";
+  print "* ANIMAL atlas directory is: \n   ${AnimalAtlasDir} \n";
   print "* ANIMAL non-linear registration model directory is: \n  ${AnimalNLRegDir} \n";
   print "* ANIMAL non-linear registration model is:    \n   ${AnimalNLRegModel} \n";
   print "\n";
@@ -525,10 +621,20 @@ foreach my $dsid (@dsids) {
                                 $N3Distance,
                                 $lsqtype,
                                 $surface,
+                                $VBM,
+                                $VBM_fwhm,
+                                $VBM_symmetry,
+                                $VBM_cerebellum,
                                 $animal,
                                 \@thickness,
                                 $Template,
                                 \$CIVETmodels{$CIVETModel} );
+
+    ##### Create references once, for first subject only #####
+
+    if( $dsid eq $dsids[0] ) {
+      $image->make_references( $target );
+    }
 
     ##### Create the pipeline environment. #####
 

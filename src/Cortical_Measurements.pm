@@ -293,6 +293,101 @@ sub gyrification_index {
 
 }
 
+sub single_surface {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $tkernel = ${$image}->{tkernel};
+    my $tmethod = ${$image}->{tmethod};
+
+    my $white_left = ${$image}->{white}{cal_left};
+    my $white_right = ${$image}->{white}{cal_right};
+    my $gray_left = ${$image}->{gray}{left};
+    my $gray_right = ${$image}->{gray}{right};
+    my $mid_left = ${$image}->{mid_surface}{left};
+    my $mid_right = ${$image}->{mid_surface}{right};
+
+    my $native_rms_left = ${$image}->{rms}{left};
+    my $native_rms_right = ${$image}->{rms}{right};
+
+    my $white_full = ${$image}->{white}{full};
+    my $gray_full = ${$image}->{gray}{full};
+    my $mid_full = ${$image}->{mid_surface}{full};
+    my $native_rms_full = ${$image}->{rms}{full};
+
+    #####################################################################
+    ##### Combine left/right surfaces (mostly for viewing purposes) #####
+    #####################################################################
+
+    #########################
+    ##### White surface #####
+    #########################
+
+    ${$pipeline_ref}->addStage( {
+         name => "white_surface_full",
+         label => "white surface full",
+         inputs => [$white_left, $white_right],
+         outputs => [$white_full],
+         args => ["objconcat", $white_left, $white_right, "none", "none",
+                  $white_full, "none"],
+         prereqs => $Prereqs });
+
+    ########################
+    ##### Gray surface #####
+    ########################
+
+    ${$pipeline_ref}->addStage( {
+         name => "gray_surface_full",
+         label => "gray surface full",
+         inputs => [$gray_left, $gray_right],
+         outputs => [$gray_full],
+         args => ["objconcat", $gray_left, $gray_right, "none", "none",
+                  $gray_full, "none"],
+         prereqs => $Prereqs });
+
+    ####################################################
+    ##### Mid surface, with cortical thickness map #####
+    ####################################################
+
+    ${$pipeline_ref}->addStage( {
+         name => "mid_surface_full_${tmethod}_${tkernel}mm",
+         label => "mid surface full",
+         inputs => [$mid_left, $mid_right, $native_rms_left, $native_rms_right],
+         outputs => [$mid_full, $native_rms_full],
+         args => ["objconcat", $white_left, $white_right, $native_rms_left, $native_rms_right,
+                  $white_full, $native_rms_full],
+         prereqs => $Prereqs });
+
+    ##############################################################
+    ##### Mid surface, with cortical thickness asymmetry map #####
+    ##### (using resampled thickness)                        #####
+    ##############################################################
+
+    my $rsl_left_thickness = ${$image}->{rms_rsl}{left};
+    my $rsl_right_thickness = ${$image}->{rms_rsl}{right};
+
+    my $rsl_asym_hemi = ${$image}->{rms_rsl}{asym_hemi};
+    my $rsl_asym_full = ${$image}->{rms_rsl}{asym_full};
+
+    ${$pipeline_ref}->addStage( {
+         name => "asymmetry_rms_${tmethod}_${tkernel}mm",
+         label => "asymmetry cortical thickness map",
+         inputs => [$rsl_left_thickness, $rsl_right_thickness],
+         outputs => [$rsl_asym_hemi, $rsl_asym_full],
+         args => ["asymmetry_cortical_thickness", $rsl_left_thickness, $rsl_right_thickness,
+                  $rsl_asym_hemi, $rsl_asym_full],
+         prereqs => $Prereqs });
+
+    my $Single_Surface_complete = [ "white_surface_full",
+                                    "gray_surface_full",
+                                    "mid_surface_full_${tmethod}_${tkernel}mm",
+                                    "asymmetry_rms_${tmethod}_${tkernel}mm" ];
+
+    return( $Single_Surface_complete );
+
+}
 
 
 
