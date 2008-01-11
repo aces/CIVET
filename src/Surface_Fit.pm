@@ -49,8 +49,8 @@ sub create_pipeline {
     # Final surfaces in stereotaxic space
     my $left_hemi_white = ${$image}->{white}{left};
     my $right_hemi_white = ${$image}->{white}{right};
-    my $left_hemi_white_calibrated = ${$image}->{white}{cal_left};
-    my $right_hemi_white_calibrated = ${$image}->{white}{cal_right};
+    my $left_hemi_white_calibrated = ${$image}->{cal_white}{left};
+    my $right_hemi_white_calibrated = ${$image}->{cal_white}{right};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
     my $mid_surface_left = ${$image}->{mid_surface}{left};

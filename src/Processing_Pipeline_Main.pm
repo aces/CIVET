@@ -133,12 +133,15 @@ sub create_pipeline{
     ##### Processing of VBM files for analysis #####
     ################################################
 
-    @res = VBM::create_pipeline(
-      $pipeline_ref,
-      $Cortex_Mask_complete,
-      $image
-    );
-    my $VBM_complete = $res[0];
+    my $VBM_complete = undef;
+    unless (${$image}->{VBM} eq "noVBM") {
+      @res = VBM::create_pipeline(
+        $pipeline_ref,
+        $Cortex_Mask_complete,
+        $image
+      );
+      my $VBM_complete = $res[0];
+    }
 
     ##############################################################
     ##### Susceptibility artefacts (could use skull mask???) #####
@@ -177,10 +180,13 @@ sub create_pipeline{
 
     my $Surface_Fit_complete = undef;
     my $SurfReg_complete = undef;
+    my $SurfResample_complete = undef;
     my $Thickness_complete = undef;
+    my $SingleSurface_complete = undef;
     my $Mean_Curvature_complete = undef;
     my $LobeArea_complete = undef;
     my $GyrificationIndex_complete = undef;
+    my $CerebralVolume_complete = undef;
 
     unless (${$image}->{surface} eq "noSURFACE") {
 
@@ -208,6 +214,17 @@ sub create_pipeline{
       );
       $GyrificationIndex_complete = $res[0];
 
+      ###########################
+      ##### Cerebral Volume #####
+      ###########################
+
+      @res = Cortical_Measurements::cerebral_volume(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $CerebralVolume_complete = $res[0];
+
       ################################
       ##### Surface registration #####
       ################################
@@ -223,6 +240,19 @@ sub create_pipeline{
       );
       $SurfReg_complete = $res[0];
 
+      ###########################################
+      ##### Resampling of cortical surfaces #####
+      ###########################################
+ 
+      if( ${$image}->{resamplesurfaces} ) {
+        @res = Surface_Register::resample_surfaces(
+          $pipeline_ref,
+          $Surface_Fit_complete,
+          $image,
+        );
+        $SurfResample_complete = $res[0];
+      }
+
       ###################################################################
       ##### Cortical Thickness, Mean Curvature and Cortex Lobe Area #####
       ###################################################################
@@ -233,6 +263,15 @@ sub create_pipeline{
         $image
       );
       $Thickness_complete = $res[0];
+
+      if( ${$image}->{combinesurfaces} ) {
+        @res = Cortical_Measurements::single_surface(
+          $pipeline_ref,
+          $Thickness_complete,
+          $image
+        );
+        $SingleSurface_complete = $res[0];
+      }
 
       @res = Cortical_Measurements::mean_curvature(
         $pipeline_ref,
@@ -290,38 +329,4 @@ sub create_pipeline{
       $Verify_CLASP_complete = $res[0];
     }
 
-#     $ref = PMP::Surface_Segment::create_pipeline(
-#     $pipeline_ref,
-#     $Surface_Fit_complete,
-#     $Global_Surface_Segment_Dir,
-#     $Global_Temp_Dir,
-#     $Prefix,
-#     $DSID,
-#     "smallOnly",
-#     $Segment_stx_labels_masked,
-#     $Surface_Fit_gray_surface_82k,
-#     $Surface_Fit_gray_surface_328k, 
-#     $Linear_Transforms_tal_to_6_xfm
-#     );
-#     @res = @{$ref};
-#     my $Surface_Segment_complete = $res[0];
-#     my $Surface_Segment_stx_surface_labels_82k = $res[1];
-#     my $Surface_Segment_stx_surface_lobes_82k = $res[2];
-#
-
-#     my $Global_Surface_Measurements_Dir = "${Global_Base_Dir}/surface_measurements";
-#     system("mkdir -p ${Global_Surface_Measurements_Dir}") if (! -d $Global_Surface_Measurements_Dir);
-#
-#     @res = PMP::Surface_Measurements::create_pipeline(
-#     $pipeline_ref,
-#     $Surface_Fit_complete,
-#     $Global_Surface_Measurements_Dir,
-#     $Global_Temp_Dir,
-#     $Prefix,
-#     $DSID,
-#     "smallOnly",
-#     $Surface_Fit_gray_surface_82k,
-#     $Surface_Fit_white_surface_82k,
-#     $Linear_Transforms_t1_tal_xfm
-#     );
 }

@@ -70,19 +70,19 @@ my $whatsnew = <<NEW;
         avoid confusion between noisy background and csf.
     8 - fixed tlaplace cortical thickness for extents of volume in native space.
     9 - ANIMAL segmentation only available as a plug-in module.
-    to do:
-    10 - resample depth potential for group comparison (more useful than
-         mean curvature)
-    11 -
+    10 - resampled cortical surfaces in stereotaxic space.
+    11 - total cerebral volume.
 
     More to come soon:
 
     0 - improved method to do surface parcellation using non-linear
         surface map.
-    1 - use new ANIMAL lobe parcellation with non-linear iterative
-        icbm152 generation VI model.
-    2 - classification and surface extraction in native space.
-    3 - high-resolution surfaces at 320k polygons.
+    1 - classification and surface extraction in native space.
+    2 - high-resolution surfaces at 320k polygons.
+    3 - resample depth potential for group comparison (more useful than
+        mean curvature) (maybe).
+    4 - intermediate model for linear and non-linear volume registration.
+    5 - gyrification index for whole brain (not by hemisphere)
 
     ********** From Jul-09-2007 quarantine, version 1.1.8 **********
 
@@ -315,6 +315,8 @@ my $VBM_symmetry = "noSymmetry";
 my $VBM_cerebellum = "Cerebellum";
 my $surface = "SURFACE";
 my @thickness = ("tlink","20");
+my $ResampleSurfaces = 0;
+my $CombineSurfaces = 0;
 
 my $AtlasModel = undef;
 my $AtlasModelDir = undef;
@@ -378,6 +380,10 @@ my @argTbl = (
           ["-no-surfaces", "const", "noSURFACE", \$surface, "don\'t build surfaces"],
           ["-thickness", "string", 2, \@thickness,
            "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
+          ["-resample-surfaces|-no-resample-surfaces", "boolean", 1, \$ResampleSurfaces,
+           "resample cortical surfaces"],
+          ["-combine-surfaces|-no-combine-surfaces", "boolean", 1, \$CombineSurfaces,
+           "combine left and right cortical surfaces"],
 
           ["VBM options", "section"],  
           ["-VBM", "const", "VBM", \$VBM, 
@@ -626,12 +632,14 @@ foreach my $dsid (@dsids) {
                                 $N3Distance,
                                 $lsqtype,
                                 $surface,
+                                \@thickness,
+                                $ResampleSurfaces,
+                                $CombineSurfaces,
                                 $VBM,
                                 $VBM_fwhm,
                                 $VBM_symmetry,
                                 $VBM_cerebellum,
                                 $animal,
-                                \@thickness,
                                 $Template,
                                 \$CIVETmodels{$CIVETModel} );
 

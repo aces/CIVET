@@ -27,7 +27,6 @@ sub create_pipeline {
     my $label_volumes     = ${$image}->{label_volumes};
     my $lobe_volumes      = ${$image}->{lobe_volumes};
     my $stx_labels_masked = ${$image}->{stx_labels_masked}; 
-    my $cls_volumes       = ${$image}->{cls_volumes};
     my $t1_tal_mnc        = ${$image}->{t1}{final};
     my $t1_tal_nl_animal_xfm = ${$image}->{t1_tal_nl_xfm};
     my $t1_tal_xfm        = ${$image}->{t1_tal_xfm};
@@ -121,16 +120,7 @@ sub create_pipeline {
                   $stx_labels, $skull_mask, $stx_labels_masked],
          prereqs => ["segment"] });
 
-    ${$pipeline_ref}->addStage( {
-         name => "cls_volumes",
-         label => "compute tissue volumes in native space",
-         inputs => [$t1_tal_xfm, $cls_correct],
-         outputs => [$cls_volumes],
-         args => ["compute_icbm_vols", "-clobber", "-transform", $t1_tal_xfm,
-                  "-invert", $cls_correct, $cls_volumes],
-         prereqs => $Prereqs });
-
-    my $Segment_complete = ["segment_mask", "segment_volumes", "cls_volumes"];
+    my $Segment_complete = ["segment_mask", "segment_volumes" ];
 
     return( $Segment_complete );
 }

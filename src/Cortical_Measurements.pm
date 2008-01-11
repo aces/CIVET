@@ -14,8 +14,8 @@ sub thickness {
     my $tkernel = ${$image}->{tkernel};
     my $tmethod = ${$image}->{tmethod};
 
-    my $white_left = ${$image}->{white}{cal_left};
-    my $white_right = ${$image}->{white}{cal_right};
+    my $white_left = ${$image}->{cal_white}{left};
+    my $white_right = ${$image}->{cal_white}{right};
     my $gray_left = ${$image}->{gray}{left};
     my $gray_right = ${$image}->{gray}{right};
 
@@ -100,8 +100,8 @@ sub lobe_area {
     my $Prereqs = @_[1];
     my $image = @_[2];
 
-    my $white_left = ${$image}->{white}{cal_left};
-    my $white_right = ${$image}->{white}{cal_right};
+    my $white_left = ${$image}->{cal_white}{left};
+    my $white_right = ${$image}->{cal_white}{right};
     my $gray_left = ${$image}->{gray}{left};
     my $gray_right = ${$image}->{gray}{right};
 
@@ -293,6 +293,39 @@ sub gyrification_index {
 
 }
 
+sub cerebral_volume {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $gray_left = ${$image}->{gray}{left};
+    my $gray_right = ${$image}->{gray}{right};
+    my $final_callosum = ${$image}->{final_callosum};
+    my $final_classify = ${$image}->{final_classify};
+    my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
+
+    my $output = ${$image}->{cerebral_volume};
+
+    ##########################################################
+    ##### Calculation of cerebral volume in native space #####
+    ##########################################################
+
+    ${$pipeline_ref}->addStage( {
+         name => "cerebral_volume",
+         label => "cerebral volume in native space",
+         inputs => [$final_classify, $final_callosum, $gray_left, 
+                    $gray_right, $t1_tal_xfm],
+         outputs => [$output],
+         args => ["cerebral_volume", $final_classify, $final_callosum,
+                  $gray_left, $gray_right, $t1_tal_xfm, $output],
+         prereqs => $Prereqs });
+
+    my $Cerebral_Volume_complete = [ "cerebral_volume" ];
+
+    return( $Cerebral_Volume_complete );
+}
+
 sub single_surface {
 
     my $pipeline_ref = @_[0];
@@ -302,8 +335,8 @@ sub single_surface {
     my $tkernel = ${$image}->{tkernel};
     my $tmethod = ${$image}->{tmethod};
 
-    my $white_left = ${$image}->{white}{cal_left};
-    my $white_right = ${$image}->{white}{cal_right};
+    my $white_left = ${$image}->{cal_white}{left};
+    my $white_right = ${$image}->{cal_white}{right};
     my $gray_left = ${$image}->{gray}{left};
     my $gray_right = ${$image}->{gray}{right};
     my $mid_left = ${$image}->{mid_surface}{left};
@@ -312,7 +345,7 @@ sub single_surface {
     my $native_rms_left = ${$image}->{rms}{left};
     my $native_rms_right = ${$image}->{rms}{right};
 
-    my $white_full = ${$image}->{white}{full};
+    my $white_full = ${$image}->{cal_white}{full};
     my $gray_full = ${$image}->{gray}{full};
     my $mid_full = ${$image}->{mid_surface}{full};
     my $native_rms_full = ${$image}->{rms}{full};
@@ -357,7 +390,7 @@ sub single_surface {
          inputs => [$mid_left, $mid_right, $native_rms_left, $native_rms_right],
          outputs => [$mid_full, $native_rms_full],
          args => ["objconcat", $white_left, $white_right, $native_rms_left, $native_rms_right,
-                  $white_full, $native_rms_full],
+                  $mid_full, $native_rms_full],
          prereqs => $Prereqs });
 
     ##############################################################
@@ -376,8 +409,8 @@ sub single_surface {
          label => "asymmetry cortical thickness map",
          inputs => [$rsl_left_thickness, $rsl_right_thickness],
          outputs => [$rsl_asym_hemi, $rsl_asym_full],
-         args => ["asymmetry_cortical_thickness", $rsl_left_thickness, $rsl_right_thickness,
-                  $rsl_asym_hemi, $rsl_asym_full],
+         args => ["asymmetry_cortical_thickness", "-clobber", $rsl_left_thickness, 
+                  $rsl_right_thickness, $rsl_asym_hemi, $rsl_asym_full],
          prereqs => $Prereqs });
 
     my $Single_Surface_complete = [ "white_surface_full",

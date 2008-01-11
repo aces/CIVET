@@ -89,4 +89,91 @@ sub create_pipeline {
     return( $SurfReg_complete );
 }
 
+
+sub resample_surfaces {
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $left_white_surface = ${$image}->{cal_white}{left};
+    my $right_white_surface = ${$image}->{cal_white}{right};
+    my $left_mid_surface = ${$image}->{mid_surface}{left};
+    my $right_mid_surface = ${$image}->{mid_surface}{right};
+    my $left_gray_surface = ${$image}->{gray}{left};
+    my $right_gray_surface = ${$image}->{gray}{right};
+
+    my $left_surfmap = ${$image}->{surface_map}{left};
+    my $right_surfmap = ${$image}->{surface_map}{right};
+
+    my $left_white_surface_rsl = ${$image}->{cal_white_rsl}{left};
+    my $right_white_surface_rsl = ${$image}->{cal_white_rsl}{right};
+    my $left_mid_surface_rsl = ${$image}->{mid_surface_rsl}{left};
+    my $right_mid_surface_rsl = ${$image}->{mid_surface_rsl}{right};
+    my $left_gray_surface_rsl = ${$image}->{gray_rsl}{left};
+    my $right_gray_surface_rsl = ${$image}->{gray_rsl}{right};
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_resample_left_white",
+          label => "resample left white surface",
+          inputs => [$left_white_surface, $left_surfmap],
+          outputs => [$left_white_surface_rsl],
+          args => [ "sphere_resample_obj", "-clobber", $left_white_surface,
+                    $left_surfmap, $left_white_surface_rsl ],
+          prereqs => $Prereqs });
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_resample_right_white",
+          label => "resample right white surface",
+          inputs => [$right_white_surface, $right_surfmap],
+          outputs => [$right_white_surface_rsl],
+          args => [ "sphere_resample_obj", "-clobber", $right_white_surface,
+                    $right_surfmap, $right_white_surface_rsl ],
+          prereqs => $Prereqs });
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_resample_left_gray",
+          label => "resample left gray surface",
+          inputs => [$left_gray_surface, $left_surfmap],
+          outputs => [$left_gray_surface_rsl],
+          args => [ "sphere_resample_obj", "-clobber", $left_gray_surface,
+                    $left_surfmap, $left_gray_surface_rsl ],
+          prereqs => $Prereqs });
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_resample_right_gray",
+          label => "resample right gray surface",
+          inputs => [$right_gray_surface, $right_surfmap],
+          outputs => [$right_gray_surface_rsl],
+          args => [ "sphere_resample_obj", "-clobber", $right_gray_surface,
+                    $right_surfmap, $right_gray_surface_rsl ],
+          prereqs => $Prereqs });
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_resample_left_mid",
+          label => "resample left mid surface",
+          inputs => [$left_mid_surface, $left_surfmap],
+          outputs => [$left_mid_surface_rsl],
+          args => [ "sphere_resample_obj", "-clobber", $left_mid_surface,
+                    $left_surfmap, $left_mid_surface_rsl ],
+          prereqs => $Prereqs });
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_resample_right_mid",
+          label => "resample right mid surface",
+          inputs => [$right_mid_surface, $right_surfmap],
+          outputs => [$right_mid_surface_rsl],
+          args => [ "sphere_resample_obj", "-clobber", $right_mid_surface,
+                    $right_surfmap, $right_mid_surface_rsl ],
+          prereqs => $Prereqs });
+
+    my $SurfResample_complete = [ "surface_resample_left_white",
+                                  "surface_resample_right_white",
+                                  "surface_resample_left_gray",
+                                  "surface_resample_right_gray",
+                                  "surface_resample_left_mid",
+                                  "surface_resample_right_mid" ];
+
+    return( $SurfResample_complete );
+}
+
 1;

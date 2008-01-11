@@ -1,0 +1,67 @@
+#!/usr/bin/env perl
+#
+# Compute the total cerebral volume by computing the volume of gray
+# matter inside the gray surface.
+#
+
+use strict;
+use warnings "all";
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+use MNI::Startup;
+use MNI::FileUtilities qw(check_output_dirs);
+
+my $me = &basename($0);
+
+my $Help = <<HELP;
+| $me Compute the total cerebral volume by computing the volume 
+| of gray matter inside the gray surface.
+|
+| Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
+HELP
+
+my $Usage = "Usage: $me classify.mnc callosum_mask.mnc left_gray.obj righ_gray.obj\n".
+            "       t1_to_tal.xfm output.dat\n\n";
+
+die $Usage if(! ($#ARGV == 5) );
+
+# define input variables:
+
+my $cls=$ARGV[0];
+my $callosum_mask=$ARGV[1];
+my $gray_surface_left=$ARGV[2];
+my $gray_surface_right=$ARGV[3];
+my $t1_tal_xfm=$ARGV[4];
+my $output=$ARGV[5];
+
+# Directory for temporary files.
+
+my $TmpDir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+# combine left/right gray surfaces
+
+my $gray_surface_full = "${TmpDir}/gray_surface_full.obj";
+&run( "objconcat", $gray_surface_left, $gray_surface_right, "none", "none",
+      $gray_surface_full, "none" );
+
+# mask out internal gray matter through the cut of the corpus callosum.
+
+my $cls_fixed = "${TmpDir}/cls_fixed.mnc";
+&run( "minccalc", "-clobber", "-expression", 'if(A[1]>0.5){out=3}else{out=A[0]}',
+      $cls, $callosum_mask, $cls_fixed );
+
+# compute gray volume of the cortex only.
+
+&run( "compute_icbm_vols", "-clobber", "-transform", $t1_tal_xfm,
+      "-invert", "-surface_mask", $gray_surface_full, $cls_fixed, 
+      $output );
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

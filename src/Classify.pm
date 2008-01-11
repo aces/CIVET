@@ -21,6 +21,7 @@ sub pve {
     my $t2_input = ${$image}->{t2}{final};
     my $pd_input = ${$image}->{pd}{final};
     my $skull_mask = ${$image}->{skull_mask_tal};
+    my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
     my $t1_tal_nl_xfm = ${$image}->{t1_tal_nl_xfm};
 
     # these are in temp/ dir
@@ -34,6 +35,7 @@ sub pve {
 
     my $cls_clean    = ${$image}->{cls_clean};
     my $cls_correct  = ${$image}->{cls_correct};
+    my $cls_volumes  = ${$image}->{cls_volumes};
 
     #####################################
     ##### The classification stages #####
@@ -117,9 +119,18 @@ sub pve {
                   $pve_wm, $pve_gm, $cls_correct],
          prereqs => [ "pve" ] });
 
+    ${$pipeline_ref}->addStage( {
+         name => "cls_volumes",
+         label => "compute tissue volumes in native space",
+         inputs => [$t1_tal_xfm, $cls_correct],
+         outputs => [$cls_volumes],
+         args => ["compute_icbm_vols", "-clobber", "-transform", $t1_tal_xfm,
+                  "-invert", $cls_correct, $cls_volumes],
+         prereqs => [ "reclassify" ] });
+
     #Must now set the completion condition.
 
-    my $Classify_complete = ["reclassify"];
+    my $Classify_complete = ["cls_volumes"];
 
     return( $Classify_complete );
 }

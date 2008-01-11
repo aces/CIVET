@@ -158,7 +158,7 @@ $s_base = &basename($source);
 $s_base =~ s/\.mnc(.gz)?$//;
 $s_base = "S${s_base}";
 $t_base = &basename($target);
-$t_base =~ s/\.mnc$(.gz)?//;
+$t_base =~ s/\.mnc(.gz)?$//;
 $t_base = "T${t_base}";
 
 # Mask the source and target once before blurring. Both masks must exist.
@@ -204,6 +204,16 @@ $prev_xfm = undef;
 
 # a fitting we shall go...
 for ($i=0; $i<=$#conf; $i++){
+
+   # remove blurred image at previous iteration, if no longer needed.
+   if( $i > 0 ) {
+     if( $conf[$i]{blur_fwhm} != $conf[$i-1]{blur_fwhm} ) {
+       unlink( "$tmp_source\_blur.mnc" ) if( -e "$tmp_source\_blur.mnc" );
+       unlink( "$tmp_target\_blur.mnc" ) if( -e "$tmp_target\_blur.mnc" );
+       unlink( "$tmp_source\_dxyz.mnc" ) if( -e "$tmp_source\_dxyz.mnc" );
+       unlink( "$tmp_target\_dxyz.mnc" ) if( -e "$tmp_target\_dxyz.mnc" );
+     }
+   }
    
    # set up intermediate files
    $tmp_xfm = "$tmpdir/$s_base\_$i.xfm";
@@ -254,6 +264,12 @@ for ($i=0; $i<=$#conf; $i++){
    push(@args, "$tmp_source\_$conf[$i]{type}.mnc", "$tmp_target\_$conf[$i]{type}.mnc", 
         $tmp_xfm);
    &do_cmd(@args);
+
+   # remove previous xfm to keep tmpdir usage to a minimum.
+   # (not really necessary for a linear xfm - file is small.)
+   if($i > 0) {
+     unlink( $prev_xfm );
+   }
    
    $prev_xfm = $tmp_xfm;
 }
