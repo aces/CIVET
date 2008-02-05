@@ -247,7 +247,7 @@ sub create_pipeline{
       if( ${$image}->{resamplesurfaces} ) {
         @res = Surface_Register::resample_surfaces(
           $pipeline_ref,
-          $Surface_Fit_complete,
+          $SurfReg_complete,
           $image,
         );
         $SurfResample_complete = $res[0];

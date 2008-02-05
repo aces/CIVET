@@ -214,17 +214,17 @@ sub new {
       $image->{mid_surface}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_left_81920.obj";
       $image->{mid_surface}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_right_81920.obj";
 
-      unless( $image->{combinesurfaces} ) {
+      if( $image->{combinesurfaces} ) {
         $image->{cal_white}{full} = "${surf_dir}/${prefix}_${dsid}_white_surface_calibrated_81920.obj";
         $image->{gray}{full} = "${surf_dir}/${prefix}_${dsid}_gray_surface_81920.obj";
         $image->{mid_surface}{full} = "${surf_dir}/${prefix}_${dsid}_mid_surface_81920.obj";
       }
 
-      unless( $image->{resamplesurfaces} ) {
+      if( $image->{resamplesurfaces} ) {
         $image->{cal_white_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_white_surface_rsl_left_calibrated_81920.obj";
         $image->{cal_white_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_white_surface_rsl_right_calibrated_81920.obj";
-        $image->{gray}{left_rsl} = "${surf_dir}/${prefix}_${dsid}_gray_surface_rsl_left_81920.obj";
-        $image->{gray}{right_rsl} = "${surf_dir}/${prefix}_${dsid}_gray_surface_rsl_right_81920.obj";
+        $image->{gray_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_gray_surface_rsl_left_81920.obj";
+        $image->{gray_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_gray_surface_rsl_right_81920.obj";
         $image->{mid_surface_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_left_81920.obj";
         $image->{mid_surface_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_right_81920.obj";
       }
