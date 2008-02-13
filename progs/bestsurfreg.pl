@@ -10,6 +10,7 @@ use lib "$FindBin::Bin";
 
 # Full path to surface-register-smartest in this current directory
 my $surf_reg_smart = "$FindBin::Bin/surface-register-smartest";
+my $surf_resample = "$FindBin::Bin/surface-resample2";
 
 use MNI::Startup;
 use Getopt::Tabular;
@@ -24,26 +25,90 @@ use File::Temp qw/ tempdir /;
  # make tmpdir
 my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
- print "MyCmd ${me} @{ARGV}\n";
+print "${me} @{ARGV}\n";
 
 my $verbose   = 0;
 my $clobber   = 0;
 my $control_mesh_min =20;
 my $control_mesh_max =10000000;
 my $mesh_smooth =1;
-my $blur_coef =1.5;
+my $blur_coef =1.25;
 my $neighbourhood_radius =2.3;
-my $search_radius =0.5;
-my $convergence_control=0;
-my $convergence_threshold=20;
 my $target_spacing = undef;
 my $max_blur = undef;
 my $keep_blur = 0;  
+
+my @conf = (
+   { control_size     => 20,
+     target_size      => 81920,
+     blur_factor      => 64.0,
+     search_radius    => 1.5,
+     penalty_ratio    => 0.05,
+     max_ngh_rad      => 1.1,
+     conv_control     => 0,
+     conv_thresh      => 50 },
+
+   { control_size     => 80,
+     target_size      => 81920,
+     blur_factor      => 32.0,
+     search_radius    => 0.75,
+     penalty_ratio    => 0.05,
+     max_ngh_rad      => 1.9,
+     conv_control     => 0,
+     conv_thresh      => 50},
+
+   { control_size     => 320,
+     target_size      => 81920,
+     blur_factor      => 20.0,
+     search_radius    => 0.375,
+     penalty_ratio    => 0.05,
+     max_ngh_rad      => undef,
+     conv_control     => 0,
+     conv_thresh      => 50 },
+
+   { control_size     => 1280,
+     target_size      => 81920,
+     blur_factor      => 8.0,
+     search_radius    => 0.325,
+     penalty_ratio    => 0.05,
+     max_ngh_rad      => undef,
+     conv_control     => 0,
+     conv_thresh      => 50 },
+
+   { control_size     => 5120,
+     target_size      => 81920,
+     blur_factor      => 4.0,
+     search_radius    => 0.25,
+     penalty_ratio    => 0.05,
+     max_ngh_rad      => undef,
+     conv_control     => 2,
+     conv_thresh      => 0.01 },
+
+   { control_size     => 20480,
+     target_size      => 81920,
+     blur_factor      => 2.0,
+     search_radius    => 0.225,
+     penalty_ratio    => 0.10,
+     max_ngh_rad      => undef,
+     conv_control     => 2,
+     conv_thresh      => 0.01 },
+
+   { control_size     => 81920,
+     target_size      => 81920,
+     blur_factor      => 1.0,
+     search_radius    => 0.20,
+     penalty_ratio    => 0.10,
+     max_ngh_rad      => undef,
+     conv_control     => 2,
+     conv_thresh      => 0.01 }
+);
+
 
 $Help = <<HELP;
 |    $me fully configurable hierachical surface fitting...
 | 
 | Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
+|                                     or: claude\@bic.mni.mcgill.ca
 HELP
 
 $Usage = "Usage: $me [options]  source.obj source.txt target.obj target.txt output.sm\n".
@@ -55,21 +120,15 @@ $Usage = "Usage: $me [options]  source.obj source.txt target.obj target.txt outp
    ["-clobber", "const", "1", \$clobber,
       "clobber existing files" ],
    ["-mesh_smooth", "string", 1, \$mesh_smooth,
-      "neighbour weight in smoothing step (default 1)" ],      
+      "neighbour weight in smoothing step" ],      
    ["-neighbourhood_radius", "string",1,\$neighbourhood_radius, 
-      "neighbourhood radius (default 2.3)" ],
-   ["-search_radius", "string",1,\$search_radius, 
-      "search radius (default 0.5)" ],
+      "neighbourhood radius" ],
    ["-min_control_mesh", "string",1,\$control_mesh_min,
-       "control mesh must no less than X nodes..." ],
+       "control mesh must be no less than X nodes..." ],
    ["-max_control_mesh", "string",1,\$control_mesh_max,
-       "control mesh must no greater than X nodes..." ],
-  ["-convergence_control", "string",1,\$convergence_control, 
-      "0 static, 1 inter-field distance, 2 node movement" ],
-   ["-convergence_threshold", "string",1,\$convergence_threshold, 
-      "for static control = num iterations, for non-static convergence control % change (0.01 =1%)" ], 
+       "control mesh must be no greater than X nodes..." ],
    ["-blur_coef", "string",1,\$blur_coef,
-       "factor to increase/decrease blurring (default 1.5)" ],     
+       "factor to increase/decrease blurring" ],     
    ["-keep_blur", "const","1",\$keep_blur, 
    "keep blurred files" ], 
     ["-target_spacing", "string","1",\$target_spacing, 
@@ -82,17 +141,19 @@ $Usage = "Usage: $me [options]  source.obj source.txt target.obj target.txt outp
 # Check arguments
 &Getopt::Tabular::SetHelp($Help, $Usage);
 &GetOptions (\@opt_table, \@ARGV) || exit 1;
- die "usage: $0 source_obj source_txt target_obj target_txt smap_out" unless @ARGV==5;
- my( $source_obj,$source_field, $target_obj, $target_field, $map_final ) = @ARGV;
+die "usage: $0 source_obj source_txt target_obj target_txt smap_out" unless @ARGV==5;
+my( $source_obj,$source_field, $target_obj, $target_field, $map_final ) = @ARGV;
 
 
- # The programs used.  
+# The programs used.  
 # Must load quarantine in path first.
 #
 RegisterPrograms( [qw(create_tetra
 		      initial-surface-map
 		      surftracc
 		      refine-surface-map
+                      surface-stats
+                      mv
 		      cp)] );
 
 my $old_surface_mapping = "${tmpdir}/old_map.sm";
@@ -117,215 +178,77 @@ if ($control_mesh_max<$control_mesh_min){
   die("You can't specify a control mesh max less than control mesh min");
 }
 
-&do_cmd("create_tetra",$control_mesh,0,0,0,1,1,1,20);
-&do_cmd( "create_tetra",$target_mesh,0,0,0,1,1,1,81920);
-&do_cmd("initial-surface-map", $control_mesh,$target_mesh, $surface_mapping);
-
-
 $source_spacing =$target_spacing;
 
-my $source_blur=undef;
-my $target_blur =undef;
+my $source_blur = undef;
+my $target_blur = undef;
+my $temp_nr = undef;
 
-if ($control_mesh_min<=20 && $control_mesh_max>=20){
-  $source_blur = int(64.0*$blur_coef*$source_spacing+0.5);
-  $target_blur = int(64.0*$blur_coef*$target_spacing+0.5);
-  if ($max_blur){
-    if ($source_blur>$max_blur){$source_blur = $max_blur};
-    if ($target_blur>$max_blur){$target_blur = $max_blur};
+my $i;
+for ($i=0; $i<=$#conf; $i++) {
+
+  # Fancy printout of options.
+
+  print STDOUT "\n-+-------------------------[$i]-------------------------\n".
+                 " | control mesh size:              $conf[$i]{control_size}\n".
+                 " | target mesh size:               $conf[$i]{target_size}\n";
+
+  if ($control_mesh_min<=$conf[$i]{control_size} && $control_mesh_max>=$conf[$i]{control_size}){
+    $source_blur = int($conf[$i]{blur_factor}*$blur_coef*$source_spacing+0.5);
+    $target_blur = int($conf[$i]{blur_factor}*$blur_coef*$target_spacing+0.5);
+    if ($max_blur){
+      if ($source_blur>$max_blur){$source_blur = $max_blur};
+      if ($target_blur>$max_blur){$target_blur = $max_blur};
+    }
+    $temp_nr = $neighbourhood_radius;
+    if( defined $conf[$i]{max_ngh_rad} ) {
+      if( $neighbourhood_radius > $conf[$i]{max_ngh_rad} ) {
+        $temp_nr = $conf[$i]{max_ngh_rad};
+      }
+    }
+    print STDOUT " | blur factor:                    $conf[$i]{blur_factor}\n".
+                 " | search radius:                  $conf[$i]{search_radius}\n".
+                 " | penalty ratio:                  $conf[$i]{penalty_ratio}\n".
+                 " | source blur:                    $source_blur mm\n".
+                 " | target blur:                    $target_blur mm\n".
+                 " | max neighbourhood radius:       $temp_nr\n".
+                 " | convergence params:             $conf[$i]{conv_control}:$conf[$i]{conv_thresh}\n".
+                 "-+-----------------------------------------------------\n".
+                  "\n";
+  } else {
+    print STDOUT "-+-----------------------------------------------------\n".
+                "\n";
   }
-  &do_cmd("mv",$surface_mapping,$old_surface_mapping);
-  my $temp_nr =   $neighbourhood_radius;
-  if ($neighbourhood_radius>1.1){
-    print("Fixing neighbour radius down to 1.1 to avoid a crash! ${max_blur}::${source_spacing}::${blur_coef}\n");
-    $temp_nr =1.1;
+
+  &do_cmd( "create_tetra",$control_mesh,0,0,0,1,1,1,$conf[$i]{control_size});
+  &do_cmd( "create_tetra",$target_mesh,0,0,0,1,1,1,$conf[$i]{target_size});
+  if( $i == 0 ) {
+    &do_cmd("initial-surface-map", $control_mesh, $target_mesh, $surface_mapping);
+  } else {
+    &do_cmd("refine-surface-map", $surface_mapping, $control_mesh, $target_mesh, $old_surface_mapping);
+    &do_cmd("cp", $old_surface_mapping, $surface_mapping);
   }
-  &do_cmd($surf_reg_smart, "-verbose" ,"-clobber",$keep_blur_cmd,"-source_blur",
-          $source_blur,"-target_blur" ,$target_blur  ,"-mesh_smooth" ,$mesh_smooth,
-          "-neighbourhood_radius",$temp_nr,"-search_radius",$search_radius,
-          "-convergence_control",$convergence_control,"-convergence_threshold",
-          $convergence_threshold, $old_surface_mapping, $source_obj, $source_field, 
-          $target_obj, $target_field, $surface_mapping );
+
+  if ($control_mesh_min<=$conf[$i]{control_size} && $control_mesh_max>=$conf[$i]{control_size}){
+    &do_cmd("mv", $surface_mapping, $old_surface_mapping);
+    &do_cmd($surf_reg_smart, "-verbose", "-clobber", $keep_blur_cmd, "-source_blur",
+            $source_blur,"-target_blur" ,$target_blur ,
+            "-mesh_smooth", $mesh_smooth,
+            "-penalty_ratio", $conf[$i]{penalty_ratio},
+            "-neighbourhood_radius", $temp_nr,
+            "-search_radius", $conf[$i]{search_radius},
+            "-convergence_control", $conf[$i]{conv_control},
+            "-convergence_threshold", $conf[$i]{conv_thresh},
+            $old_surface_mapping, $source_obj, $source_field ,
+            $target_obj, $target_field, $surface_mapping);
+  }
 }
 
-&do_cmd("create_tetra",$control_mesh,0,0,0,1,1,1,80);
-&do_cmd( "create_tetra",$target_mesh,0,0,0,1,1,1,81920);
-&do_cmd("refine-surface-map",$surface_mapping, $control_mesh,$target_mesh, $old_surface_mapping);
-&do_cmd("cp",$old_surface_mapping,$surface_mapping);
-
-if ($control_mesh_min<=80 && $control_mesh_max>=80){
-  $source_blur = int(32.0*$blur_coef*$source_spacing+0.5);
-  $target_blur = int(32.0*$blur_coef*$target_spacing+0.5);
-  if ($max_blur){
-    if ($source_blur>$max_blur){$source_blur = $max_blur};
-    if ($target_blur>$max_blur){$target_blur = $max_blur};
-  }
-  &do_cmd("mv",$surface_mapping,$old_surface_mapping);
-  my $temp_nr =   $neighbourhood_radius;
-  if ($neighbourhood_radius>1.9){
-    print("Fixing neighbour radius down to 1.9 to avoid a crash!\n");
-    $temp_nr =1.9;
-  }
-  &do_cmd($surf_reg_smart, "-verbose" ,"-clobber",$keep_blur_cmd, "-source_blur",
-          $source_blur,"-target_blur" ,$target_blur ,"-mesh_smooth" ,$mesh_smooth,
-          "-neighbourhood_radius",$temp_nr,"-search_radius",$search_radius,
-          "-convergence_control",$convergence_control,"-convergence_threshold",
-          $convergence_threshold ,$old_surface_mapping, $source_obj ,$source_field ,
-          $target_obj,$target_field,$surface_mapping);
-}
-
-&do_cmd("create_tetra",$control_mesh,0,0,0,1,1,1,320);
-&do_cmd( "create_tetra",$target_mesh,0,0,0,1,1,1,81920);
-&do_cmd( "refine-surface-map", $surface_mapping,$control_mesh,$target_mesh,$old_surface_mapping);
-&do_cmd("cp",$old_surface_mapping,$surface_mapping);
-
-
-if ($control_mesh_min<=320 &&$control_mesh_max>=320){
-  $source_blur = int(16.0*$blur_coef*$source_spacing+0.5);
-  $target_blur = int(16.0*$blur_coef*$target_spacing+0.5);
-  if ($max_blur){
-    if ($source_blur>$max_blur){$source_blur = $max_blur};
-    if ($target_blur>$max_blur){$target_blur = $max_blur};
-  }
-  &do_cmd("mv",$surface_mapping,$old_surface_mapping);
-  my $temp_nr =   $neighbourhood_radius;
-  &do_cmd($surf_reg_smart, "-verbose" ,"-clobber",$keep_blur_cmd,"-source_blur" ,
-          $source_blur,"-target_blur" ,$target_blur ,"-mesh_smooth" ,$mesh_smooth,
-          "-neighbourhood_radius",$temp_nr,"-search_radius",$search_radius,
-          "-convergence_control",$convergence_control,"-convergence_threshold",
-          $convergence_threshold ,$old_surface_mapping, $source_obj ,$source_field ,
-          $target_obj,$target_field,$surface_mapping);
-}
-
-&do_cmd("create_tetra",$control_mesh,0,0,0,1,1,1,1280);
-&do_cmd( "create_tetra",$target_mesh,0,0,0,1,1,1,81920);
-&do_cmd( "refine-surface-map", $surface_mapping,$control_mesh,$target_mesh,$old_surface_mapping);
-&do_cmd("cp",$old_surface_mapping,$surface_mapping); 
-
-if ($control_mesh_min<=1280 && $control_mesh_max>=1280){
-  $source_blur = int(8.0*$blur_coef*$source_spacing+0.5);
-  $target_blur = int(8.0*$blur_coef*$target_spacing+0.5);
-  if ($max_blur){
-    if ($source_blur>$max_blur){$source_blur = $max_blur};
-    if ($target_blur>$max_blur){$target_blur = $max_blur};
-  }
-  &do_cmd("mv",$surface_mapping,$old_surface_mapping);
-  my $temp_nr =   $neighbourhood_radius;
-  &do_cmd($surf_reg_smart, "-verbose" ,"-clobber",$keep_blur_cmd,"-source_blur" ,
-          $source_blur,"-target_blur" ,$target_blur  ,"-mesh_smooth" ,$mesh_smooth,
-          "-neighbourhood_radius",$temp_nr,"-search_radius",$search_radius,
-          "-convergence_control",$convergence_control,"-convergence_threshold",
-          $convergence_threshold ,$old_surface_mapping, $source_obj ,$source_field ,
-          $target_obj,$target_field,$surface_mapping);
-}
-
-&do_cmd("create_tetra",$control_mesh,0,0,0,1,1,1,5120);
-&do_cmd( "create_tetra",$target_mesh,0,0,0,1,1,1,81920);
-&do_cmd( "refine-surface-map", $surface_mapping,$control_mesh,$target_mesh,$old_surface_mapping);
-&do_cmd("cp",$old_surface_mapping,$surface_mapping);
-
-if ($control_mesh_min<=5120 && $control_mesh_max>=5120){
-  $source_blur = int(4.0*$blur_coef*$source_spacing+0.5);
-  $target_blur = int(4.0*$blur_coef*$target_spacing+0.5);
-  if ($max_blur){
-    if ($source_blur>$max_blur){$source_blur = $max_blur};
-    if ($target_blur>$max_blur){$target_blur = $max_blur};
-  }
-  &do_cmd("mv",$surface_mapping,$old_surface_mapping);
-  my $temp_nr =   $neighbourhood_radius;
-  &do_cmd($surf_reg_smart, "-verbose" ,"-clobber",$keep_blur_cmd,"-source_blur" ,
-          $source_blur,"-target_blur" ,$target_blur  ,"-mesh_smooth" ,$mesh_smooth,
-          "-neighbourhood_radius",$temp_nr,"-search_radius",$search_radius,
-          "-convergence_control",$convergence_control,"-convergence_threshold",
-          $convergence_threshold ,$old_surface_mapping, $source_obj ,$source_field ,
-          $target_obj,$target_field,$surface_mapping);
-}
- 
-&do_cmd("create_tetra",$control_mesh,0,0,0,1,1,1,20480);
-&do_cmd( "create_tetra",$target_mesh,0,0,0,1,1,1,81920);
-&do_cmd( "refine-surface-map", $surface_mapping,$control_mesh,$target_mesh,$old_surface_mapping);
-&do_cmd("cp",$old_surface_mapping,$surface_mapping);
-
-if ($control_mesh_min<=20480 &&$control_mesh_max>=20480){
-  $source_blur = int(2.0*$blur_coef*$source_spacing*+0.5);
-  $target_blur = int(2.0*$blur_coef*$target_spacing+0.5);
-  if ($max_blur){
-    if ($source_blur>$max_blur){$source_blur = $max_blur};
-    if ($target_blur>$max_blur){$target_blur = $max_blur};
-  }
-  &do_cmd("mv",$surface_mapping,$old_surface_mapping);
-  my $temp_nr =   $neighbourhood_radius;
-  &do_cmd($surf_reg_smart, "-verbose" ,"-clobber",$keep_blur_cmd,"-source_blur" ,
-          $source_blur,"-target_blur" ,$target_blur  ,"-mesh_smooth" ,$mesh_smooth,
-          "-neighbourhood_radius",$temp_nr,"-search_radius",$search_radius,
-          "-convergence_control",$convergence_control,"-convergence_threshold",
-          $convergence_threshold ,$old_surface_mapping, $source_obj ,$source_field ,
-          $target_obj,$target_field,$surface_mapping);
-} 
-
-&do_cmd("create_tetra",$control_mesh,0,0,0,1,1,1,81920);
-&do_cmd( "create_tetra",$target_mesh,0,0,0,1,1,1,81920);
-&do_cmd( "refine-surface-map", $surface_mapping,$control_mesh,$target_mesh,$old_surface_mapping);
-&do_cmd("cp",$old_surface_mapping,$surface_mapping); 
- 
-if ($control_mesh_min<=81920&&$control_mesh_max>=81920){
-  $source_blur = int(1.0*$blur_coef*$source_spacing+0.5);
-  $target_blur = int(1.0*$blur_coef*$target_spacing+0.5);
-  if ($max_blur){
-    if ($source_blur>$max_blur){$source_blur = $max_blur};
-    if ($target_blur>$max_blur){$target_blur = $max_blur};
-  }
-  &do_cmd("mv",$surface_mapping,$old_surface_mapping);
-  my $temp_nr =   $neighbourhood_radius;
-  &do_cmd($surf_reg_smart, "-verbose" ,"-clobber",$keep_blur_cmd,"-source_blur" ,
-          $source_blur,"-target_blur" ,$target_blur ,"-mesh_smooth" ,$mesh_smooth,
-          "-neighbourhood_radius",$temp_nr,"-search_radius",$search_radius,
-          "-convergence_control",$convergence_control,"-convergence_threshold",
-          $convergence_threshold ,$old_surface_mapping, $source_obj ,$source_field ,
-          $target_obj,$target_field,$surface_mapping);
-}
- 
-&do_cmd("cp", $surface_mapping,$map_final);
+&do_cmd("cp", $surface_mapping, $map_final);
 
 
 sub do_cmd { 
-   print STDOUT "@_\n";
+   print STDOUT "@_\n" if ${verbose};
    system(@_) == 0 or die;
 }
 
-
-sub measure_final_fit {
-
-  ($source_field,$target_field, $surface_mapping) = @_;
-  my $remapped_target =  "${tmpdir}/remapped_target.txt";          
-  &do_cmd('surface-resample2', '-clobber',$surface_mapping,$target_field,$remapped_target);       
-  #okay so measure distance  
-  open SOURCEFIELD,$source_field; 
-  open TARGETFIELD,$remapped_target;                
-  my $sum=0;
-  while(1){               
-    my $sourceval = <SOURCEFIELD>;
-    if (!$sourceval){
-      last;
-    }
-    while (($sourceval eq "")||($sourceval eq "\n")) {
-      $sourceval = <SOURCEFIELD> ; 
-    }
-    my $targetval = <TARGETFIELD>;
-    if (!$targetval){
-      die("One of the source or target field files is corrupted");
-    }
-    while (($targetval eq "")||($targetval eq "\n")) {
-      $targetval = <TARGETFIELD> ; 
-    }
-    #print "$sourceval\t $targetval\n";
-    $sum=$sum + abs($targetval-$sourceval);    
-    
-  }
-  my $targetval = <TARGETFIELD>;
-  if ($targetval){
-    die("One of the source or target field files is corrupted");
-  }
-  print "***************Final Convergence is ${sum} **************************\n";
-
-}

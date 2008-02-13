@@ -264,15 +264,6 @@ sub create_pipeline{
       );
       $Thickness_complete = $res[0];
 
-      if( ${$image}->{combinesurfaces} ) {
-        @res = Cortical_Measurements::single_surface(
-          $pipeline_ref,
-          $Thickness_complete,
-          $image
-        );
-        $SingleSurface_complete = $res[0];
-      }
-
       @res = Cortical_Measurements::mean_curvature(
         $pipeline_ref,
         $SurfReg_complete,

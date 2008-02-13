@@ -177,6 +177,11 @@ sub new {
         $image->{lobe_areas}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
         $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_left.dat";
         $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_right.dat";
+        if( $image->{combinesurfaces} ) {
+          $image->{animal_labels}{full} = "${seg_dir}/${prefix}_${dsid}_animal_surface_labels.txt";
+          $image->{lobe_areas}{full} = "${seg_dir}/${prefix}_${dsid}_lobe_areas.dat";
+          $image->{lobe_thickness}{full} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm.dat";
+        }
       } else {
         $image->{animal_labels}{left} = undef;
         $image->{animal_labels}{right} = undef;
@@ -215,9 +220,9 @@ sub new {
       $image->{mid_surface}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_right_81920.obj";
 
       if( $image->{combinesurfaces} ) {
-        $image->{cal_white}{full} = "${surf_dir}/${prefix}_${dsid}_white_surface_calibrated_81920.obj";
-        $image->{gray}{full} = "${surf_dir}/${prefix}_${dsid}_gray_surface_81920.obj";
-        $image->{mid_surface}{full} = "${surf_dir}/${prefix}_${dsid}_mid_surface_81920.obj";
+        $image->{cal_white}{full} = "${surf_dir}/${prefix}_${dsid}_white_surface_calibrated.obj";
+        $image->{gray}{full} = "${surf_dir}/${prefix}_${dsid}_gray_surface.obj";
+        $image->{mid_surface}{full} = "${surf_dir}/${prefix}_${dsid}_mid_surface.obj";
       }
 
       if( $image->{resamplesurfaces} ) {
@@ -251,12 +256,16 @@ sub new {
       my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
       $image->{rms}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_left.txt";
       $image->{rms}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm_right.txt";
-      $image->{rms}{full} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm.txt";
       $image->{rms_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_left.txt";
       $image->{rms_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_right.txt";
-      $image->{rms_rsl}{full} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm.txt";
-      $image->{rms_rsl}{asym_hemi} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_asym_hemi.txt";
-      $image->{rms_rsl}{asym_full} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_asym.txt";
+
+      if( $image->{combinesurfaces} ) {
+        $image->{rms}{full} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm.txt";
+        $image->{rms_rsl}{full} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm.txt";
+        $image->{rms_rsl}{asym_hemi} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_asym_hemi.txt";
+        $image->{rms_rsl}{asym_full} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_asym.txt";
+      }
+
       $image->{cerebral_volume} = "${thick_dir}/${prefix}_${dsid}_cerebral_volume.dat";
 
       # Define cortical mean curvature files.
@@ -265,10 +274,16 @@ sub new {
       $image->{mc}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_right.txt";
       $image->{mc_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_left.txt";
       $image->{mc_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_right.txt";
+      if( $image->{combinesurfaces} ) {
+        $image->{mc}{full} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm.txt";
+      }
 
-      # Define cortical mean curvature files.
+      # Define gyrification index files.
       $image->{gyrification_index}{left} = "${surf_dir}/${prefix}_${dsid}_gi_left.dat";
       $image->{gyrification_index}{right} = "${surf_dir}/${prefix}_${dsid}_gi_right.dat";
+      if( $image->{combinesurfaces} ) {
+        $image->{gyrification_index}{full} = "${surf_dir}/${prefix}_${dsid}_gi.dat";
+      }
     }
 
     # Define verification files.

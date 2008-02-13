@@ -193,8 +193,9 @@ sub create_pipeline {
     ${$pipeline_ref}->addStage(
           { name => "laplace_field",
           label => "create laplacian field in the cortex",
-          inputs => [$skel_csf, $left_hemi_white,$right_hemi_white,
-                    $final_classify,$final_callosum],
+          inputs => [$skel_csf, $left_hemi_white_calibrated,
+                     $right_hemi_white_calibrated, $final_classify,
+                     $final_callosum],
           outputs => [$laplace_field],
           args => ["make_asp_grid", $skel_csf, $left_hemi_white_calibrated,
                   $right_hemi_white_calibrated, $final_classify,
@@ -274,11 +275,52 @@ sub create_pipeline {
           prereqs => ["gray_surface_left", "gray_surface_right"] }
           );
 
-    my $Surface_Fit_complete = [ "mid_surface_left",
+    my @Surface_Fit_complete = ( "mid_surface_left",
                                  "mid_surface_right",
-                                 "surface_fit_error" ];
+                                 "surface_fit_error" );
 
-    return( $Surface_Fit_complete );
+# ---------------------------------------------------------------------------
+#  Step 8: Combine left+right hemispheres into a single surface.
+# ---------------------------------------------------------------------------
+
+    if( ${$image}->{combinesurfaces} ) {
+      my $white_full = ${$image}->{cal_white}{full};
+      my $gray_full = ${$image}->{gray}{full};
+      my $mid_full = ${$image}->{mid_surface}{full};
+
+      ${$pipeline_ref}->addStage( {
+           name => "white_surface_full",
+           label => "white surface full",
+           inputs => [$left_hemi_white_calibrated, $right_hemi_white_calibrated],
+           outputs => [$white_full],
+           args => ["objconcat", $left_hemi_white_calibrated, $right_hemi_white_calibrated,
+                    "none", "none", $white_full, "none"],
+           prereqs => ["calibrate_left_white", "calibrate_right_white"] });
+
+      ${$pipeline_ref}->addStage( {
+           name => "gray_surface_full",
+           label => "gray surface full",
+           inputs => [$gray_surface_left, $gray_surface_right],
+           outputs => [$gray_full],
+           args => ["objconcat", $gray_surface_left, $gray_surface_right,
+                    "none", "none", $gray_full, "none"],
+           prereqs => ["gray_surface_left", "gray_surface_right"] });
+
+      ${$pipeline_ref}->addStage( {
+           name => "mid_surface_full",
+           label => "mid surface full",
+           inputs => [$mid_surface_left, $mid_surface_right],
+           outputs => [$mid_full],
+           args => ["objconcat", $mid_surface_left, $mid_surface_right,
+                    "none", "none", $mid_full, "none"],
+           prereqs => ["mid_surface_left", "mid_surface_right"] });
+
+      push @Surface_Fit_complete, ("white_surface_full");
+      push @Surface_Fit_complete, ("gray_surface_full");
+      push @Surface_Fit_complete, ("mid_surface_full");
+    }
+
+    return( \@Surface_Fit_complete );
 }
 
 1;

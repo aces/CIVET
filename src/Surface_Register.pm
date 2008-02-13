@@ -52,7 +52,7 @@ sub create_pipeline {
           prereqs => $Prereqs } );
 
 # ---------------------------------------------------------------------------
-#  Step 2: Surface registration to left hemispheric averaged model.
+#  Step 2: Surface registration to left+right hemispheric averaged model.
 # ---------------------------------------------------------------------------
 
     ${$pipeline_ref}->addStage( {
@@ -61,10 +61,8 @@ sub create_pipeline {
           inputs => [$left_mid_surface,$left_dataterm],
           outputs => [$left_surfmap],
           args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "80",
-                   "-max_control_mesh", "81920",
-                   "-convergence_control", "2", "-convergence_threshold", "0.01",
-                   "-blur_coef", "1.2", "-neighbourhood_radius", "2.8",
-                   "-target_spacing", "1.9", "-search_radius", "0.5",
+                   "-max_control_mesh", "81920", "-blur_coef", "1.25", 
+                   "-neighbourhood_radius", "2.8", "-target_spacing", "1.9", 
                    $surfreg_model, $surfreg_dataterm,
                    $left_mid_surface, $left_dataterm, $left_surfmap ],
           prereqs => ["dataterm_left_surface"] });
@@ -75,10 +73,8 @@ sub create_pipeline {
           inputs => [$right_mid_surface,$right_dataterm],
           outputs => [$right_surfmap],
           args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "80",
-                   "-max_control_mesh", "81920",
-                   "-convergence_control", "2", "-convergence_threshold", "0.01",
-                   "-blur_coef", "1.2", "-neighbourhood_radius", "2.8",
-                   "-target_spacing", "1.9", "-search_radius", "0.5",
+                   "-max_control_mesh", "81920", "-blur_coef", "1.25",
+                   "-neighbourhood_radius", "2.8", "-target_spacing", "1.9",
                    $surfreg_model, $surfreg_dataterm,
                    $right_mid_surface, $right_dataterm, $right_surfmap ],
           prereqs => ["dataterm_right_surface"] });
@@ -89,6 +85,9 @@ sub create_pipeline {
     return( $SurfReg_complete );
 }
 
+##################################################
+#### Resample the surfaces after registration ####
+##################################################
 
 sub resample_surfaces {
     my $pipeline_ref = @_[0];

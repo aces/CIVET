@@ -11,6 +11,10 @@ use Getopt::Tabular;
 use File::Basename;
 use File::Temp qw/ tempdir /;
 
+use FindBin;
+use lib "$FindBin::Bin";
+
+my $surf_resample = "$FindBin::Bin/surface-resample2";
 
 my($Help, $Usage, $me);
 my(@opt_table, %opt, $source, $target, $outxfm, @args, $tmpdir);
@@ -38,6 +42,7 @@ my $target_blur = 0;
 my $mesh_smooth = 1;
 my $neighbourhood_radius = 2.7;
 my $search_radius = 0.5;
+my $penalty_ratio = 0.05;
 my $keep_blur = undef;
 my $convergence_control = 0;
 my $convergence_threshold = 20;
@@ -49,6 +54,8 @@ my $convergence_threshold = 20;
       "clobber existing files" ],
    ["-mesh_smooth", "string", 1, \$mesh_smooth,
       "neighbour weight in smoothing step (default 1)" ],      
+   ["-penalty_ratio", "string", 1, \$penalty_ratio,
+      "penalty ratio in smoothing step (default 0.05)" ],      
    ["-source_blur", "string",1,\$source_blur, 
       "optional source blurring kernel" ],
    ["-target_blur", "string",1,\$target_blur, 
@@ -70,7 +77,6 @@ my $convergence_threshold = 20;
 # Check arguments
 &Getopt::Tabular::SetHelp($Help, $Usage);
 &GetOptions (\@opt_table, \@ARGV) || exit 1;
-print "@ARGV";
 die $Usage if($#ARGV != 5);
 my $initial_sm = shift(@ARGV);
 my $source_obj = shift(@ARGV);
@@ -109,7 +115,7 @@ my $current_sm ="${tmpdir}/current_sm.sm";
 #If a surface mapping is specified make sure the target mesh has the right size....
  
 &check_lengths($source_field,$target_field, $source_obj, $target_obj);
-print ($initial_sm);
+### print ($initial_sm);
 open INOBJ,$initial_sm;
 
 my @inobjarray = <INOBJ>;
@@ -123,7 +129,7 @@ close(INOBJ);
 &do_cmd('create_tetra',$target_mesh,0,0,0,1,1,1,$target_mapping_mesh_size);
 
 
-#then we blur the source and target fields using diffusion smoothing	 
+#then we blur the source and target fields using diffusion smoothing
 if (!$source_blur==0) { 
   if (!(-e  $source_field_blur) ) {
     &do_cmd("diffuse", "-kernel", $source_blur,"-parametric", 0, $source_obj,
@@ -146,62 +152,86 @@ if (!$target_blur==0) {
 my $doneflag = 0;
 my $iteration=0;
 my $oldsum = 10000000000000;
+my $firstsum = 10000000000000;
 my $sum = undef;
 my $fielddif =0;
 &do_cmd('cp',$initial_sm,$current_sm);
 
 my $initial_distance = &get_inter_field_distance($initial_sm,$source_field_blur,$target_field_blur);
 
+print "Fit Diagnostics,iteration: ${iteration}, Field Dif:${initial_distance} \n";
 
-print "Fit Diagnostics,iteration: ${iteration}, Field Dif:${initial_distance}, movement is undefined **************************\n";
-
+my @conv_hist = (1.0) x 3;
 
 while(!$doneflag) {
   $iteration=$iteration+1;
   my $out_text  = &do_cmd('surftracc', '-debug', '2', '-outer_iter_max', 1,
                           "-smoothing_weight", $mesh_smooth,
+                          "-penalty_ratio", $penalty_ratio,
                           "-neighbourhood_radius", $neighbourhood_radius,
                           "-search_radius", $search_radius, $target_mesh, 
                           $source_field_blur, $target_mesh, $target_field_blur,
                           $control_mesh, $current_sm, $output_sm, "2>&1");
 
-  $out_text =~ /TOTAL.*mean\s=(.*)\(.*\n/;
+  $out_text =~ /TOTAL.*mean\s=(.*)\(.*\n/;   ## give by -debug 2
   my $movement = ${1};
+  my $rel_error = 0;
+  my $rel_error2 = 0;
 
-  if (($convergence_control==0)&&($iteration>=$convergence_threshold)) {
-    $doneflag =1;
-  }   # static number of iterations
+  if( $convergence_control==0 ) {
+    # static number of iterations
+    if($iteration>=$convergence_threshold) {
+      $doneflag =1;
+    }
+    print "Fit Diagnostics,Iteration: ${iteration}, Movement:${movement}\n";
+  } else {
+    if ($convergence_control==1) {
+      $fielddif = &get_inter_field_distance($output_sm,$source_field_blur,$target_field_blur);
+      $sum =$fielddif;
+    }
+    if ($convergence_control==2) {
+      $sum=$movement;
+    }
 
-  if ($convergence_control==1) {
-    $fielddif = &get_inter_field_distance($output_sm,$source_field_blur,$target_field_blur);
-    $sum =$fielddif;
-  }
+    if( $iteration==1 ) {
+      $firstsum = $sum;
+    }
 
-  if ($convergence_control==2) {
-    $sum=$movement;
-  }
-        
-  if (!$convergence_control==0) {
-    if ((($oldsum-$sum)/$oldsum)<$convergence_threshold) {
+    $rel_error = ($oldsum-$sum)/$oldsum;
+    $oldsum=$sum;
+    $conv_hist[(${iteration}%3)] = $rel_error;
+    my $avg_rel_err = ( $conv_hist[0] + $conv_hist[1] + $conv_hist[2] ) / 3.0;
+
+    # Taking average over last 3 iterations will account for non monotonic convergence.
+    if( $avg_rel_err < $convergence_threshold ) {
       #replace the new mapping with the old one... 
-      $fielddif =&get_inter_field_distance($output_sm,$source_field_blur,$target_field_blur); 
+      $fielddif = &get_inter_field_distance($output_sm,$source_field_blur,$target_field_blur); 
       &do_cmd('cp',$current_sm,$output_sm);
       $doneflag=1;
     }
-    $oldsum=$sum;
-  }
-  print "Fit Diagnostics,iteration: ${iteration}, Field Dif:${fielddif}, Movement:${movement}\n";
-  if (!$doneflag) {
-    &do_cmd('cp',$output_sm,$current_sm);}
-  }
 
+    print "Fit Diagnostics,Iteration: ${iteration}, ",
+          ($convergence_control==1) ? " Field Dif:${fielddif}, " : "",
+          "Movement:${movement}, ", "Error:${rel_error}, ",
+          "Res:", ${sum}/${firstsum}, "\n";
+  }
+  if (!$doneflag) {
+    &do_cmd('cp',$output_sm,$current_sm);
+  }
+}
+if( $convergence_control != 1 ) {
+  if( $convergence_control == 0 ) {
+    $fielddif = &get_inter_field_distance($output_sm,$source_field_blur,$target_field_blur); 
+  }
+  print "Fit Diagnostics,iteration: ${iteration}, Field Dif:${fielddif} \n";
+}
 
 
 sub do_cmd { 
    print STDOUT "@_\n" if $opt{verbose};
    #system(@_) == 0 or die;
    my $temp = `@_`;
-   print $temp;
+   print $temp if $opt{verbose};
    return $temp;
 }
 
@@ -254,14 +284,14 @@ sub check_lengths {
 
 sub get_inter_field_distance {
   my $temp_remap = "${tmpdir}/tmp_remap.txt";
-  my $difference=  "${tmpdir}/dif_${iteration}.txt";
+  # my $difference=  "${tmpdir}/dif_${iteration}.txt";
   my ($sm,$source_field_blur,$target_field_blur) =  @_;
-  &do_cmd('surface-resample2', '-clobber',$sm,$target_field_blur,$temp_remap);
+  &do_cmd($surf_resample, '-clobber',$sm,$target_field_blur,$temp_remap);
         
   #okay so measure distance  
   open SOURCEFIELD,$source_field_blur; 
   open TARGETFIELD,$temp_remap;
-  open(OUT,">${difference}");
+  # open(OUT,">${difference}");
   my $sum=0;
   while(1) {
     my $sourceval = <SOURCEFIELD>;
@@ -279,8 +309,8 @@ sub get_inter_field_distance {
       $targetval = <TARGETFIELD> ;
     }
     #print "$sourceval\t $targetval\n";
-    print OUT  abs($targetval-$sourceval);
-    print OUT "\n";
+    # print OUT  abs($targetval-$sourceval);
+    # print OUT "\n";
     $sum=$sum + abs($targetval-$sourceval);                    
   }
   my $targetval = <TARGETFIELD>;
@@ -289,7 +319,7 @@ sub get_inter_field_distance {
   }
   close(SOURCEFIELD);
   close(TARGETFIELD); 
-  close(OUT); 
+  # close(OUT); 
   return $sum;    
 }
 

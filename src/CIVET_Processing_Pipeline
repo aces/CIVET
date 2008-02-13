@@ -510,64 +510,44 @@ print "* Surface registration model directory is: \n  ${SurfRegModelDir} \n";
 print "* Surface registration model is:    \n   ${SurfRegModel} \n";
 print "* Surface registration dataterm is: \n   ${SurfRegDataTerm} \n";
 
-############# Define Surface registration targets and directories and print them
-
-# Choose ANIMAL model.
+############# Choose ANIMAL model.
 
 if( $animal eq "ANIMAL" ) {
-  if( !( defined $AnimalAtlas ) ) {
-    print "Warning: You must specify an atlas to use ANIMAL segmentation\n";
-    $AnimalAtlas = undef;
-    $animal = "noANIMAL";
-  }
-  if( defined $AnimalAtlasDir ) {
+  if( ( defined $AnimalAtlas ) && 
+      ( $AnimalAtlas eq "-symmetric_atlas" || $AnimalAtlas eq "-lobe_atlas" ) ) {
+    if( !( defined $AnimalAtlasDir ) ) {
+      # Try to get the default one in the quarantine, if it has been installed.
+      $AnimalAtlasDir = MNI::DataDir::dir("ANIMAL_INSECT");
+    }
     if( !( -e $AnimalAtlasDir ) ) {
-      print "Warning: Specified ANIMAL atlas directory $AnimalAtlasDir does not exist.\n";
-      $AnimalAtlasDir = undef;
+      print "Warning: Required ANIMAL atlas directory $AnimalAtlasDir does not exist.\n";
       $animal = "noANIMAL";
+    } else {
+      if( $AnimalAtlas eq "-symmetric_atlas" ) {
+        $AnimalAtlasDir .= "icbm152-symmetric-v1.0/";
+        $AnimalNLRegModel = "icbm_avg_152_t1_tal_lin_symmetric";
+        $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
+      } elsif( $AnimalAtlas eq "-lobe_atlas" ) {
+        $AnimalAtlasDir .= "icbm152-lobes-v1.1/";
+        $AnimalNLRegModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
+        $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
+      }
+      if( !( -e $AnimalAtlasDir ) ) {
+        print "Warning: Required ANIMAL atlas directory $AnimalAtlasDir does not exist.\n";
+        $animal = "noANIMAL";
+      }
     }
   } else {
-    # Try to get the default one in the quarantine, if it has been installed.
-    $AnimalAtlasDir = MNI::DataDir::dir("ANIMAL_INSECT");
-    if( $AnimalAtlas eq "-symmetric_atlas" ) {
-      $AnimalAtlasDir .= "icbm152-symmetric-v1.0/";
-    } elsif( $AnimalAtlas eq "-lobe_atlas" ) {
-      $AnimalAtlasDir .= "icbm152-lobes-v1.1/";
-    } else {
-      print "Warning: You must specify an atlas directory to use ANIMAL segmentation\n";
-      $AnimalAtlasDir = undef;
-      $animal = "noANIMAL";
-    }
-    if( defined $AnimalAtlasDir && !( -e $AnimalAtlasDir ) ) {
-      print "Warning: You must specify an atlas directory to use ANIMAL segmentation\n";
-      $AnimalAtlasDir = undef;
-      $animal = "noANIMAL";
-    }
+    print "Warning: You must specify an atlas to use ANIMAL segmentation.\n";
+    $animal = "noANIMAL";
   }
+}
+
+if( $animal eq "ANIMAL" ) {
   $CIVETmodels{$CIVETModel}{AnimalAtlas} = $AnimalAtlas;
   $CIVETmodels{$CIVETModel}{AnimalAtlasDir} = $AnimalAtlasDir;
-}
-
-# Choose target for non-linear registration given ANIMAL model.
-
-if( $animal eq "ANIMAL" ) {
-  if( $AnimalAtlas eq "-symmetric_atlas" ) {
-    $AnimalNLRegModel = "icbm_avg_152_t1_tal_lin_symmetric";
-    $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
-  } elsif( $AnimalAtlas eq "-lobe_atlas" ) {
-    $AnimalNLRegModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
-    $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
-  } else {
-    print "Warning: Unknown atlas $AnimalAtlas for ANIMAL segmentation\n";
-    $AnimalNLRegModel = undef;
-    $AnimalNLRegDir = undef;
-    $animal = "noANIMAL";
-  }
   $CIVETmodels{$CIVETModel}{AnimalNLRegDir} = $AnimalNLRegDir;
   $CIVETmodels{$CIVETModel}{AnimalNLRegModel} = $AnimalNLRegModel;
-}
-
-if( $animal eq "ANIMAL" ) {
   print "* ANIMAL atlas is $AnimalAtlas \n";
   print "* ANIMAL atlas directory is: \n   ${AnimalAtlasDir} \n";
   print "* ANIMAL non-linear registration model directory is: \n  ${AnimalNLRegDir} \n";
