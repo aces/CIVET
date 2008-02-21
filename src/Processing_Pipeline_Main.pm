@@ -179,6 +179,8 @@ sub create_pipeline{
     #######################################
 
     my $Surface_Fit_complete = undef;
+    my $Surface_QC_complete = undef;
+    my $Combine_Surface_complete = undef;
     my $SurfReg_complete = undef;
     my $SurfResample_complete = undef;
     my $Thickness_complete = undef;
@@ -203,13 +205,35 @@ sub create_pipeline{
       );
       $Surface_Fit_complete = $res[0];
 
+      #######################################
+      ##### Quality control on surfaces #####
+      #######################################
+
+      @res = Surface_Fit::surface_qc(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image,
+      );
+      $Surface_QC_complete = $res[0];
+
+      ##########################################
+      ##### Combine left+right hemispheres #####
+      ##########################################
+
+      @res = Surface_Fit::combine_surfaces(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image,
+      );
+      $Combine_Surface_complete = $res[0];
+
       ##############################
       ##### Gyrification Index #####
       ##############################
 
       @res = Cortical_Measurements::gyrification_index(
         $pipeline_ref,
-        $Surface_Fit_complete,
+        [@{$Surface_Fit_complete},@{$Combine_Surface_complete}],
         $image
       );
       $GyrificationIndex_complete = $res[0];
@@ -259,14 +283,14 @@ sub create_pipeline{
 
       @res = Cortical_Measurements::thickness(
         $pipeline_ref,
-        $SurfReg_complete,
+        [@{$SurfReg_complete},@{$Combine_Surface_complete}],
         $image
       );
       $Thickness_complete = $res[0];
 
       @res = Cortical_Measurements::mean_curvature(
         $pipeline_ref,
-        $SurfReg_complete,
+        [@{$SurfReg_complete},@{$Combine_Surface_complete}],
         $image
       );
       $Mean_Curvature_complete = $res[0];
@@ -275,6 +299,7 @@ sub create_pipeline{
 
         my $lobePrereqs = [ @{$SurfReg_complete}, @{$Segment_complete} ];
         push @{$lobePrereqs}, @{$Thickness_complete};
+        push @{$lobePrereqs}, @{$Combine_Surface_complete};
 
         @res = Cortical_Measurements::lobe_area(
           $pipeline_ref,
@@ -294,6 +319,7 @@ sub create_pipeline{
 
     unless (${$image}->{surface} eq "noSURFACE") {
       push @{$imagePrereqs}, @{$Surface_Fit_complete};
+      push @{$imagePrereqs}, @{$Surface_QC_complete};
     }
     unless (${$image}->{animal} eq "noANIMAL") {
       push @{$imagePrereqs}, @{$Segment_complete};

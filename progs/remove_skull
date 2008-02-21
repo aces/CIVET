@@ -60,7 +60,7 @@ if( $maskType eq "multispectral" ) {
   if( -e $t2_input ) {
     my $bet_t2_mask = "${bet_prefix}_t2_mask.mnc";
     &run( $mincbet, $t2_input, "${bet_prefix}_t2", 
-          "-n", "-m", "-f", "0.50" );
+          "-n", "-m", "-f", "0.50", "-r" );
     &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
           "-like", $bet_mask, @transform, $bet_t2_mask, $input_resampled );
     &run( "mv", "-f", $bet_mask, $bet_mask_temp );
@@ -71,7 +71,7 @@ if( $maskType eq "multispectral" ) {
   if( -e $pd_input ) {
     my $bet_pd_mask = "${bet_prefix}_pd_mask.mnc";
     &run( $mincbet, $pd_input, "${bet_prefix}_pd", 
-          "-n", "-m", "-f", "0.50" );
+          "-n", "-m", "-f", "0.50", "-r" );
     &run( "mincresample", "-clobber", "-byte", "-nearest_neighbour",
           "-like", $bet_mask, @transform, $bet_pd_mask, $input_resampled );
     &run( "mv", "-f", $bet_mask, $bet_mask_temp );

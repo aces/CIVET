@@ -56,8 +56,6 @@ sub create_pipeline {
     my $mid_surface_left = ${$image}->{mid_surface}{left};
     my $mid_surface_right = ${$image}->{mid_surface}{right};
 
-    my $surface_qc = ${$image}->{surface_qc};
-
     # a bunch of temporary files that should be cleaned up.
 
     my $wm_left_centered  = ${$image}->{wm_left_centered};
@@ -241,8 +239,7 @@ sub create_pipeline {
           outputs => [$mid_surface_left],
           args => ["average_surfaces", $mid_surface_left, "none", "none",
                    1, $left_hemi_white_calibrated, $gray_surface_left ],
-          prereqs => ["gray_surface_left"] }
-          );
+          prereqs => ["gray_surface_left"] } );
 
     ${$pipeline_ref}->addStage( {
           name => "mid_surface_right",
@@ -251,37 +248,67 @@ sub create_pipeline {
           outputs => [$mid_surface_right],
           args => ["average_surfaces", $mid_surface_right, "none", "none",
                    1, $right_hemi_white_calibrated, $gray_surface_right ],
-          prereqs => ["gray_surface_right"] }
-          );
+          prereqs => ["gray_surface_right"] } );
+
+    my @Surface_Fit_complete = ( "mid_surface_left",
+                                 "mid_surface_right" );
+    return( \@Surface_Fit_complete );
+}
 
 # ---------------------------------------------------------------------------
 #  Step 7: Find the fitting error for the white and gray surfaces.
 # ---------------------------------------------------------------------------
+sub surface_qc {
 
-    ${$pipeline_ref}->addStage(
-          { name => "surface_fit_error",
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $final_classify = ${$image}->{final_classify};
+    my $wm_left_centered  = ${$image}->{wm_left_centered};
+    my $wm_right_centered = ${$image}->{wm_right_centered};
+    my $white_surf_left_prelim = ${$image}->{white}{left_prelim};
+    my $white_surf_right_prelim = ${$image}->{white}{right_prelim};
+    my $gray_surface_left = ${$image}->{gray}{left};
+    my $gray_surface_right = ${$image}->{gray}{right};
+
+    my $surface_qc = ${$image}->{surface_qc};
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_fit_error",
           label => "surface fit error measurement",
-          inputs => [$final_classify, $wm_left_centered, 
-                     $wm_right_centered,
-                     $white_surf_left_prelim, 
-                     $white_surf_right_prelim, 
+          inputs => [$final_classify, $wm_left_centered, $wm_right_centered,
+                     $white_surf_left_prelim, $white_surf_right_prelim, 
                      $gray_surface_left, $gray_surface_right],
           outputs => [$surface_qc],
           args => ["surface_qc", $final_classify, $wm_left_centered, 
-                   $wm_right_centered, 
-                   $white_surf_left_prelim, 
+                   $wm_right_centered, $white_surf_left_prelim, 
                    $white_surf_right_prelim, $gray_surface_left, 
                    $gray_surface_right, $surface_qc ],
-          prereqs => ["gray_surface_left", "gray_surface_right"] }
-          );
+          prereqs => $Prereqs } );
 
-    my @Surface_Fit_complete = ( "mid_surface_left",
-                                 "mid_surface_right",
-                                 "surface_fit_error" );
+    my @Surface_QC_complete = ( "surface_fit_error" );
+    return( \@Surface_QC_complete );
+}
 
 # ---------------------------------------------------------------------------
 #  Step 8: Combine left+right hemispheres into a single surface.
 # ---------------------------------------------------------------------------
+sub combine_surfaces {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    # Final surfaces in stereotaxic space
+    my $left_hemi_white_calibrated = ${$image}->{cal_white}{left};
+    my $right_hemi_white_calibrated = ${$image}->{cal_white}{right};
+    my $gray_surface_left = ${$image}->{gray}{left};
+    my $gray_surface_right = ${$image}->{gray}{right};
+    my $mid_surface_left = ${$image}->{mid_surface}{left};
+    my $mid_surface_right = ${$image}->{mid_surface}{right};
+
+    my @Combine_Surface_complete = ();
 
     if( ${$image}->{combinesurfaces} ) {
       my $white_full = ${$image}->{cal_white}{full};
@@ -295,7 +322,7 @@ sub create_pipeline {
            outputs => [$white_full],
            args => ["objconcat", $left_hemi_white_calibrated, $right_hemi_white_calibrated,
                     "none", "none", $white_full, "none"],
-           prereqs => ["calibrate_left_white", "calibrate_right_white"] });
+           prereqs => $Prereqs } );
 
       ${$pipeline_ref}->addStage( {
            name => "gray_surface_full",
@@ -304,7 +331,7 @@ sub create_pipeline {
            outputs => [$gray_full],
            args => ["objconcat", $gray_surface_left, $gray_surface_right,
                     "none", "none", $gray_full, "none"],
-           prereqs => ["gray_surface_left", "gray_surface_right"] });
+           prereqs => $Prereqs } );
 
       ${$pipeline_ref}->addStage( {
            name => "mid_surface_full",
@@ -313,14 +340,14 @@ sub create_pipeline {
            outputs => [$mid_full],
            args => ["objconcat", $mid_surface_left, $mid_surface_right,
                     "none", "none", $mid_full, "none"],
-           prereqs => ["mid_surface_left", "mid_surface_right"] });
+           prereqs => $Prereqs } );
 
-      push @Surface_Fit_complete, ("white_surface_full");
-      push @Surface_Fit_complete, ("gray_surface_full");
-      push @Surface_Fit_complete, ("mid_surface_full");
+      @Combine_Surface_complete = ( "white_surface_full",
+                                    "gray_surface_full",
+                                    "mid_surface_full" );
     }
 
-    return( \@Surface_Fit_complete );
+    return( \@Combine_Surface_complete );
 }
 
 1;

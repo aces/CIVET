@@ -25,6 +25,7 @@ sub new {
     # bring the class into existence
     bless( $image, $class);
 
+    my $version = shift;
     my $Source_Dir = shift;
     my $Target_Dir = shift;
     my $prefix = shift;
@@ -108,7 +109,7 @@ sub new {
 
     my $tmp_dir = "${Base_Dir}/$image->{directories}{TMP}";
 
-    $image->print_options( $Base_Dir, $dsid );
+    $image->print_options( $version, $Base_Dir, $dsid );
 
     # Define linear transformation files.
     my $lin_dir = "${Base_Dir}/$image->{directories}{LIN}";
@@ -468,10 +469,12 @@ sub check_value {
 sub print_options {
 
   my $image = shift;
+  my $version = shift;
   my $Base_Dir = shift;
   my $dsid = shift;
 
   open PIPE, "> ${Base_Dir}/$image->{directories}{LOG}/${dsid}.options";
+  print PIPE "Options for CIVET-${version}:\n";
   print PIPE "Classification is $image->{inputType}\n";
   print PIPE "PVE iterative correction to mean and variance is ON\n"
     if( $image->{correctPVE} );

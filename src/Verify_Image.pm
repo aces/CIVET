@@ -97,7 +97,7 @@ sub image {
       chomp( $dy );
       chomp( $dz );
       push @verifyRows, ( "-row", "color:gray", 
-                          sprintf( "title:t2 final image %s (%5.2f x %5.2f x %5.2f mm)", 
+                          sprintf( "title:t2 final image %s (native at %5.2f x %5.2f x %5.2f mm)", 
                                    ${t2_base}, abs($dx), abs($dy), abs($dz) ),
                           "overlay:${surf_mask}:red:1.0",
                           $t2_tal_final );
@@ -113,7 +113,7 @@ sub image {
       chomp( $dy );
       chomp( $dz );
       push @verifyRows, ( "-row", "color:gray",
-                          sprintf( "title:pd final image %s (%5.2f x %5.2f x %5.2f mm)", 
+                          sprintf( "title:pd final image %s (native at %5.2f x %5.2f x %5.2f mm)", 
                                    ${pd_base}, abs($dx), abs($dy), abs($dz) ),
                           "overlay:${surf_mask}:red:1.0",
                           $pd_tal_final );

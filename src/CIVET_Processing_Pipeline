@@ -48,7 +48,7 @@ $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
 my $version = "1.1.9";
-my $versionDate= "December 18, 2007";
+my $versionDate= "February 14, 2008";
 my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -236,7 +236,7 @@ my $command = "printStatus";
 
 # Queuing defaults:
 my $PMPtype = "sge";
-my $PMPgranularity = 0;
+my $PMPgranularity = 1;
 my $PMPmaxQueued = 10000;
 my %PMPconf = ( 'spawn' => { 'queue' => undef,
                              'hosts' => undef,
@@ -601,7 +601,8 @@ foreach my $dsid (@dsids) {
       $Source_Base = "${sourceDir}/${dsid}/";
     }
 
-    my $image = MRI_Image->new( $Source_Base,
+    my $image = MRI_Image->new( $version,
+                                $Source_Base,
                                 $target,
                                 $prefix,
                                 $dsid,
