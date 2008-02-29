@@ -520,12 +520,20 @@ sub make_references {
   print PIPE "The following references must be included in any publication\n";
   print PIPE "using CIVET.\n\n";
 
+  print PIPE "CIVET Pipeline\n";
+  print PIPE "==============\n";
+  print PIPE "  Y. Ad-Dab\'bagh et al., \"The CIVET image-processing environment: A\n";
+  print PIPE "  fully automated comprehensive pipeline for anatomical neuroimaging\n";
+  print PIPE "  research\", in \"Proceedings of the 12th Annual Meeting of the\n";
+  print PIPE "  Organization for Human Brain Mapping\", M. Corbetta, ed. (Florence,\n";
+  print PIPE "  Italy, NeuroImage), 2006\n\n";
+
   print PIPE "Non-uniformity corrections\n";
   print PIPE "==========================\n";
   print PIPE "  J.G. Sled, A.P. Zijdenbos and A.C. Evans, \"A non-parametric method\n";
-  print PIPE "     for automatic correction of intensity non-uniformity in MRI data\",\n";
-  print PIPE "     in \"IEEE Transactions on Medical Imaging\", vol. 17, n. 1,\n";
-  print PIPE "     pp. 87-97, 1998\n\n";
+  print PIPE "  for automatic correction of intensity non-uniformity in MRI data\",\n";
+  print PIPE "  in \"IEEE Transactions on Medical Imaging\", vol. 17, n. 1,\n";
+  print PIPE "  pp. 87-97, 1998\n\n";
 
   print PIPE "Stereotaxic registration\n";
   print PIPE "========================\n";
@@ -602,6 +610,11 @@ sub make_references {
     print PIPE "  Lerch, J.P. and Evans, A.C., \"Cortical thickness analysis examined through\n";
     print PIPE "  power analysis and a population simulation,\" NeuroImage 24, pp. 163-173,\n";
     print PIPE "  2005.\n\n";
+
+    print PIPE "  Y. Ad-Dab'bagh et al., \"Native space cortical thickness measurement and\n";
+    print PIPE "  the absence of correlation to cerebral volume\", in \"Proceedings of the\n";
+    print PIPE "  11th Annual Meeting of the Organization for Human Brain Mapping\", K. Zilles, ed.\n";
+    print PIPE "  (Toronto, NeuroImage), 2005.\n\n";
 
     print PIPE "Surface diffusion smoothing\n";
     print PIPE "===========================\n";
