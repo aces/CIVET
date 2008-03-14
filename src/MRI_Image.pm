@@ -296,6 +296,14 @@ sub new {
     $image->{surface_qc} = "${verify_dir}/${prefix}_${dsid}_surface_qc.txt";
     $image->{brainmask_qc} = "${verify_dir}/${prefix}_${dsid}_brainmask_qc.txt";
     $image->{classify_qc} = "${verify_dir}/${prefix}_${dsid}_classify_qc.txt";
+    # loris database images
+    $image->{loris_mask}     = "${verify_dir}/${prefix}_${dsid}_skull_mask_native_loris.jpg";
+    $image->{loris_t1_final} = "${verify_dir}/${prefix}_${dsid}_t1_final_loris.jpg";
+    $image->{loris_t1_nl}    = "${verify_dir}/${prefix}_${dsid}_t1_nl_loris.jpg";
+    $image->{loris_classify} = "${verify_dir}/${prefix}_${dsid}_classify_loris.jpg";
+    $image->{loris_segment}  = "${verify_dir}/${prefix}_${dsid}_stx_labels_loris.jpg";
+    $image->{loris_gray}     = "${verify_dir}/${prefix}_${dsid}_gray_surface_loris.jpg";
+    $image->{loris_white}    = "${verify_dir}/${prefix}_${dsid}_white_surface_loris.jpg";
 
     return( $image );
 }
