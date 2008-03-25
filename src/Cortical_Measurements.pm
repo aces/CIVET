@@ -157,6 +157,7 @@ sub lobe_area {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
+    my $atlas = @_[3];
 
     my $white_left = ${$image}->{cal_white}{left};
     my $white_right = ${$image}->{cal_white}{right};
@@ -190,7 +191,7 @@ sub lobe_area {
          inputs => [$white_left, $gray_left, $t1_tal_xfm, $native_rms_left,
                     $stx_labels_masked],
          outputs => [$animal_labels_left, $lobe_area_left, $lobe_thickness_left],
-         args => ["lobe_area", "-transform", $t1_tal_xfm,
+         args => ["lobe_area", "-transform", $t1_tal_xfm, $atlas,
                   $white_left, $gray_left, $native_rms_left, $stx_labels_masked, 
                   $animal_labels_left, $lobe_area_left, $lobe_thickness_left ],
          prereqs => $Prereqs });
@@ -205,7 +206,7 @@ sub lobe_area {
          inputs => [$white_right, $gray_right, $t1_tal_xfm, $native_rms_right,
                     $stx_labels_masked],
          outputs => [$animal_labels_right, $lobe_area_right, $lobe_thickness_right],
-         args => ["lobe_area", "-transform", $t1_tal_xfm,
+         args => ["lobe_area", "-transform", $t1_tal_xfm, $atlas,
                   $white_right, $gray_right, $native_rms_right, $stx_labels_masked, 
                   $animal_labels_right, $lobe_area_right, $lobe_thickness_right ],
          prereqs => $Prereqs });
@@ -232,7 +233,7 @@ sub lobe_area {
            inputs => [$white_full, $gray_full, $t1_tal_xfm, $native_rms_full,
                       $stx_labels_masked],
            outputs => [$animal_labels_full, $lobe_area_full, $lobe_thickness_full],
-           args => ["lobe_area", "-transform", $t1_tal_xfm,
+           args => ["lobe_area", "-transform", $t1_tal_xfm, $atlas,
                     $white_full, $gray_full, $native_rms_full, $stx_labels_masked, 
                     $animal_labels_full, $lobe_area_full, $lobe_thickness_full ],
            prereqs => $Prereqs });

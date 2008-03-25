@@ -26,11 +26,16 @@ Usage: $ProgramName [options] white.obj gray.obj thickness.txt stx_labels.mnc lo
 USAGE
 
 my $transform_xfm = undef;
+my $AnimalAtlas = undef;
 
 my @options =
   ( @DefaultArgs,     # from MNI::Startup
     ['-transform', 'string', 1, \$transform_xfm,
      'transformation from native to stereotaxic (if surfaces in stx space)'],
+    ["-symmetric_atlas", "const", "-symmetric_atlas", \$AnimalAtlas,
+     "Use linear symmetric atlas for ANIMAL segmentation (old way)"],
+    ["-lobe_atlas", "const", "-lobe_atlas", \$AnimalAtlas,
+     "Use non-linear lobe atlas for ANIMAL segmentation (new way)"]
   );
 
 Getopt::Tabular::SetHelp( $help, $usage );
@@ -75,8 +80,11 @@ my $tmp_surface_labels = "${TmpDir}/animal_surface_labels.txt";
 
 # segment stx surface labels into lobes
 
-my $surface_lobes = "${TmpDir}/animal_surface_lobes.txt";
-&run( "remap_to_lobes", $animal_surface_labels, $surface_lobes );
+my $surface_lobes = $animal_surface_labels;
+if( $AnimalAtlas && $AnimalAtlas eq "-symmetric_atlas" ) {
+  $surface_lobes = "${TmpDir}/animal_surface_lobes.txt";
+  &run( "remap_to_lobes", $animal_surface_labels, $surface_lobes );
+}
 
 # Transform gray surface from stx to native space to measure area.
 

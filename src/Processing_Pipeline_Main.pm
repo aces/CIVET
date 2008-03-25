@@ -304,7 +304,8 @@ sub create_pipeline{
         @res = Cortical_Measurements::lobe_area(
           $pipeline_ref,
           $lobePrereqs,
-          $image
+          $image,
+          ${$models}->{AnimalAtlas}
         );
         $LobeArea_complete = $res[0];
       }
