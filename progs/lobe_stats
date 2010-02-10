@@ -1,0 +1,110 @@
+#! /usr/bin/perl
+#
+# June, 2009: Initial implementation. - Claude Lepage
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+
+use Getopt::Tabular;
+use MNI::Startup;
+use MNI::FileUtilities qw(check_output_dirs);
+
+
+# --- set the help & usage strings ---
+my $help = <<HELP;
+Compute a field by region of interest.
+HELP
+
+my $usage = <<USAGE;
+Usage: $ProgramName [options] field.txt labels.txt title info_file.dat 
+         field.txt - field evaluated on surface (resampled)
+         labels.txt - vertex labels for the regions of interest
+         title - string description for field
+         info_file.dat - output file for writing stats information
+
+       $ProgramName -help to list options
+USAGE
+
+Getopt::Tabular::SetHelp( $help, $usage );
+
+my $normalize = 0;
+
+my @options =
+  ( @DefaultArgs,      # from MNI::Startup
+    ["-norm", "const", "1", \$normalize, "normalize by number of vertices"],
+  );
+
+GetOptions( \@options, \@ARGV )
+  or exit 1;
+die "$usage\n" unless @ARGV == 4;
+
+my $field = shift;
+my $label_file = shift;
+my $title = shift;
+my $info_file = shift;
+
+# These are temporary files.
+MNI::FileUtilities::check_output_dirs("${TmpDir}")
+  or exit 1;
+
+# Take absolute value of field.
+
+my $field_abs = "${TmpDir}/field_abs.txt";
+&run( "vertstats_math", "-abs", "-old_style_file", $field, $field_abs );
+
+# Find the average total absolute value of the field.
+
+my $numer = `vertstats_stats $field_abs | grep Sum:`;
+$numer =~ /Sum:\s+(\d.*)/;
+$numer = $1;
+my ($denom,$junk) = split(' ', `wc -l $field`);
+$denom = 1 if( !$normalize );
+
+my $info = "# $title \n";
+$info .= "# Label   ROI value\n";
+
+# Find the average absolute value of the field for each region of interest.
+
+my @labels = `sort -u -n $label_file`;
+my $label;
+for( $label = 0; $label <= $#labels; $label++ ) {
+  my $lm1 = $label - 1;
+  my $lp1 = $label + 1;
+  my $masked_labels = "${TmpDir}/masked_labels.txt";
+  my $masked_field = "${TmpDir}/masked_field.txt";
+  &run( "vertstats_math", "-const2", $lm1, $lp1, "-seg", "-old_style_file", 
+        $label_file, $masked_labels );
+  &run( "vertstats_math", "-mult", "-old_style_file", $masked_labels, $field_abs,
+        $masked_field );
+  my $numer = `vertstats_stats $masked_field | grep Sum:`;
+  $numer =~ /Sum:\s+(\d.*)/;
+  $numer = $1;
+  my $denom = `vertstats_stats $masked_labels | grep Sum:`;
+  $denom =~ /Sum:\s+(\d.*)/;
+  $denom = ($normalize) ? $1 : 1;
+  $info .= sprintf( "  %d   %6.4f\n", $label, $numer / $denom );
+  unlink( $masked_labels );
+  unlink( $masked_field );
+}
+
+unlink( $field_abs );
+
+$info .= sprintf( " Total  %6.4f\n", $numer / $denom );
+
+open PIPE, ">$info_file";
+print PIPE $info;
+close PIPE;
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

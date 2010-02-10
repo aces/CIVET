@@ -1,8 +1,12 @@
 #!/usr/bin/env perl
 
+#
 # Surface registration using surftracc and Maxime's data term.
-
-#olly has a go....
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use FindBin;

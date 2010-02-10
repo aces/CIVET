@@ -1,0 +1,940 @@
+#! /usr/bin/env perl
+
+############################################################################
+############################################################################
+### Post-processing module to the CIVET pipeline to perform basic
+### quality control.
+###                                       
+###   Authors: Claude Lepage
+###            August, 2009
+###
+###         Copyright Alan C. Evans
+###         Professor of Neurology
+###         McGill University
+###
+### For more information, have a look at our documentation at:
+###    http://wiki.bic.mni.mcgill.ca/index.php/CIVET
+###                                 
+############################################################################
+############################################################################
+
+use strict;
+use FindBin;
+use Cwd qw( abs_path );
+use Env qw( PATH );
+use List::Util qw( min max );
+use File::Temp qw/ tempdir /;
+
+# All modules that will be used in either case are declared here
+use Getopt::Tabular;
+use MNI::Startup;
+use MNI::PathUtilities qw(split_path);
+use MNI::FileUtilities qw(check_output_dirs check_output_path);
+use MNI::DataDir;
+
+use lib "$FindBin::Bin";
+use MRI_Image;
+
+$PATH = "$FindBin::Bin/progs:${PATH}";
+
+# Set interrupt handler (for cleaning of lock files)
+$SIG{'INT'} = 'CLEANUP';
+$SIG{'TERM'} = 'CLEANUP';
+
+# Create tmp dir.
+my $tmpdir = tempdir( CLEANUP => 1 );
+
+my $version = "1.2.0";
+my $versionDate= "August, 2009";
+my $authors= "Claude Lepage";
+my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
+ALTERNATIVE USAGE:\n
+$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile> &\n\n";
+
+my $whatsnew = <<NEW;
+    *************************************************************************
+    New in $versionDate quarantine, version $version
+
+    1 - Initial implementation
+
+    More to come soon:
+
+    *************************************************************************
+NEW
+
+my $help = <<HELP;
+
+$ProgramName, version $version, released $versionDate.
+    Released by $authors.
+
+    Basic quality control for CIVET output.
+
+$whatsnew
+HELP
+Getopt::Tabular::SetHelp($help, $usage);
+
+
+############# The status report filename:
+my $statusReportFile = "CIVET_status_report.csv";
+
+############# Some directories that the user will need to specify
+my $sourceDir = undef;
+my $target = undef;
+my $prefix = undef;
+my $sourceSubDir = "noIdSubDir";
+my $idTextFile = undef;
+
+############# Options table
+my @leftOverArgs;
+my @argTbl = (
+          ["File options", "section"],
+          ["-sourcedir", "string", 1, \$sourceDir, "Directory containing the source files.", "<dir>"],
+          ["-targetdir", "string", 1, \$target, "Directory where processed data will be placed.", "<dir>"],
+          ["-prefix", "string", 1, \$prefix, "File prefix to be used in naming output files.", "<prefix>"],
+          ["-id-subdir", "const", "IdSubDir", \$sourceSubDir, 
+           "Indicate that the source directory contains sub-directories for each id"],
+          ["-id-file", "string", 1, \$idTextFile, "A text file that contains all the subject id\'s (separated by space, tab, return or comma) that CIVET will run on.", "<file>"],
+
+#         ["CIVET options", "section"],  
+#         ["-thickness", "string", 2, \@thickness,
+#          "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
+
+          );
+
+GetOptions(\@argTbl, \@ARGV, \@leftOverArgs) or die "\n";
+
+
+############# Basic usage
+my @dsids;
+
+if ($idTextFile) {
+    open (IDTEXTFILE, "$idTextFile") or die ("Cannot open '$idTextFile': $!");
+    # read the whole text file into one string
+    my $idstext = "";
+    while (my $idline = <IDTEXTFILE>) {
+    $idstext .= $idline;
+    }
+    close (IDTEXTFILE) or die ("Cannot close '$idTextFile': $!");
+    # split the string on whitespace (\s) or comma
+    @dsids = split(/[\s,]+/, $idstext);
+} 
+else {
+    @dsids = @leftOverArgs or die $usage;
+}
+
+unless ($prefix && $target && $sourceDir) {
+    die "\n\n" .
+        "*************************** ERROR ****************************: \n" .
+        "     You must specify -prefix, -targetdir, and -sourcedir \n" .
+        "**************************************************************\n\n\n";
+}
+$target =~ s#/+$##;      # remove trailing / at end of directory name, if any
+$target = abs_path( $target );
+$sourceDir = abs_path( $sourceDir );
+
+############# Set no file buffering for stdout (buffer is printed every 1 line)
+$| = 1;
+
+############# Print the CIVET options list and related error messages
+my $DATE = `date`;
+chomp( $DATE );
+my $UNAME = `uname -s -n -r`;
+chomp( $UNAME );
+print "\n\n* Pipeline started at $DATE on $UNAME \n";
+print "\n* This is CIVET $version, $versionDate \n";
+print "\n* CIVET Command line is:\n       $0 @ARGV \n";
+print "\n* The source directory is: '$sourceDir' \n";
+print "* The target directory is: '$target' \n";
+print "* The prefix is: '$prefix' \n";
+
+print "\n\n\n* Data-set Subject ID(s) is/are: '@dsids'\n\n\n";
+
+my $qc_dir = "${target}/QC";
+system("mkdir -p $qc_dir") if (! -d $qc_dir );
+
+# Default parameters to create image object using MRI_Image
+
+my $inputType = "t1only";
+my $correctPVE = 0;
+my $maskType = "t1only";
+my $interpMethod = "trilinear";
+my $N3Distance = 200;
+my $N3Damping = "1.0e-06";
+my $lsqtype = "-lsq9";
+my $surface = "SURFACE";
+my @thickness = ("tlink","20");
+my $ResampleSurfaces = 1;
+my $MeanCurvature = 0;
+my $Area_fwhm = 40;
+my $CombineSurfaces = 1;
+my $VBM = "noVBM";
+my $VBM_fwhm = 8;
+my $VBM_symmetry = "noSymmetry";
+my $VBM_cerebellum = "Cerebellum";
+my $animal = "noANIMAL";
+my $Template = MNI::DataDir::dir("ICBM") . "icbm_template_1.00mm.mnc";
+
+my %CIVETmodels = ( 'icbm152nl' => {
+                      'RegLinDir'        => MNI::DataDir::dir("mni-models"),
+                      'RegLinModel'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI",
+                      'RegNLDir'         => MNI::DataDir::dir("mni-models"),
+                      'RegNLModel'       => "icbm_avg_152_t1_tal_nlin_symmetric_VI",
+                      'TemplateDir'      => MNI::DataDir::dir("ICBM"),
+                      'TemplateModel'    => "icbm_template",
+                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
+                      'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
+                      'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
+                      'SurfAtlas'        => "surface_atlas.txt",
+                      'TagFileDir'       => MNI::DataDir::dir("classify"),
+                      'TagFile'          => "n/a",
+                      'AnimalAtlas'      => undef,
+                      'AnimalAtlasDir'   => undef,
+                      'AnimalNLRegDir'   => undef,
+                      'AnimalNLRegModel' => undef
+                    }
+                  ); 
+
+#########################################################
+# Collect data for each subject.
+#########################################################
+
+my $good = "lightgreen";
+my $warning = "orange";
+my $danger = "red";
+my $incomplete = "yellow";
+my $good_level = 0;
+my $warning_level = 1;
+my $danger_level = 5;
+my $incomplete_level = 3;
+
+my $html = "<table cellspacing=\"2\" bgcolor=\"white\">\n";
+$html .= "<tr bgcolor=\"\#cccccc\">" .
+         "<th>No.</th>" .
+         "<th>ID</th>" .
+         "<th>x-step</th>" .
+         "<th>y-step</th>" .
+         "<th>z-step</th>" .
+         "<th>NatMaskErr</th>" .
+         "<th>StxMaskErr</th>" .
+         "<th>CSFcls</th>" .
+         "<th>GMcls</th>" .
+         "<th>WMcls</th>" .
+         "<th>WMsurf</th>" .
+         "<th>GMsurf</th>" .
+         "<th>SRLeft</th>" .
+         "<th>SRRight</th>" .
+         "<th>GIleft</th>" .
+         "<th>GIright</th>" .
+         "<th>GIfull</th>" .
+         "</tr>\n";
+$html .= "<tr> </tr>\n";
+
+my $info = "# CIVET QC pipeline\n";
+
+my $avg_native_mask_error = 0.0;
+my $stddev_native_mask_error = 0.0;
+my $count_native_mask_error = 0;
+my $avg_stx_mask_error = 0.0;
+my $stddev_stx_mask_error = 0.0;
+my $count_stx_mask_error = 0;
+my $avg_csf_cls = 0.0;
+my $stddev_csf_cls = 0.0;
+my $avg_gm_cls = 0.0;
+my $stddev_gm_cls = 0.0;
+my $avg_wm_cls = 0.0;
+my $stddev_wm_cls = 0.0;
+my $count_cls = 0.0;
+my $avg_wm_surf = 0.0;
+my $stddev_wm_surf = 0.0;
+my $avg_gm_surf = 0.0;
+my $stddev_gm_surf = 0.0;
+my $count_gm_wm_surf = 0.0;
+my $avg_surfreg_left = 0.0;
+my $stddev_surfreg_left = 0.0;
+my $count_surfreg_left = 0.0;
+my $avg_surfreg_right = 0.0;
+my $stddev_surfreg_right = 0.0;
+my $count_surfreg_right = 0.0;
+
+my $count = 0;
+foreach my $dsid (@dsids) {
+
+    $count++;
+    my $level = 0;
+
+    print "Processing subject $dsid...\n";
+
+    ##### Create image object. #####
+
+    # depending on the two options your files can be in on target
+    # or there can be subdirs for every subject
+    my $Source_Base;
+    if ($sourceSubDir eq "noIdSubDir") {
+      $Source_Base = "${sourceDir}/";
+    } else {
+      $Source_Base = "${sourceDir}/${dsid}/";
+    }
+
+    my $image = MRI_Image->new( $version,
+                                $Source_Base,
+                                $target,
+                                $prefix,
+                                $dsid,
+                                $inputType,
+                                $correctPVE,
+                                $maskType,
+                                $interpMethod,
+                                $N3Distance,
+                                $N3Damping,
+                                $lsqtype,
+                                $surface,
+                                \@thickness,
+                                $ResampleSurfaces,
+                                $MeanCurvature,
+                                $Area_fwhm,
+                                $CombineSurfaces,
+                                $VBM,
+                                $VBM_fwhm,
+                                $VBM_symmetry,
+                                $VBM_cerebellum,
+                                $animal,
+                                $Template,
+                                \$CIVETmodels{icbm152nl} );
+
+    # Column 1: subject id.
+    my $infoline = "$dsid ";
+    my $htmlline = "";
+
+    # Columns 2,3,4 : voxel sizes in native space
+    if( -e $image->{t1}{native} ) {
+      my $dx = `mincinfo -attvalue xspace:step $image->{t1}{native}`;
+      my $dy = `mincinfo -attvalue yspace:step $image->{t1}{native}`;
+      my $dz = `mincinfo -attvalue zspace:step $image->{t1}{native}`;
+      chomp( $dx ); chomp( $dy ); chomp( $dz );
+      $dx = abs($dx); $dy = abs($dy); $dz = abs($dz);
+      $infoline .= sprintf( "%5.2f %5.2f %5.2f ", abs($dx), abs($dy), abs($dz) );
+      
+      if( abs($dx) >= 2.5 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( abs($dx) >= 1.75 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= sprintf( "%5.2f", abs($dx) ) . "</td>";
+      if( abs($dy) >= 2.5 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( abs($dy) >= 1.75 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= sprintf( "%5.2f", abs($dy) ) . "</td>";
+      if( abs($dz) >= 2.5 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( abs($dx) >= 1.75 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= sprintf( "%5.2f", abs($dz) ) . "</td> ";
+    } else {
+      $infoline .= "  0  0  0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 5: Error in native brain mask.
+    my $brainmask_qc = $image->{brainmask_qc};
+    if( -e $brainmask_qc ) {
+      open (IDFILE, $brainmask_qc);
+      my $idline = <IDFILE>;
+      $idline =~ /native skull mask in stx space \((.*)\%\)/;
+      my $mask_error = $1;
+      $infoline .= "$mask_error ";
+      close (IDFILE);
+      if( $mask_error < 20.0 ) {   # exclude errors from avg and stddev
+        $avg_native_mask_error += $mask_error;
+        $stddev_native_mask_error += $mask_error*$mask_error;
+        $count_native_mask_error++;
+      }
+      if( $mask_error >= 20.0 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( $mask_error >= 10.0 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $mask_error . "</td> ";
+    } else {
+      $infoline .= " 100 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">100</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Column 6: Error in sterotaxic brain mask.
+    my $skull_mask = $image->{skull_mask_tal};
+    if( -e $skull_mask ) {
+
+      my $model_mask = "$CIVETmodels{icbm152nl}{RegLinDir}/$CIVETmodels{icbm152nl}{RegLinModel}_mask.mnc";
+
+      my $skull_mask_rsl = "${tmpdir}/skull_mask_rsl.mnc";
+      `mincresample -clobber -quiet -like $model_mask -nearest_neighbour $skull_mask $skull_mask_rsl`;
+
+      my $diff = "${tmpdir}/diff_mask_stx.mnc";
+      `minccalc -clobber -quiet -expression 'A[1]!=A[0]' $model_mask $skull_mask_rsl $diff`;
+
+      my $diff_volume;
+      chomp( $diff_volume = `mincstats -quiet -sum $diff` );
+      my $mask2_volume;
+      chomp( $mask2_volume = `mincstats -quiet -sum $model_mask` );
+      my $error = 100.0 * $diff_volume / $mask2_volume;
+
+      unlink( $skull_mask_rsl );
+      unlink( $diff );
+
+      if( $error < 20.0 ) {   # exclude errors from avg and stddev
+        $avg_stx_mask_error += $error;
+        $stddev_stx_mask_error += $error*$error;
+        $count_stx_mask_error++; 
+      }
+      $error = sprintf( "%5.2f", $error );
+      $infoline .= "$error ";
+      if( $error >= 20.0 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( $error >= 10.0 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $error . "</td> ";
+    } else {
+      $infoline .= " 0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 7,8,9: percentages of CSF, GM, WM tissue in brain.
+    my $classify_qc = $image->{classify_qc};
+    if( -e $classify_qc ) {
+      open (IDFILE, $classify_qc);
+      my $idline = <IDFILE>;
+      $idline =~ /classified image CSF (.*)\%  GM (.*)\%  WM (.*)\%/;
+      my $csf = $1;
+      my $gm = $2;
+      my $wm = $3;
+      $infoline .= "$csf $gm $wm ";
+      close (IDFILE);
+      $avg_csf_cls += $csf;
+      $stddev_csf_cls += $csf*$csf;
+      $avg_gm_cls += $gm;
+      $stddev_gm_cls += $gm*$gm;
+      $avg_wm_cls += $wm;
+      $stddev_wm_cls += $wm*$wm;
+      $count_cls++;
+      if( $csf >= 50.0 || $csf <= 5.0 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $csf . "</td> ";
+      if( $gm >= 80.0 || $gm <= 15.0 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $gm . "</td> ";
+      if( $wm >= 80.0 || $wm <= 15.0 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $wm . "</td> ";
+    } else {
+      $infoline .= " 0   0   0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 10,11: Error in wm surface and gm surface.
+    my $surface_qc = $image->{surface_qc};
+    if( -e $surface_qc ) {
+      open (IDFILE, $surface_qc);
+      my $idline = <IDFILE>;
+      $idline =~ /white surface \((.*)\%\), gray surface \((.*)\%\)/;
+      my $wm = $1;
+      my $gm = $2;
+      $infoline .= "$wm $gm ";
+      close (IDFILE);
+      $avg_gm_surf += $gm;
+      $stddev_gm_surf += $gm*$gm;
+      $avg_wm_surf += $wm;
+      $stddev_wm_surf += $wm*$wm;
+      $count_gm_wm_surf++;
+      if( $wm >= 20.0 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( $wm >= 10.0 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td> ";
+      }
+      $htmlline .= $wm . "</td>";
+      if( $gm >= 20.0 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( $gm >= 10.0 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $gm . "</td> ";
+
+    } else {
+      $infoline .= " 100 100 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">100</td> <td bgcolor=\"$incomplete\">100</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 12: number of self-intersections on resampled left mid surface
+    my $mid_rsl_left = $image->{mid_surface_rsl}{left};
+    if( -e $mid_rsl_left ) {
+      my @ret = `check_self_intersect $mid_rsl_left`;
+      $ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
+      my $left_inter = $1;
+      $infoline .= "$left_inter ";
+      if( $left_inter < 500 ) {
+        $avg_surfreg_left += $left_inter;
+        $stddev_surfreg_left += $left_inter*$left_inter;
+        $count_surfreg_left++;
+      }
+      if( $left_inter >= 500 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( $left_inter >= 250 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $left_inter . "</td> ";
+    } else {
+      $infoline .= " 0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 13: number of self-intersections on resampled right mid surface
+    my $mid_rsl_right = $image->{mid_surface_rsl}{right};
+    if( -e $mid_rsl_right ) {
+      my @ret = `check_self_intersect $mid_rsl_right`;
+      $ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
+      my $right_inter = $1;
+      $infoline .= "$right_inter ";
+      if( $right_inter < 500 ) {
+        $avg_surfreg_right += $right_inter;
+        $stddev_surfreg_right += $right_inter*$right_inter;
+        $count_surfreg_right++;
+      }
+      if( $right_inter >= 500 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( $right_inter >= 250 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $right_inter . "</td> ";
+    } else {
+      $infoline .= " 0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 14: gyrification index for left hemisphere
+    my $gi_left = $image->{gyrification_index}{left};
+    if( -e $gi_left ) {
+      open (IDFILE, $gi_left);
+      my $idline = <IDFILE>;
+      $idline =~ /gyrification index gray: (.*)/;
+      my $gi = $1;
+      $infoline .= "$gi ";
+      close (IDFILE);
+      $htmlline .= "<td>" . $gi . "</td> ";
+    } else {
+      $infoline .= " 0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 15: gyrification index for right hemisphere
+    my $gi_right = $image->{gyrification_index}{right};
+    if( -e $gi_right ) {
+      open (IDFILE, $gi_right);
+      my $idline = <IDFILE>;
+      $idline =~ /gyrification index gray: (.*)/;
+      my $gi = $1;
+      $infoline .= "$gi ";
+      close (IDFILE);
+      $htmlline .= "<td>" . $gi . "</td> ";
+    } else {
+      $infoline .= " 0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 16: gyrification index for left+right hemispheres combined
+    my $gi_full = $image->{gyrification_index}{full};
+    if( -e $gi_full ) {
+      open (IDFILE, $gi_full);
+      my $idline = <IDFILE>;
+      $idline =~ /gyrification index gray: (.*)/;
+      my $gi = $1;
+      $infoline .= "$gi ";
+      close (IDFILE);
+      $htmlline .= "<td>" . $gi . "</td> ";
+    } else {
+      $infoline .= " 0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    $infoline .= "\n";
+    $info .= $infoline;
+
+    # Complete html line for global error good.
+
+    my $idcolourcode;
+    if( $level == $warning_level ) {
+      $idcolourcode = $warning;
+    } elsif( $level == $danger_level ) {
+      $idcolourcode = $danger;
+    } elsif( $level == $incomplete_level ) {
+      $idcolourcode = $incomplete;
+    } else {
+      $idcolourcode = $good;
+    }
+
+    $htmlline = "<th bgcolor=\"${idcolourcode}\">" . 
+                "<a target=\"_blank\" href=\"${dsid}.html\">$dsid</a></th>" . $htmlline;
+    $htmlline = "<tr bgcolor=\"#dddddd\">" . "<td>" . sprintf( "%4d", $count ) . "</td>" .
+                $htmlline . "</tr>\n";
+    $html .= $htmlline;
+
+    open FILE, ">${qc_dir}/${dsid}.html";
+    print FILE "<table>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_verify.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_clasp.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_atlas.png\"></td></tr>\n";
+    print FILE "</table>\n";
+    close FILE;
+
+}
+
+# Line of averages and stddev on some fields.
+
+$avg_native_mask_error /= $count_native_mask_error;
+$avg_stx_mask_error /= $count_stx_mask_error;
+$avg_csf_cls /= $count_cls;
+$avg_gm_cls /= $count_cls;
+$avg_wm_cls /= $count_cls;
+$avg_gm_surf /= $count_gm_wm_surf if( $count_gm_wm_surf );
+$avg_wm_surf /= $count_gm_wm_surf if( $count_gm_wm_surf );
+$avg_surfreg_left /= $count_surfreg_left if( $count_surfreg_left );
+$avg_surfreg_right /= $count_surfreg_right if( $count_surfreg_right );
+
+$html .= "<tr> </tr> ";
+$html .= "<tr bgcolor=\"#dddddd\">" .
+         "<th>Mean</th> <td></td> <td></td> <td></td> <td></td> " .
+         "<td>" . sprintf( "%5.2f", $avg_native_mask_error ) . "</td> " .
+         "<td>" . sprintf( "%8.3f", $avg_stx_mask_error ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $avg_csf_cls ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $avg_gm_cls ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $avg_wm_cls ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $avg_wm_surf ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $avg_gm_surf ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $avg_surfreg_left ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $avg_surfreg_right ) . "</td>" .
+         "<td></td> <td></td> <td></td>" .
+         "</tr>\n";
+
+$stddev_native_mask_error = sqrt( $stddev_native_mask_error/$count_native_mask_error - 
+                                  $avg_native_mask_error*$avg_native_mask_error );
+$stddev_stx_mask_error = sqrt( $stddev_stx_mask_error/$count_stx_mask_error -
+                               $avg_stx_mask_error*$avg_stx_mask_error );
+$stddev_csf_cls = sqrt( $stddev_csf_cls/$count_cls - $avg_csf_cls*$avg_csf_cls );
+$stddev_gm_cls = sqrt( $stddev_gm_cls/$count_cls - $avg_gm_cls*$avg_gm_cls );
+$stddev_wm_cls = sqrt( $stddev_wm_cls/$count_cls - $avg_wm_cls*$avg_wm_cls );
+$stddev_gm_surf = sqrt( $stddev_gm_surf/$count_gm_wm_surf - 
+                        $avg_gm_surf*$avg_gm_surf ) if( $count_gm_wm_surf );
+$stddev_wm_surf = sqrt( $stddev_wm_surf/$count_gm_wm_surf - 
+                        $avg_wm_surf*$avg_wm_surf ) if( $count_gm_wm_surf );
+$stddev_surfreg_left = sqrt( $stddev_surfreg_left/$count_surfreg_left -
+                              $avg_surfreg_left*$avg_surfreg_left ) if( $count_surfreg_left );
+$stddev_surfreg_right = sqrt( $stddev_surfreg_right/$count_surfreg_right -
+                              $avg_surfreg_right*$avg_surfreg_right ) if( $count_surfreg_right );
+
+$html .= "<tr bgcolor=\"#dddddd\">" .
+         "<th>StdDev</th> <td></td> <td></td> <td></td> <td></td> " .
+         "<td>" . sprintf( "%5.2f", $stddev_native_mask_error ) . "</td> " .
+         "<td>" . sprintf( "%8.3f", $stddev_stx_mask_error ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $stddev_csf_cls ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $stddev_gm_cls ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $stddev_wm_cls ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $stddev_wm_surf ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $stddev_gm_surf ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $stddev_surfreg_left ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $stddev_surfreg_right ) . "</td>" .
+         "<td></td> <td></td> <td></td>" .
+         "</tr>\n";
+$html .= "</table>";
+
+# Do some scatter plots of the various fields.
+
+open FILE, ">${qc_dir}/civet_${prefix}.dat";
+print FILE $info;
+close FILE;
+
+# ----------------------------------------------------------------------------------------------
+open FILE, ">${qc_dir}/civet_${prefix}.gnu";
+print FILE "# Native space brain masking error\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Native space brain masking error\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"Error %\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/NatMaskErr.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 5 w po, $avg_native_mask_error w li 2, " .
+           sprintf("%f",$avg_native_mask_error-$stddev_native_mask_error) . " w li 3, " .
+           sprintf("%f",$avg_native_mask_error+$stddev_native_mask_error) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"NatMaskErr.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 1: </td> <td> Error between native brain mask transformed " .
+         "to stereotaxic space and the brain mask of the stereotaxic model. </td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Stereotaxic space brain masking error\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Stereotaxic space brain mask error\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"Error %\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/StxMaskErr.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 6 w po, $avg_stx_mask_error w li 2, " .
+           sprintf("%f",$avg_stx_mask_error-$stddev_stx_mask_error) . " w li 3, " .
+           sprintf("%f",$avg_stx_mask_error+$stddev_stx_mask_error) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"StxMaskErr.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 2: </td> <td> Error between stereotaxic space brain mask " .
+         "and the brain mask of the stereotaxic model. </td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Percentage of the classified CSF in the brain (masked)\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Percentage of the classified CSF in the brain (masked)\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"CSF %\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/CSFclsPct.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 7 w po, $avg_csf_cls w li 2, " .
+           sprintf("%f",$avg_csf_cls-$stddev_csf_cls) . " w li 3, " .
+           sprintf("%f",$avg_csf_cls+$stddev_csf_cls) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"CSFclsPct.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 3: </td> <td> Percentage of the classified CSF in the brain (masked)." .
+         "</td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Percentage of the classified GM in the brain (masked)\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Percentage of the classified GM in the brain (masked)\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"GM %\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/GMclsPct.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 8 w po, $avg_gm_cls w li 2, " .
+           sprintf("%f",$avg_gm_cls-$stddev_gm_cls) . " w li 3, " .
+           sprintf("%f",$avg_gm_cls+$stddev_gm_cls) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"GMclsPct.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 4: </td> <td> Percentage of the classified GM in the brain (masked)." .
+         "</td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Percentage of the classified WM in the brain (masked)\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Percentage of the classified WM in the brain (masked)\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"WM %\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/WMclsPct.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 9 w po, $avg_wm_cls w li 2, " .
+           sprintf("%f",$avg_wm_cls-$stddev_wm_cls) . " w li 3, " .
+           sprintf("%f",$avg_wm_cls+$stddev_wm_cls) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"WMclsPct.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 5: </td> <td> Percentage of the classified WM in the brain (masked)." .
+         "</td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Percentage error in the extraction of the white surface\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Percentage error in extraction of white surface\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"White surface error %\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/WMSurfPct.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 10 w po, $avg_wm_surf w li 2, " .
+           sprintf("%f",$avg_wm_surf-$stddev_wm_surf) . " w li 3, " .
+           sprintf("%f",$avg_wm_surf+$stddev_wm_surf) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"WMSurfPct.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 6: </td> <td> Percentage of classified white voxels outside " .
+         "the white surface (large values mean underexpanded surface). </td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Percentage error in the expansion of the gray surface\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Percentage error in expansion of gray surface\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"Gray surface error %\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/GMSurfPct.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 11 w po, $avg_gm_surf w li 2, " .
+           sprintf("%f",$avg_gm_surf-$stddev_gm_surf) . " w li 3, " .
+           sprintf("%f",$avg_gm_surf+$stddev_gm_surf) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"GMSurfPct.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 7: </td> <td> Percentage of classified gray voxels outside " .
+         "the gray surface (large values mean underexpanded surface). </td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Number of self-intersections in resampled mid surface\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "set key\n";
+print FILE "set title \"Number of self-intersections in resampled mid surface\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"Number of self-intersections\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/SurfRegInter.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 12 t \"Left\" w po 1, " .
+           "\"${qc_dir}/civet_${prefix}.dat\" u 13 t \"Right\" w po 2\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"SurfRegInter.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 8: </td> <td> Number of self-intersections in resampled " .
+         "mid surface as a result of surface registration. </td></tr>\n" .
+         "</table>\n";
+
+# not meaningful here in this graph
+# $avg_surfreg_left /= $count_surfreg_left if( $count_surfreg_left );
+# $avg_surfreg_right /= $count_surfreg_right if( $count_surfreg_right );
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Gyrification index for the left hemisphere\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Gyrification index for left hemisphere\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"GI\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/GILeft.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 14 w po\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"GILeft.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 9: </td> <td> Gyrification index for the left hemisphere." .
+         "</td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Gyrification index for the right hemisphere\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Gyrification index for right hemisphere\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"GI\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/GIRight.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 15 w po\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"GIRight.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 10: </td> <td> Gyrification index for the right hemisphere." .
+         "</td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+print FILE "# Gyrification index for the full brain\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Gyrification index for full brain\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"GI\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/GIFull.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 16 w po\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"GIFull.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 11: </td> <td> Gyrification index for the full brain." .
+         "</td></tr>\n" .
+         "</table>\n";
+
+close FILE;
+
+`gnuplot \< "${qc_dir}/civet_${prefix}.gnu"`;
+
+
+##
+## <img src="toto.png">
+## 
+
+open FILE, ">${qc_dir}/civet_${prefix}.html";
+print FILE $html;
+close FILE;
+
+############# Voila!! #############
+
+# Set interrupt handler (for cleaning of lock files)
+
+sub CLEANUP {
+  exit(1);
+}
+

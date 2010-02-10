@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 # This is the Main package for single spectral runs (t1 only)
 package CIVET_Main;
 # Force all variables to be declared
@@ -186,7 +191,8 @@ sub create_pipeline{
     my $Thickness_complete = undef;
     my $SingleSurface_complete = undef;
     my $Mean_Curvature_complete = undef;
-    my $LobeArea_complete = undef;
+    my $Position_complete = undef;
+    my $LobeFeatures_complete = undef;
     my $GyrificationIndex_complete = undef;
     my $CerebralVolume_complete = undef;
 
@@ -272,14 +278,33 @@ sub create_pipeline{
         @res = Surface_Register::resample_surfaces(
           $pipeline_ref,
           $SurfReg_complete,
-          $image,
+          $image
         );
         $SurfResample_complete = $res[0];
+
+        @res = Surface_Register::resampled_surface_areas(
+          $pipeline_ref,
+          $SurfResample_complete,
+          $image,
+          $Global_SurfRegModel
+        );
+        $SurfResample_complete = $res[0];
+
+        ######################################
+        ##### Asymmetry map for position #####
+        ######################################
+
+        @res = Cortical_Measurements::position(
+          $pipeline_ref,
+          [@{$SurfResample_complete},@{$Combine_Surface_complete}],
+          $image
+        );
+        $Position_complete = $res[0];
       }
 
-      ###################################################################
-      ##### Cortical Thickness, Mean Curvature and Cortex Lobe Area #####
-      ###################################################################
+      ##############################################
+      ##### Cortical Thickness, Mean Curvature #####
+      ##############################################
 
       @res = Cortical_Measurements::thickness(
         $pipeline_ref,
@@ -288,28 +313,29 @@ sub create_pipeline{
       );
       $Thickness_complete = $res[0];
 
-      @res = Cortical_Measurements::mean_curvature(
-        $pipeline_ref,
-        [@{$SurfReg_complete},@{$Combine_Surface_complete}],
-        $image
-      );
-      $Mean_Curvature_complete = $res[0];
-
-      unless (${$image}->{animal} eq "noANIMAL") {
-
-        my $lobePrereqs = [ @{$SurfReg_complete}, @{$Segment_complete} ];
-        push @{$lobePrereqs}, @{$Thickness_complete};
-        push @{$lobePrereqs}, @{$Combine_Surface_complete};
-
-        @res = Cortical_Measurements::lobe_area(
+      if( ${$image}->{meancurvature} ) {
+        @res = Cortical_Measurements::mean_curvature(
           $pipeline_ref,
-          $lobePrereqs,
-          $image,
-          ${$models}->{AnimalAtlas}
+          [@{$SurfReg_complete},@{$Combine_Surface_complete}],
+          $image
         );
-        $LobeArea_complete = $res[0];
+        $Mean_Curvature_complete = $res[0];
       }
 
+      #################################################
+      ##### Lobe parcellation for cortex features #####
+      #################################################
+
+      my $lobePrereqs = [@{$SurfReg_complete},@{$Thickness_complete}];
+      push @{$lobePrereqs}, @{$Mean_Curvature_complete} if( ${$image}->{meancurvature} );
+      push @{$lobePrereqs}, @{$SurfResample_complete} if( ${$image}->{resamplesurfaces} );
+
+      @res = Cortical_Measurements::lobe_features(
+        $pipeline_ref,
+        $lobePrereqs,
+        $image,
+      );
+      my $LobeFeatures_complete = $res[0];
     }
 
     ##############################
@@ -335,6 +361,7 @@ sub create_pipeline{
     my $Verify_image_complete = $res[0];
 
     my $Verify_CLASP_complete = undef;
+    my $Verify_Atlas_complete = undef;
     unless (${$image}->{surface} eq "noSURFACE") {
       my $CLASPPrereqs = [ @{$Surface_Fit_complete} ];
       push @{$CLASPPrereqs}, @{$GyrificationIndex_complete};
@@ -345,6 +372,15 @@ sub create_pipeline{
         $image
       );
       $Verify_CLASP_complete = $res[0];
+
+      if( ${$image}->{resamplesurfaces} ) {
+        @res = Verify::atlas(
+          $pipeline_ref,
+          $SurfResample_complete,
+          $image
+        );
+        $Verify_Atlas_complete = $res[0];
+      }
     }
 
 }

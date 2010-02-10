@@ -1,8 +1,12 @@
 #! /usr/bin/env perl
 #
-# Make an asymmetry map.
+# Make an asymmetry map for VBM analysis.
 #
 # Claude Lepage - claude@bic.mni.mcgill.ca
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
 #
 
 use strict;

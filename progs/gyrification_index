@@ -6,6 +6,12 @@
 # Non-uniform scaling factors (lsq9 or lsq12) can change the index if compute
 # in Talairach.
 
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
 use strict;
 use warnings "all";
 
@@ -25,11 +31,15 @@ Usage: $me [options] surface.obj [info_file.txt]
 
 USAGE
 
+my $append = 0;
+my $label = undef;
 my $transform_xfm = undef;
 
-my @options =
-  ( ['-transform', 'string', 1, \$transform_xfm,
-     'transformation from native to stereotaxic (if surfaces in stx space)'],
+my @options = (
+    ['-append', 'boolean', 0, \$append, "append to output file"],
+    ['-label', 'string', 1, \$label, "title name for surface"],
+    ['-transform', 'string', 1, \$transform_xfm,
+     'transformation from native to stereotaxic (if surface in stx space)'],
   );
 
 Getopt::Tabular::SetHelp( $help, $usage );
@@ -64,12 +74,18 @@ my ($bla,$area_surface,$area_hull);
 
 ($bla,$area_hull) = split(' ',`measure_surface_area $convex_hull`);
 
-if( defined $info_file ) {
-  open PIPE, ">$info_file";
-  print PIPE sprintf( "gyrification index: %5.3f\n", ${area_surface}/${area_hull} );
-  close PIPE;
+my $info;
+if( defined $label ) {
+  $info = sprintf( "gyrification index %s: %5.3f\n", $label, ${area_surface}/${area_hull} );
 } else {
-  print sprintf( "gyrification index: %5.3f\n", ${area_surface}/${area_hull} );
+  $info = sprintf( "gyrification index: %5.3f\n", ${area_surface}/${area_hull} );
+}
+
+if( defined $info_file ) {
+  open PIPE, ($append) ? ">>$info_file" : ">$info_file";
+  print PIPE $info;
+} else {
+  print $info;
 }
 
 

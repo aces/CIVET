@@ -5,6 +5,10 @@
 # Oliver Lyttelton oliver@bic.mni.mcgill.ca
 
 #
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";

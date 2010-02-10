@@ -4,6 +4,10 @@
 #   - Count how many classified white voxels outside white surface
 #   - Count how many classified gray voxels outside gray surface
 #
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";

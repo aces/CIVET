@@ -1,0 +1,8 @@
+%product civet
+%copyright Alan C. Evans, Professor of Neurology, McGill University
+%vendor McConnell Brain Imaging Centre
+%packager Claude Lepage <claude@bic.mni.mcgill.ca>
+%license COPYING
+%readme README
+%description CIVET cortical surface extraction pipeline
+%version @VERSION@

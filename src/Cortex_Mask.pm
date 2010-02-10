@@ -1,10 +1,14 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 # Removes the skull and meninges (in Talairach space)
 
 package Cortex_Mask;
 use strict;
 use PMP::PMP;
 use MRI_Image;
-
 
 sub create_pipeline {
 

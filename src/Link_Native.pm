@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 # The Linking stage for simple t1, t2, pd pipeline.
 # We demand that image type be better that byte, otherwise the 
 # resolution will be too poor.

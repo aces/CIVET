@@ -10,13 +10,10 @@
 # The University of Queensland
 # http://www.cmr.uq.edu.au/~rotor
 #
-# Copyright Andrew Janke, The University of Queensland.
-# Permission to use, copy, modify, and distribute this software and its
-# documentation for any purpose and without fee is hereby granted,
-# provided that the above copyright notice appear in all copies.  The
-# author and the University of Queensland make no representations about the
-# suitability of this software for any purpose.  It is provided "as is"
-# without express or implied warranty.
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";
@@ -27,6 +24,7 @@ use File::Temp qw/ tempdir /;
 my @conf = (
 
    { type        => "blur",
+     # trans       => [qw/-est_translations -est_center -pat/],
      trans       => [qw/-est_translations/],
      blur_fwhm   => 16,
      steps       => [qw/8 8 8/],
@@ -185,7 +183,8 @@ if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
 
 if( defined $opt{init_xfm} ) { 
   my $source_resampled = "${tmpdir}/${s_base}_resampled.mnc";
-  &do_cmd( 'mincresample', '-clobber', '-like', $source_masked, 
+  ### &do_cmd( 'mincresample', '-clobber', '-like', $source_masked, 
+  &do_cmd( 'mincresample', '-clobber', '-tfm_input_sampling',
            '-transform', $opt{init_xfm}, $source_masked, $source_resampled );
   $source_masked = $source_resampled;
 
@@ -193,7 +192,8 @@ if( defined $opt{init_xfm} ) {
 
   if( defined( $opt{source_mask} ) ) {
     my $mask_resampled = "${tmpdir}/${s_base}_mask_resampled.mnc";
-    &do_cmd( 'mincresample', '-clobber', '-like', $opt{source_mask},
+    ### &do_cmd( 'mincresample', '-clobber', '-like', $opt{source_mask},
+    &do_cmd( 'mincresample', '-clobber', '-tfm_input_sampling',
              '-nearest_neighbour', '-transform', $opt{init_xfm}, 
              $opt{source_mask}, $mask_resampled );
     $opt{source_mask} = $mask_resampled;

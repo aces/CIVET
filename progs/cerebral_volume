@@ -3,6 +3,10 @@
 # Compute the total cerebral volume by computing the volume of gray
 # matter inside the gray surface.
 #
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";

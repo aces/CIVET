@@ -3,11 +3,16 @@
 ######################################################################################################
 ######################################################################################################
 ### Run multispectral linear registration in either a single- or two-stage fashion
-###     				    	
-###	Authors:				   			     	     	
-###			Original versions: Jason Lerch			     	     	
+###
+###	Authors:
+###			Original versions: Jason Lerch
 ###			Current modifications: Yasser Ad-Dab'bagh and Robert Vincent
-###			Date: May 26, 2005		 								
+###			Date: May 26, 2005
+###
+###     Copyright Alan C. Evans
+###     Professor of Neurology
+###     McGill University
+###
 ######################################################################################################
 ######################################################################################################
 
@@ -28,11 +33,11 @@ my $version = "1.6.3";
 ##############################################################
 
 my $twoStage= 0;
-my $modelDir = "$FindBin::Bin/../share/mni_autoreg";
-#my $modelDir = MNI::DataDir::dir("mni_autoreg");
+my $modelDir = "$FindBin::Bin/../share/mni-models";
+#my $modelDir = MNI::DataDir::dir("mni-models");
 my $kiddieModel = "nih_chp_avg";
-my $kiddieModelDir = "$FindBin::Bin/../share/mni_autoreg";
-#my $kiddieModelDir = MNI::DataDir::dir("mni_autoreg");
+my $kiddieModelDir = "$FindBin::Bin/../share/mni-models";
+#my $kiddieModelDir = MNI::DataDir::dir("mni-models");
 my $model = "icbm_avg_152_t1_tal_lin";
 my $sourceMask = "undef";
 my $lsqtype = "-lsq9";

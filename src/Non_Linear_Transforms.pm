@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 # The non-linear fitting stages for t1. 
 # Other images t2 and pd will be transformed relative to t1 with the
 # same non-linear transformation.

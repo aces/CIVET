@@ -1,9 +1,18 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 #Discrete classification and partial volume estimation
 
 package Classify;
 use strict;
 use PMP::PMP;
 use MRI_Image;
+
+# Version of pve to use:
+my $OLD_PVE = 1;
+my $DILATED_MASK = 0;
 
 # Partial volume estimator on masked brain to obtain
 # final discrete classification.
@@ -21,6 +30,7 @@ sub pve {
     my $t2_input = ${$image}->{t2}{final};
     my $pd_input = ${$image}->{pd}{final};
     my $skull_mask = ${$image}->{skull_mask_tal};
+    my $dilated_mask = ${$image}->{dilated_cls_mask};
     my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
     my $t1_tal_nl_xfm = ${$image}->{t1_tal_nl_xfm};
 
@@ -66,8 +76,8 @@ sub pve {
     #       which contains a lot of the tag points, for a better
     #       sampling of the voxels of gray intensity.
 
-    ${$pipeline_ref}->addStage(
-         { name => "mask_classify",
+    ${$pipeline_ref}->addStage( {
+         name => "mask_classify",
          label => "tissue classification",
          inputs => [$skull_mask, @classify_images],
          outputs => [$cls_clean],
@@ -96,28 +106,62 @@ sub pve {
     my @extraPVE = ();
     push @extraPVE, ("-iterate") if( $correctPVE );
 
-    ${$pipeline_ref}->addStage(
-         { name => "pve",
-         label => "partial volume estimation",
-         inputs => [$pve_curvature, @classify_images,
-                   $skull_mask, $cls_clean],
-         outputs => [$pve_gm, $pve_wm, $pve_csf],
-         args => ["pve_script", "-clobber", "-nosubcortical", @extraPVE,
-                  "-curve", $pve_curvature, "-mask", $skull_mask,
-                  "-image", $cls_clean, @classify_images,
-                  $pve_prefix],
-         prereqs => ["pve_curvature"] });
+    if( $DILATED_MASK ) {
 
-    # Rebinarize the final masked pve maps.
+      # Create a dilated mask (2 voxels) from the brain mask
+      # to include a little more csf and perhaps catch some
+      # little bits of gray matter missing from the mincbet
+      # mask.
 
-    ${$pipeline_ref}->addStage(
-         { name => "reclassify",
-         label => "rebinarize PVE maps",
-         inputs => [$pve_csf, $pve_wm, $pve_gm],
-         outputs => [$cls_correct],
-         args => ["discretize_pve", "-clobber", $pve_csf,
-                  $pve_wm, $pve_gm, $cls_correct],
-         prereqs => [ "pve" ] });
+      ${$pipeline_ref}->addStage( {
+           name => "dilate_cls_mask",
+           label => "dilated mask for classification",
+           inputs => [$skull_mask],
+           outputs => [$dilated_mask],
+           args => ["dilate_volume", $skull_mask, $dilated_mask, 1, 6, 2 ],
+           prereqs => $Prereqs });
+
+      $skull_mask = $dilated_mask;
+    }
+
+    if( $OLD_PVE ) {
+      ${$pipeline_ref}->addStage( {
+           name => "pve",
+           label => "partial volume estimation",
+           inputs => [$pve_curvature, @classify_images,
+                     $skull_mask, $cls_clean],
+           outputs => [$pve_gm, $pve_wm, $pve_csf],
+           args => ["pve_script", "-clobber", "-nosubcortical", @extraPVE,
+                    "-curve", $pve_curvature, "-mask", $skull_mask,
+                    "-image", $cls_clean, @classify_images,
+                    $pve_prefix],
+           prereqs => ($DILATED_MASK) ? ["pve_curvature", "dilate_cls_mask" ] : ["pve_curvature"] });
+
+      # Rebinarize the final masked pve maps.
+
+      ${$pipeline_ref}->addStage(
+           { name => "reclassify",
+           label => "rebinarize PVE maps",
+           inputs => [$pve_csf, $pve_wm, $pve_gm],
+           outputs => [$cls_correct],
+           args => ["discretize_pve", "-clobber", $pve_csf,
+                    $pve_wm, $pve_gm, $cls_correct],
+           prereqs => [ "pve" ] });
+
+    } else {
+
+      ${$pipeline_ref}->addStage( {
+           name => "pve",
+           label => "partial volume estimation",
+           inputs => [$pve_curvature, @classify_images,
+                     $skull_mask, $cls_clean],
+           outputs => [$pve_gm, $pve_wm, $pve_csf, $cls_correct],
+           args => ["pve_script", "-clobber", "-nosubcortical", @extraPVE,
+                    "-curve", $pve_curvature, "-mask", $skull_mask,
+                    "-image", $cls_clean, "-classify", @classify_images,
+                    $pve_prefix],
+           prereqs => ($DILATED_MASK) ? ["pve_curvature", "dilate_cls_mask" ] : ["pve_curvature"] });
+    }
 
     ${$pipeline_ref}->addStage( {
          name => "cls_volumes",
@@ -126,7 +170,7 @@ sub pve {
          outputs => [$cls_volumes],
          args => ["compute_icbm_vols", "-clobber", "-transform", $t1_tal_xfm,
                   "-invert", $cls_correct, $cls_volumes],
-         prereqs => [ "reclassify" ] });
+         prereqs => [ ($OLD_PVE) ? "reclassify" : "pve" ] });
 
     #Must now set the completion condition.
 

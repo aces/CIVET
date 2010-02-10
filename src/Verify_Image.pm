@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 # For purposes of rapid quality assessments of the output of this pipeline,
 # the following stages produce an image file in '.png' format that show-cases
 # the output of the main stages of the pipeline.
@@ -234,9 +239,43 @@ sub clasp {
         push @Verify_CLASP_complete, ("verify_clasp");
     }
 
-
     return( \@Verify_CLASP_complete );
+
 }
 
+
+sub atlas {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $mid_rsl_left = ${$image}->{mid_surface_rsl}{left};
+    my $mid_rsl_right = ${$image}->{mid_surface_rsl}{right};
+    my $labels = ${$image}->{surface_atlas};
+
+    my $verify_file = ${$image}->{verify_atlas};
+
+    my @Verify_Atlas_complete = ( );
+
+    # Plot 3D views of parcellated surfaces.
+
+    unless (${$image}->{surface} eq "noSURFACE") {
+      if( ${$image}->{resamplesurfaces} ) {
+        ${$pipeline_ref}->addStage( {
+          name => "verify_atlas",
+          label => "create verification image for surface parcellation",
+          inputs => [ $mid_rsl_left, $mid_rsl_right ],
+          outputs => [$verify_file],
+          args => [ "verify_atlas", $mid_rsl_left,, $mid_rsl_right, 
+                    $labels, $verify_file ],
+          prereqs => $Prereqs });
+          push @Verify_Atlas_complete, ("verify_atlas");
+      }
+    }
+
+    return( \@Verify_Atlas_complete );
+
+}
 
 1;

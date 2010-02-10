@@ -33,6 +33,10 @@
 # on the scanner too.) In the new way, d=25 to 50 seems to give reliable
 # results. 
 #
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";
@@ -47,8 +51,10 @@ my $input = $ARGV[0];
 my $output = $ARGV[1];
 my $mask = $ARGV[2];
 my $nuc_dist = $ARGV[3];
-my $nuc_cycles = $ARGV[4];
-my $nuc_iters = $ARGV[5];
+my $nuc_damping = $ARGV[4];   # for future usage
+my $nuc_cycles = $ARGV[5];
+my $nuc_iters = $ARGV[6];
+
 
 # apply non-uniformity correction and intensity normalization on image.
 

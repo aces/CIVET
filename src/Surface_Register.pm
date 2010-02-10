@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 ##############################
 #### Surface registration ####
 ##############################
@@ -174,5 +179,49 @@ sub resample_surfaces {
 
     return( $SurfResample_complete );
 }
+
+#####################################################
+#### Compute surface areas on resampled surfaces ####
+#####################################################
+
+sub resampled_surface_areas {
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+    my $surfreg_model = @_[3];
+
+    my $fwhm = ${$image}->{rsl_fwhm};
+    my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
+    my $left_mid_surface_rsl = ${$image}->{mid_surface_rsl}{left};
+    my $right_mid_surface_rsl = ${$image}->{mid_surface_rsl}{right};
+    my $left_surface_area_rsl = ${$image}->{surface_area_rsl}{left};
+    my $right_surface_area_rsl = ${$image}->{surface_area_rsl}{right};
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_area_rsl_left_mid",
+          label => "surface area on resampled left mid surface",
+          inputs => [$left_mid_surface_rsl,$t1_tal_xfm],
+          outputs => [$left_surface_area_rsl],
+          args => [ "cortical_area_stats", $left_mid_surface_rsl,
+                    $surfreg_model, $t1_tal_xfm, $fwhm, 
+                    $left_surface_area_rsl],
+          prereqs => $Prereqs });
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_area_rsl_right_mid",
+          label => "surface area on resampled right mid surface",
+          inputs => [$right_mid_surface_rsl,$t1_tal_xfm],
+          outputs => [$right_surface_area_rsl],
+          args => [ "cortical_area_stats", $right_mid_surface_rsl,
+                    $surfreg_model, $t1_tal_xfm, $fwhm, 
+                    $right_surface_area_rsl],
+          prereqs => $Prereqs });
+
+    my $SurfaceAreas_complete = [ "surface_area_rsl_left_mid",
+                                  "surface_area_rsl_right_mid" ];
+
+    return( $SurfaceAreas_complete );
+}
+
 
 1;

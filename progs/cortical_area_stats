@@ -1,0 +1,85 @@
+#!/usr/bin/env perl
+#
+# Compute the area at the vertices of the resampled cortical mid surface. 
+# 
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+# --- set the help & usage strings ---
+my $help = <<HELP;
+Compute the area at the vertices of the cortical mid surface.
+HELP
+
+my $me = &basename($0);
+my $usage = <<USAGE;
+Usage: $me surface_rsl.obj surface_model.obj native_to_tal.xfm fwhm area.txt
+         surface_rsl.obj = resampled surface in stereotaxic space
+         surface_model.obj = surface model in stereotaxic space
+         native_to_tal.xfm = linear transformation from native to stereotaxic space
+         fwhm = full width half maximum for surface blurring of the areas
+         area.txt = output file for areas at vertices
+USAGE
+
+Getopt::Tabular::SetHelp( $help, $usage );
+
+die "$usage\n" unless ( @ARGV == 5 );
+
+# define input variables:
+
+my $surface = shift(@ARGV);
+my $model = shift(@ARGV);
+my $transform_xfm = shift(@ARGV);
+my $fwhm = shift(@ARGV);
+my $area_file = shift(@ARGV);
+
+# Directory for temporary files.
+my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+# Invert transformation from stereotaxic to native space.
+my $inv_trans = "${tmpdir}/inv_trans.xfm";
+&run( "xfminvert", $transform_xfm, $inv_trans );
+
+# Transform resampled surface from stereotaxic to native space.
+my $surface_native = "${tmpdir}/surface_native.obj";
+&run( "transform_objects", $surface, $inv_trans, $surface_native );
+unlink( $inv_trans );
+
+# Compute areas of resampled surface in native space.
+&run( "depth_potential", "-area_voronoi", $surface_native, 
+      "${tmpdir}/rsl_native_area.txt" );
+unlink( $surface_native );
+
+# Normalize areas of resampled surface in native space by areas of model.
+my $area_model = "${tmpdir}/surface_model_area.txt";
+&run( "depth_potential", "-area_voronoi", $model, $area_model );
+&run( "vertstats_math", "-old_style_file", "-div",
+      "${tmpdir}/rsl_native_area.txt", $area_model,
+      "${tmpdir}/rsl_native_area_norm.txt" );
+
+# Smooth the normalized areas on the stereotaxic model.
+&run( "depth_potential", "-smooth", $fwhm, "${tmpdir}/rsl_native_area_norm.txt", 
+      $model, "${tmpdir}/rsl_native_area.txt" );
+
+# Unnormalized areas by areas of model.
+&run( "vertstats_math", "-old_style_file", "-mult", "${tmpdir}/rsl_native_area.txt",
+      $area_model, $area_file );
+
+unlink( $area_model );
+unlink( "${tmpdir}/rsl_native_area.txt" );
+unlink( "${tmpdir}/rsl_native_area_norm.txt" );
+
+#Execute a system call.
+
+sub run {
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

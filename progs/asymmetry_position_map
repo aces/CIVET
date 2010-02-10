@@ -1,0 +1,115 @@
+#! /usr/bin/env perl
+#
+# Make an asymmetry map for cortical surface position.
+#
+# Claude Lepage - claude@bic.mni.mcgill.ca
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+my($Help, $Usage, $me);
+$me = &basename($0);
+
+$Help = <<HELP;
+| Make an asymmetry map for cortical surface position. Use the resampled
+| mid surfaces in native space. The map is defined as L-R on the coordinates.
+| 
+| Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
+HELP
+
+$Usage = "Usage: $me [options] left_surface.obj right_surface.obj t1_tal.xfm" .
+         " position_map.txt [position_map_full.txt]\n\n".
+         "       left_surface.obj - resampled mid cortical surface for left hemisphere\n" .
+         "       right_surface.obj - resampled mid cortical surface for right hemisphere\n" .
+         "       t1_tal.xfm - linear transformation from native to stereotaxic space\n" .
+         "       position_map.txt - asymmetry map for cortical surface position (hemisphere)\n" .
+         "       position_map_full.txt - asymmetry map for cortical surface position (full brain)\n\n" .
+         "       $me -help to list options\n\n";
+
+my $verbose = 0;
+my $clobber = 0;
+
+my @opt_table = (
+   ["-verbose", "boolean", 0, \$verbose,
+      "be verbose" ],
+   ["-clobber", "boolean", 0, \$clobber,
+      "clobber existing check files" ],
+   );
+
+# Check arguments
+&Getopt::Tabular::SetHelp($Help, $Usage);
+&GetOptions (\@opt_table, \@ARGV) || exit 1;
+
+die $Usage if( !( $#ARGV == 3 || $#ARGV == 4 ) );
+
+my $left_surface = shift(@ARGV);
+my $right_surface = shift(@ARGV);
+my $t1_xfm = shift(@ARGV);
+my $diff_surface = shift(@ARGV);
+my $diff_surface_full = shift(@ARGV);
+
+# check for files
+die "$me: Couldn't find left surface input file: $left_surface\n\n" if (!-e $left_surface);
+die "$me: Couldn't find right surface input file: $right_surface\n\n" if (!-e $right_surface);
+if(-e $diff_surface && !$clobber){
+   die "$me: $diff_surface exists, -clobber to overwrite\n\n";
+}
+
+# make tmpdir
+my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+#
+# Left/right differences by hemisphere:
+#
+
+# must flip right hemisphere to look like the left one.
+
+&do_cmd( 'param2xfm', '-scales', -1, 1, 1, "${tmpdir}/flip.xfm" );
+&do_cmd( 'transform_objects', $right_surface, "${tmpdir}/flip.xfm",
+         "${tmpdir}/right_flipped.obj" );
+unlink( "${tmpdir}/flip.xfm" );
+
+# must transform the surfaces to native space.
+
+&do_cmd( 'xfminvert', $t1_xfm, "${tmpdir}/t1_invert.xfm" );
+&do_cmd( 'transform_objects', "${tmpdir}/right_flipped.obj", "${tmpdir}/t1_invert.xfm",
+         "${tmpdir}/right_native.obj" );
+&do_cmd( 'transform_objects', $left_surface, "${tmpdir}/t1_invert.xfm",
+         "${tmpdir}/left_native.obj" );
+unlink( "${tmpdir}/right_flipped.obj" );
+unlink( "${tmpdir}/t1_invert.xfm" );
+
+# compute the distance between surfaces at the vertices.
+
+&do_cmd( 'diff_surfaces', "${tmpdir}/left_native.obj", "${tmpdir}/right_native.obj",
+         'link', $diff_surface );
+unlink( "${tmpdir}/left_native.obj" );
+unlink( "${tmpdir}/right_native.obj" );
+
+
+# Left-right distance by hemisphere, on reconstructed full surface
+# (left+right surfaces combined).
+
+if( defined $diff_surface_full ) {
+
+  if(-e $diff_surface_full && !$clobber){
+     die "$me: $diff_surface_full exists, -clobber to overwrite\n\n";
+  }
+
+  &do_cmd( 'cat', $diff_surface, $diff_surface, ' > ',
+           $diff_surface_full );
+}
+
+sub do_cmd { 
+   print STDOUT "@_\n" if $verbose;
+   system("@_") == 0 or die;
+}
+

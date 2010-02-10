@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 # Generate the linear transforms to stereotaxic space.
 # For best results:
 #   1 - apply some preliminary nu_correct in native space
@@ -49,6 +54,7 @@ sub stx_register {
     my $native_files = ${$image}->get_hash( "native" );
     my $nuc_files = ${$image}->get_hash( "nuc" );
     my $nuc_dist = ${$image}->{nuc_dist};
+    my $nuc_damping = ${$image}->{nuc_damping};
     my $nuc_cycles = 1;
     my $nuc_iters = 100;
 
@@ -58,12 +64,14 @@ sub stx_register {
       my $input = $native_files->{$type};
       my $output = $nuc_files->{$type};
       if( -e $input ) {
+        my $mask_option = "none";
         ${$pipeline_ref}->addStage(
              { name => "nuc_${type}_native",
              label => "non-uniformity correction on native ${type}",
              inputs => [ $input ],
              outputs => [ $output ],
-             args => ["nuc_inorm_stage", $input, $output, "none", $nuc_dist, $nuc_cycles, $nuc_iters],
+             args => ["nuc_inorm_stage", $input, $output, $mask_option, $nuc_dist, 
+                      $nuc_damping, $nuc_cycles, $nuc_iters],
              prereqs => $Prereqs } );
         push @nuc_complete, ("nuc_${type}_native");
       }

@@ -1,6 +1,11 @@
 #!/usr/bin/env perl
 
 # Plot the surfaces in 3D.
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";
@@ -20,7 +25,7 @@ my $tilesize = 200;
 my $debug = 0;
 my $quiet = 1;
 my @mont_args = ();
-my @DrawText = ();
+my @DrawText = ( "-font", "Helvetica" );
 
 my $xpos = 2*$tilesize;
 my $ypos = 15;
@@ -52,8 +57,9 @@ foreach my $pos ('front', 'back') {
 }
 
 # ROW 3: gray left hemi surfaces + gray top and bottom views
-$ypos += $tilesize;
+$ypos += $tilesize - 0.10*$tilesize;
 push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$lg_title\"";
+$ypos += 0.10*$tilesize;
 foreach my $pos ('default', 'left', 'right') {
   print "Making left gray ${pos} surface\n" unless $quiet;
   make_hemi($gray_left, "${tmpdir}/gray_left_$pos.rgb", $pos);
@@ -66,8 +72,9 @@ foreach my $pos ('top', 'bottom') {
 }
 
 # ROW 4: gray right hemi surfaces + gray front and back views
-$ypos += $tilesize;
+$ypos += $tilesize - 0.10*$tilesize;
 push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$rg_title\"";
+$ypos += 0.10*$tilesize;
 foreach my $pos ('default', 'right', 'left') {
   print "Making right gray ${pos} surface\n" unless $quiet;
   make_hemi($gray_right, "${tmpdir}/gray_right_$pos.rgb", $pos);
@@ -83,10 +90,6 @@ my $num_rows = 4;
 # ROWS 5 - 6: cortical thickness on left and right mid-surfaces
 if( -e $thickness_left && $thickness_left ne "none" &&
     -e $thickness_right && $thickness_right ne "none" ) {
-  $ypos += $tilesize;
-  push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$ct_title\"";
-  $ypos += $tilesize;
-  $num_rows+=2;
   my $mid_left = "${tmpdir}/mid_left.obj";
   my $mid_right = "${tmpdir}/mid_right.obj";
   my $mid_rms_left = "${tmpdir}/mid_rms_left.txt";
@@ -104,8 +107,20 @@ if( -e $thickness_left && $thickness_left ne "none" &&
   my $rms_min = min( $rms_left_min, $rms_right_min );
   my $rms_max = max( $rms_left_max, $rms_right_max );
 
+  $ct_title = sprintf( "$ct_title: min %5.2fmm, max %5.2fmm", $rms_min, $rms_max );
+  my $old_xpos = $xpos;
+  $xpos = 0.85 * $xpos;
+  $ypos += $tilesize;
+  push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$ct_title\"";
+  $ypos += $tilesize;
+  $xpos = $old_xpos;
+  $num_rows+=2;
+
   `average_surfaces $mid_left none none 1 $gray_left $white_left`;
   `average_surfaces $mid_right none none 1 $gray_right $white_right`;
+
+  $rms_min = 0.5;
+  $rms_max = 6.0;
 
   `colour_object $mid_left $thickness_left $mid_rms_left spectral $rms_min $rms_max`;
   `colour_object $mid_right $thickness_right $mid_rms_right spectral $rms_min $rms_max`;
@@ -135,7 +150,7 @@ if( -e $thickness_left && $thickness_left ne "none" &&
 
 # do the montage
 print "Making montage\n" unless $quiet;
-my $cmd = "montage -tile 5x${num_rows} -background grey10 " .
+my $cmd = "montage -tile 5x${num_rows} -background white " .
           "-geometry ${tilesize}x${tilesize}+1+1 " .
 	  join(' ', @mont_args)." ${tmpdir}/mont.png";
 print "$cmd\n" if $debug; `$cmd`;

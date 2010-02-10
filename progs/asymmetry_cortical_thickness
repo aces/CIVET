@@ -1,8 +1,12 @@
 #! /usr/bin/env perl
 #
-# Make an asymmetry map.
+# Make an asymmetry map for cortical thickness.
 #
 # Claude Lepage - claude@bic.mni.mcgill.ca
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
 #
 
 use strict;
@@ -15,8 +19,10 @@ my($Help, $Usage, $me);
 $me = &basename($0);
 
 $Help = <<HELP;
-| $me Make an asymmetry map for cortical thickness. Use the resampled
-|     thickness maps for a meaningful comparison.
+| Make an asymmetry map for cortical thickness. Use the resampled
+| thickness maps for a meaningful comparison. The map is defined
+| as
+|           (L-R)/(0.5*(L+R))
 | 
 | Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
 HELP
@@ -53,10 +59,28 @@ if(-e $diff_thickness && !$clobber){
    die "$me: $diff_thickness exists, -clobber to overwrite\n\n";
 }
 
-# Left/right differences by hemisphere.
+# make tmpdir
+my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
-&do_cmd( 'vertstats_math', '-sub', $left_thickness, $right_thickness,
-         $diff_thickness );
+# Left/right differences by hemisphere.
+#
+#     (L-R)/(0.5*(L+R))
+#
+
+&do_cmd( 'vertstats_math', '-old_style_file', '-sub', $left_thickness, $right_thickness,
+         "${tmpdir}/l_minus_r.txt" );
+&do_cmd( 'vertstats_math', '-old_style_file', '-add', $left_thickness, $right_thickness,
+         "${tmpdir}/l_plus_r.txt" );
+&do_cmd( 'vertstats_math', '-old_style_file', '-mult', "${tmpdir}/l_plus_r.txt", 
+         '-const', '0.5', "${tmpdir}/l_plus_r.txt" );
+# add very small coeff to avoid division by zero.
+&do_cmd( 'vertstats_math', '-old_style_file', '-add', "${tmpdir}/l_plus_r.txt", 
+         '-const', '1.e-8', "${tmpdir}/l_plus_r.txt" );
+&do_cmd( 'vertstats_math', '-old_style_file', '-div', "${tmpdir}/l_minus_r.txt",
+         "${tmpdir}/l_plus_r.txt", $diff_thickness );
+
+unlink( "${tmpdir}/l_minus_r.txt" );
+unlink( "${tmpdir}/l_plus_r.txt" );
 
 # Left/right differences by hemisphere, on reconstructed full surface
 # (left+right surfaces combined).
@@ -67,15 +91,11 @@ if( defined $diff_thickness_full ) {
      die "$me: $diff_thickness_full exists, -clobber to overwrite\n\n";
   }
 
-  # make tmpdir
-  my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
-
-  &do_cmd( 'cat', $left_thickness, $right_thickness, ' > ',
-           "${tmpdir}/l_r_thickness.txt" );
-  &do_cmd( 'cat', $right_thickness, $left_thickness, ' > ',
-           "${tmpdir}/r_l_thickness.txt" );
-  &do_cmd( 'vertstats_math', '-sub', "${tmpdir}/l_r_thickness.txt",
-           "${tmpdir}/r_l_thickness.txt", $diff_thickness_full );
+  &do_cmd( 'vertstats_math', '-old_style_file', '-mult', $diff_thickness,
+           '-const', '-1', "${tmpdir}/negative_diff.txt" );
+  &do_cmd( 'cat', $diff_thickness, "${tmpdir}/negative_diff.txt", ' > ',
+           $diff_thickness_full );
+  unlink( "${tmpdir}/negative_diff.txt" );
 }
 
 sub do_cmd { 

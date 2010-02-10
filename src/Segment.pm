@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 # The Segmentation stages
 
 # ANIMAL essentially maps the images to a probabilistic atlas developed
@@ -103,9 +108,9 @@ sub create_pipeline {
            name => "segment_volumes",
            label => "label and compute lobe volumes in native space",
            inputs => [$t1_tal_xfm, $stx_labels],
-           outputs => [$label_volumes],
+           outputs => [$lobe_volumes],
            args => ["compute_icbm_vols", "-clobber", "-transform", 
-                    $t1_tal_xfm, "-invert", $stx_labels, $label_volumes],
+                    $t1_tal_xfm, "-invert", $stx_labels, $lobe_volumes],
            prereqs => ["segment"] });
     }
 

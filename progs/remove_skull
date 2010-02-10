@@ -7,6 +7,11 @@
 # image (the mincbet mask is z-y-x so if the original image
 # is different, do a mincresample in order to be able to 
 # apply the mask to its image).
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";

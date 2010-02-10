@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 # Creation of a mask for skull masking, using mincbet on t1, t2, pd
 # in stereotaxic space.
 

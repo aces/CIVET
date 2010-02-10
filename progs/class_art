@@ -2,7 +2,10 @@
 #
 # create artefact probability map uses threshold,blur,mask,final,
 #
-
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";

@@ -2,6 +2,11 @@
 #
 
 # March, 2007: Initial implementation. - Claude Lepage
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";
@@ -60,7 +65,7 @@ if( defined $transform_xfm ) {
 # Blur the cortical mean curvature on the mid-surface in new space.
 
 if( $fwhm gt 0 ) {
-  my $output_blurred = "${TmpDir}/mc_blurred.mnc";
+  my $output_blurred = "${TmpDir}/mc_blurred.txt";
   &run( "diffuse", "-kernel", $fwhm, "-iterations", 1000, "-parametric", 1,
         $mid, $output, $output_blurred );
   &run( "mv", "-f", $output_blurred, $output );

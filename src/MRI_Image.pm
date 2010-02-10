@@ -1,3 +1,8 @@
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 package MRI_Image;
 
@@ -35,10 +40,13 @@ sub new {
     my $maskType = shift;
     my $interpMethod = shift;
     my $nuc_dist = shift;
+    my $nuc_damping = shift;
     my $lsqtype = shift;
     my $surface = shift;
     my $thickness = shift;
     my $ResampleSurfaces = shift;
+    my $MeanCurvature = shift;
+    my $Area_fwhm = shift;
     my $CombineSurfaces = shift;
     my $vbm = shift;
     my $VBM_fwhm = shift;
@@ -54,6 +62,7 @@ sub new {
     $image->{maskType} = $maskType;
     $image->{interpMethod} = $interpMethod;
     $image->{nuc_dist} = $nuc_dist;
+    $image->{nuc_damping} = $nuc_damping;
     $image->{lsqtype} = $lsqtype;
     $image->{VBM} = $vbm;
     $image->{VBM_fwhm} = $VBM_fwhm;
@@ -64,12 +73,16 @@ sub new {
     $image->{tmethod} = $$thickness[0];
     $image->{tkernel} = $$thickness[1];
     $image->{resamplesurfaces} = $ResampleSurfaces;
+    $image->{meancurvature} = $MeanCurvature;
+    $image->{rsl_fwhm} = $Area_fwhm;
     $image->{combinesurfaces} = $CombineSurfaces;
     $image->{linmodel} = "${$models}->{RegLinDir}/${$models}->{RegLinModel}";
     $image->{nlinmodel} = "${$models}->{RegNLDir}/${$models}->{RegNLModel}";
     $image->{surfregmodel} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
     $image->{surfregdataterm} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
+    $image->{surface_atlas} = "${$models}->{SurfRegModelDir}/${$models}->{SurfAtlas}";
     $image->{surfmask} = "${$models}->{SurfaceMaskDir}/${$models}->{SurfaceMask}";
+
     $image->{template} = $template;
 
     $image->validate_options();
@@ -109,7 +122,7 @@ sub new {
 
     my $tmp_dir = "${Base_Dir}/$image->{directories}{TMP}";
 
-    $image->print_options( $version, $Base_Dir, $dsid );
+    $image->print_options( $version, $Base_Dir, $dsid, $models );
 
     # Define linear transformation files.
     my $lin_dir = "${Base_Dir}/$image->{directories}{LIN}";
@@ -126,14 +139,15 @@ sub new {
 
     # Define classification files.
     my $cls_dir = "${Base_Dir}/$image->{directories}{CLS}";
+    $image->{dilated_cls_mask} = "${tmp_dir}/${prefix}_${dsid}_skull_mask_dilated.mnc";
     $image->{cls_clean} = "${cls_dir}/${prefix}_${dsid}_cls_clean.mnc";
-    $image->{cls_correct} = "${cls_dir}/${prefix}_${dsid}_classify.mnc";
     $image->{cls_volumes} = "${cls_dir}/${prefix}_${dsid}_cls_volumes.dat";
     $image->{artefact} = "${cls_dir}/${prefix}_${dsid}_artefact.mnc";
     $image->{pve_prefix} = "${cls_dir}/${prefix}_${dsid}_pve";
     $image->{pve_wm} = "$image->{pve_prefix}_wm.mnc";
     $image->{pve_gm} = "$image->{pve_prefix}_gm.mnc";
     $image->{pve_csf} = "$image->{pve_prefix}_csf.mnc";
+    $image->{cls_correct} = "$image->{pve_prefix}_classify.mnc";
     $image->{curve_prefix} = "${tmp_dir}/${prefix}_${dsid}_curve";
     $image->{curve_cg} = "$image->{curve_prefix}_cg.mnc";
 
@@ -163,46 +177,20 @@ sub new {
     $image->{skull_mask_tal} = "${mask_dir}/${prefix}_${dsid}_skull_mask.mnc";
     $image->{cortex} = "${mask_dir}/${prefix}_${dsid}_cortex.obj";
 
-    # Define ANIMAL segmentation files.
+    # Define ANIMAL segmentation files (volume).
     my $seg_dir = "${Base_Dir}/$image->{directories}{SEG}";
     unless ($image->{animal} eq "noANIMAL") {
       $image->{t1_tal_nl_animal_xfm} = "${seg_dir}/${prefix}_${dsid}_nlfit_It.xfm";
       $image->{stx_labels} = "${seg_dir}/${prefix}_${dsid}_stx_labels.mnc";
-      $image->{label_volumes} = "${seg_dir}/${prefix}_${dsid}_masked.dat";
+      $image->{label_volumes} = "${seg_dir}/${prefix}_${dsid}_fine_structures.dat";
       $image->{lobe_volumes} = "${seg_dir}/${prefix}_${dsid}_lobes.dat";
       $image->{stx_labels_masked} = "${seg_dir}/${prefix}_${dsid}_stx_labels_masked.mnc";
-      unless( $surface eq "noSURFACE" ) {
-        $image->{animal_labels}{left} = "${seg_dir}/${prefix}_${dsid}_animal_surface_labels_left.txt";
-        $image->{animal_labels}{right} = "${seg_dir}/${prefix}_${dsid}_animal_surface_labels_right.txt";
-        $image->{lobe_areas}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
-        $image->{lobe_areas}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
-        $image->{lobe_thickness}{left} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_left.dat";
-        $image->{lobe_thickness}{right} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_right.dat";
-        if( $image->{combinesurfaces} ) {
-          $image->{animal_labels}{full} = "${seg_dir}/${prefix}_${dsid}_animal_surface_labels.txt";
-          $image->{lobe_areas}{full} = "${seg_dir}/${prefix}_${dsid}_lobe_areas.dat";
-          $image->{lobe_thickness}{full} = "${seg_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm.dat";
-        }
-      } else {
-        $image->{animal_labels}{left} = undef;
-        $image->{animal_labels}{right} = undef;
-        $image->{lobe_areas}{left} = undef;
-        $image->{lobe_areas}{right} = undef;
-        $image->{lobe_thickness}{left} = undef;
-        $image->{lobe_thickness}{right} = undef;
-      }
     } else {
       $image->{t1_tal_nl_animal_xfm} = undef;
       $image->{stx_labels} = undef;
       $image->{label_volumes} = undef;
       $image->{lobe_volumes} = undef;
       $image->{stx_labels_masked} = undef;
-      $image->{animal_labels}{left} = undef;
-      $image->{animal_labels}{right} = undef;
-      $image->{lobe_areas}{left} = undef;
-      $image->{lobe_areas}{right} = undef;
-      $image->{lobe_thickness}{left} = undef;
-      $image->{lobe_thickness}{right} = undef;
     }
 
     # Define surface files.
@@ -233,6 +221,8 @@ sub new {
         $image->{gray_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_gray_surface_rsl_right_81920.obj";
         $image->{mid_surface_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_left_81920.obj";
         $image->{mid_surface_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_right_81920.obj";
+        $image->{surface_area_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_left_native_area_$image->{rsl_fwhm}mm.txt";
+        $image->{surface_area_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_right_native_area_$image->{rsl_fwhm}mm.txt";
       }
 
       # a bunch of associated temporary files for surface extraction (should clean this up!)
@@ -260,23 +250,57 @@ sub new {
       $image->{rms_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_left.txt";
       $image->{rms_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_right.txt";
 
+      $image->{rms_rsl}{asym_hemi} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_asym_hemi.txt";
       if( $image->{combinesurfaces} ) {
         $image->{rms}{full} = "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_$image->{tkernel}mm.txt";
         $image->{rms_rsl}{full} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm.txt";
-        $image->{rms_rsl}{asym_hemi} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_asym_hemi.txt";
         $image->{rms_rsl}{asym_full} = "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_$image->{tkernel}mm_asym.txt";
       }
 
       $image->{cerebral_volume} = "${thick_dir}/${prefix}_${dsid}_cerebral_volume.dat";
 
       # Define cortical mean curvature files.
-      my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
-      $image->{mc}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_left.txt";
-      $image->{mc}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_right.txt";
-      $image->{mc_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_left.txt";
-      $image->{mc_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_right.txt";
-      if( $image->{combinesurfaces} ) {
-        $image->{mc}{full} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm.txt";
+      if( $image->{meancurvature} ) {
+        $image->{mc_gray}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_gray_left.txt";
+        $image->{mc_white}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_white_left.txt";
+        $image->{mc_mid}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_mid_left.txt";
+        $image->{mc_gray}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_gray_right.txt";
+        $image->{mc_white}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_white_right.txt";
+        $image->{mc_mid}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_mid_right.txt";
+        $image->{mc_gray_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_gray_left.txt";
+        $image->{mc_white_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_white_left.txt";
+        $image->{mc_mid_rsl}{left} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_mid_left.txt";
+        $image->{mc_gray_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_gray_right.txt";
+        $image->{mc_white_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_white_right.txt";
+        $image->{mc_mid_rsl}{right} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_mid_right.txt";
+        if( $image->{combinesurfaces} ) {
+          $image->{mc_gray}{full} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_gray.txt";
+          $image->{mc_white}{full} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_white.txt";
+          $image->{mc_mid}{full} = "${thick_dir}/${prefix}_${dsid}_native_mc_$image->{tkernel}mm_mid.txt";
+          $image->{mc_gray_rsl}{full} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_gray.txt";
+          $image->{mc_white_rsl}{full} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_white.txt";
+          $image->{mc_mid_rsl}{full} = "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_$image->{tkernel}mm_mid.txt";
+        }
+      }
+
+      # Define asymmetry maps for cortical position.
+      if( $image->{resamplesurfaces} ) {
+        $image->{pos_rsl}{asym_hemi} = "${surf_dir}/${prefix}_${dsid}_native_pos_rsl_asym_hemi.txt";
+        if( $image->{combinesurfaces} ) {
+          $image->{pos_rsl}{asym_full} = "${surf_dir}/${prefix}_${dsid}_native_pos_rsl_asym_full.txt";
+        }
+      }
+
+      # Define surface parcellation files.
+      $image->{lobe_thickness}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_left.dat";
+      $image->{lobe_thickness}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_$image->{tkernel}mm_right.dat";
+      if( $image->{meancurvature} ) {
+        $image->{lobe_mc}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_mc_left.dat";
+        $image->{lobe_mc}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_mc_right.dat";
+      }
+      if( $image->{resamplesurfaces} ) {
+        $image->{lobe_areas}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
+        $image->{lobe_areas}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
       }
 
       # Define gyrification index files.
@@ -291,19 +315,12 @@ sub new {
     my $verify_dir = "${Base_Dir}/$image->{directories}{VER}";
     $image->{verify} = "${verify_dir}/${prefix}_${dsid}_verify.png";
     $image->{verify_clasp} = "${verify_dir}/${prefix}_${dsid}_clasp.png";
+    $image->{verify_atlas} = "${verify_dir}/${prefix}_${dsid}_atlas.png";
     $image->{skull_mask_nat_stx} = "${tmp_dir}/${prefix}_${dsid}_skull_mask_native_stx.mnc";
     $image->{t1_nl_final} = "${Base_Dir}/$image->{directories}{FINAL}/${prefix}_${dsid}_t1_nl.mnc";
     $image->{surface_qc} = "${verify_dir}/${prefix}_${dsid}_surface_qc.txt";
     $image->{brainmask_qc} = "${verify_dir}/${prefix}_${dsid}_brainmask_qc.txt";
     $image->{classify_qc} = "${verify_dir}/${prefix}_${dsid}_classify_qc.txt";
-    # loris database images
-    $image->{loris_mask}     = "${verify_dir}/${prefix}_${dsid}_skull_mask_native_loris.jpg";
-    $image->{loris_t1_final} = "${verify_dir}/${prefix}_${dsid}_t1_final_loris.jpg";
-    $image->{loris_t1_nl}    = "${verify_dir}/${prefix}_${dsid}_t1_nl_loris.jpg";
-    $image->{loris_classify} = "${verify_dir}/${prefix}_${dsid}_classify_loris.jpg";
-    $image->{loris_segment}  = "${verify_dir}/${prefix}_${dsid}_stx_labels_loris.jpg";
-    $image->{loris_gray}     = "${verify_dir}/${prefix}_${dsid}_gray_surface_loris.jpg";
-    $image->{loris_white}    = "${verify_dir}/${prefix}_${dsid}_white_surface_loris.jpg";
 
     return( $image );
 }
@@ -480,6 +497,7 @@ sub print_options {
   my $version = shift;
   my $Base_Dir = shift;
   my $dsid = shift;
+  my $models = shift;
 
   open PIPE, "> ${Base_Dir}/$image->{directories}{LOG}/${dsid}.options";
   print PIPE "Options for CIVET-${version}:\n";
@@ -489,6 +507,7 @@ sub print_options {
   print PIPE "Brain masking is $image->{maskType}\n";
   print PIPE "Interpolation method from native to stereotaxic is $image->{interpMethod}\n";
   print PIPE "N3 distance is $image->{nuc_dist}mm\n";
+  print PIPE "N3 damping is $image->{nuc_damping}mm\n";
   print PIPE "Linear registration type is $image->{lsqtype}\n";
   if( $image->{surface} eq "SURFACE" ) {
     print PIPE "Cortical thickness using $image->{tmethod}, blurred at $image->{tkernel}mm\n";
@@ -511,6 +530,9 @@ sub print_options {
     } else {
       print PIPE "without cerebellum\n";
     }
+  }
+  if( $image->{animal} eq "ANIMAL" ) {
+    print PIPE "ANIMAL ${$models}->{AnimalAtlas} model\n";
   }
   close PIPE;
 }
@@ -638,6 +660,9 @@ sub make_references {
     print PIPE "  O. Lyttelton, M. Boucher, S. Robbins, and A. Evans, \"An unbiased iterative\n";
     print PIPE "  group registration template for cortical surface analysis,\" NeuroImage 34,\n";
     print PIPE "  pp. 1535-1544, 2007\n\n";
+    print PIPE "  M. Boucher, S. Whitesides, and A. Evans, \"Depth potential function\n";
+    print PIPE "  for folding pattern representation, registration and analysis,\"\n";
+    print PIPE "  Medical Image Analysis 13 (2), pp. 203-214, 2009.\n\n";
   }
 
   if( $image->{animal} eq "ANIMAL" ) {

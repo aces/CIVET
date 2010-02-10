@@ -13,7 +13,11 @@
 ###         Modular CIVET: Oliver Lyttelton, J-Sebastian Muehlboeck, 
 ###                        Yasser Ad-Dab'bagh, Kelvin Mok, Claude Lepage
 ###         Project started in May 3, 2005       
-###       
+###
+###         Copyright Alan C. Evans
+###         Professor of Neurology
+###         McGill University
+###
 ### For more information, have a look at our documentation at:
 ###    http://wiki.bic.mni.mcgill.ca/index.php/CIVET
 ###                                 
@@ -47,8 +51,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.9";
-my $versionDate= "February 14, 2008";
+my $version = "1.1.10";
+my $versionDate= "December 1, 2009";
 my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -56,8 +60,35 @@ $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile
 
 my $whatsnew = <<NEW;
     *************************************************************************
-
     New in $versionDate quarantine, version $version
+
+    1 - option for 3 Tesla.
+    2 - options for reset-after and reset-to (PMP).
+    3 - cortical area expansion/contraction maps on resampled surfaces.
+    4 - new ICBM 152 non-linear model (40th generation, 2009),
+        symmetric and asymmetric.
+    5 - asymmetry maps for cortical thickness (now normalized)
+    6 - asymmetry maps for position
+    7 - basic lobar surface parcellation for quality control
+        of surface registration
+    8 - sum of absolute mean curvature
+    9 - gyrification index for whole brain (in addition to by hemisphere)
+    10 - GI and mean curvature on white, gray, mid surfaces
+
+    More to come soon:
+
+    1 - improved masking for 3 Tesla.
+    2 - improved medial cut through the corpus callosum.
+    3 - bug fixed in N3 to be invariant to voxel size
+    4 - high-resolution surfaces at 320k polygons.
+    5 - classification and surface extraction in native space.
+    6 - intermediate model for linear and non-linear volume registration.
+    7 - cortical volume expansion/contraction maps on resampled surfaces
+        (Lu Zhao and Maxime Boucher).
+    8 - removal of self-intersections in .sm file for surface
+        registration (Maxime Boucher)
+
+    ********** From Feb-14-2008 quarantine, version 1.1.9 **********
 
     1 - minc2-based quarantine.
     2 - new ICBM templates compatible with non-linear ICBM152 model.
@@ -72,17 +103,6 @@ my $whatsnew = <<NEW;
     9 - ANIMAL segmentation only available as a plug-in module.
     10 - resampled cortical surfaces in stereotaxic space.
     11 - total cerebral volume.
-
-    More to come soon:
-
-    0 - improved method to do surface parcellation using non-linear
-        surface map.
-    1 - classification and surface extraction in native space.
-    2 - high-resolution surfaces at 320k polygons.
-    3 - resample depth potential for group comparison (more useful than
-        mean curvature) (maybe).
-    4 - intermediate model for linear and non-linear volume registration.
-    5 - gyrification index for whole brain (not by hemisphere)
 
     ********** From Jul-09-2007 quarantine, version 1.1.8 **********
 
@@ -119,7 +139,7 @@ my $whatsnew = <<NEW;
     2 - error metric for brain mask in native space (in verify image).
     3 - shuffle the PMP steps so that -resetAll actually works.
     4 - file name extension for surface maps is .sm, not .mnc.
-        (use rename 's/\.mnc$/\.sm/' */transforms/surfreg/*.mnc).
+        (use rename 's/\.mnc\$/\.sm/' */transforms/surfreg/*.mnc).
     5 - can use a 0mm blurring kernel for cortical thickness (no blurring).
     6 - improved cut through callosum to split hemispheres.
     7 - fixed bug in surface registration for infinite loop (on RedHat).
@@ -231,24 +251,53 @@ Getopt::Tabular::SetHelp($help, $usage);
 # Argument handling:
 ####################
 
-my $reset = undef;
+my $resetAll = undef;
+my $resetFrom = undef;
+my $resetAfter = undef;
+my $resetTo = undef;
+my $resetRunning = 1;
+
 my $command = "printStatus";
 
-# Queuing defaults:
-my $PMPtype = "sge";
-my $PMPgranularity = 1;
-my $PMPmaxQueued = 10000;
-my %PMPconf = ( 'spawn' => { 'queue' => undef,
-                             'hosts' => undef,
-                             'opts' => undef },
-                'sge'   => { 'queue' => "all.q",
-                             'hosts' => undef,
-                             'opts' => undef },
-                'pbs'   => { 'queue' => "brain",
-                             'hosts' => undef,
-                             'opts' => "-l ncpus=1" } );
+# Default queuing defaults:
 
-my $resetRunning = 1;
+my %PMPconf = ( 'default' => { 'type' => "spawn",
+                               'maxqueued' => 10000,
+                               'granularity' => 1,
+                               'queue' => undef,
+                               'hosts' => undef,
+                               'opts' => undef },
+                'MNIBIC'  => { 'type' => "sge",
+                               'maxqueued' => 1000,
+                               'granularity' => 1,
+                               'queue' => "all.q",
+                               'hosts' => undef,
+                               'opts' => undef },
+                'CLUMEQ'  => { 'type' => "pbs",
+                               'maxqueued' => 100,
+                               'granularity' => 1,
+                               'queue' => "brain",
+                               'hosts' => undef,
+                               'opts' => "-l ncpus=1" },
+                'RQCHP'   => { 'type' => "pbs",
+                               'maxqueued' => 1000,
+                               'granularity' => 1,
+                               'queue' => "qwork\@ms",
+                               'hosts' => undef,
+                               'opts' => "-l walltime=12:00:00" },
+                'NIH'     => { 'type' => "pbs",
+                               'maxqueued' => 1000,
+                               'granularity' => 1,
+                               'queue' => "norm",
+                               'hosts' => undef,
+                               'opts' => "-l nodes=1:p2800" } );
+
+my $PMPtype = ( $ENV{'CIVET_JOB_SCHEDULER'} || "default" );
+my $PMPmaxQueued = $PMPconf{$PMPtype}{maxqueued};
+my $PMPgranularity = $PMPconf{$PMPtype}{granularity};
+my $PMPqueue = $PMPconf{$PMPtype}{queue};
+my $PMPhosts = $PMPconf{$PMPtype}{hosts};
+my $PMPopts = $PMPconf{$PMPtype}{opts};
 
 ############# Default models for pipeline
 
@@ -257,18 +306,59 @@ my $TemplateSize = "1.00";
 
 ### add avg64 model for cortical_surface, sphere models, 
 
-my %CIVETmodels = ( 'icbm152nl' => {
-                      'RegLinDir'        => MNI::DataDir::dir("mni_autoreg"),
+my %CIVETmodels = ( 'icbm152nl_09a' => {
+                      'RegLinDir'        => MNI::DataDir::dir("mni-models"),
+                      'RegLinModel'      => "mni_icbm152_t1_tal_nlin_asym_09a",
+                      'RegNLDir'         => MNI::DataDir::dir("mni-models"),
+                      'RegNLModel'       => "mni_icbm152_t1_tal_nlin_asym_09a",
+                      'TemplateDir'      => MNI::DataDir::dir("ICBM"),
+                      'TemplateModel'    => "icbm_template",
+                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
+                      'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_asym_09a_mask.obj",
+                      'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
+                      'SurfAtlas'        => "surface_atlas.txt",
+                      'TagFileDir'       => MNI::DataDir::dir("classify"),
+                      'TagFile'          => "n/a",
+                      'AnimalAtlas'      => undef,
+                      'AnimalAtlasDir'   => undef,
+                      'AnimalNLRegDir'   => undef,
+                      'AnimalNLRegModel' => undef
+                    },
+                    'icbm152nl_09s' => {
+                      'RegLinDir'        => MNI::DataDir::dir("mni-models"),
+                      'RegLinModel'      => "mni_icbm152_t1_tal_nlin_sym_09a",
+                      'RegNLDir'         => MNI::DataDir::dir("mni-models"),
+                      'RegNLModel'       => "mni_icbm152_t1_tal_nlin_sym_09a",
+                      'TemplateDir'      => MNI::DataDir::dir("ICBM"),
+                      'TemplateModel'    => "icbm_template",
+                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
+                      'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_sym_09a_mask.obj",
+                      'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
+                      'SurfAtlas'        => "surface_atlas.txt",
+                      'TagFileDir'       => MNI::DataDir::dir("classify"),
+                      'TagFile'          => "n/a",
+                      'AnimalAtlas'      => undef,
+                      'AnimalAtlasDir'   => undef,
+                      'AnimalNLRegDir'   => undef,
+                      'AnimalNLRegModel' => undef
+                    },
+                    'icbm152nl' => {
+                      'RegLinDir'        => MNI::DataDir::dir("mni-models"),
                       'RegLinModel'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI",
-                      'RegNLDir'         => MNI::DataDir::dir("mni_autoreg"),
+                      'RegNLDir'         => MNI::DataDir::dir("mni-models"),
                       'RegNLModel'       => "icbm_avg_152_t1_tal_nlin_symmetric_VI",
                       'TemplateDir'      => MNI::DataDir::dir("ICBM"),
                       'TemplateModel'    => "icbm_template",
-                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni_autoreg"),
+                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
                       'SurfRegDataTerm'  => "surf_reg_model_left.txt",
+                      'SurfAtlas'        => "surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
                       'AnimalAtlas'      => undef,
@@ -277,17 +367,18 @@ my %CIVETmodels = ( 'icbm152nl' => {
                       'AnimalNLRegModel' => undef
                     },
                     'icbm152lin' => {
-                      'RegLinDir'        => MNI::DataDir::dir("mni_autoreg"),
+                      'RegLinDir'        => MNI::DataDir::dir("mni-models"),
                       'RegLinModel'      => "icbm_avg_152_t1_tal_lin_symmetric",
-                      'RegNLDir'         => MNI::DataDir::dir("mni_autoreg"),
+                      'RegNLDir'         => MNI::DataDir::dir("mni-models"),
                       'RegNLModel'       => "icbm_avg_152_t1_tal_lin_symmetric",
                       'TemplateDir'      => MNI::DataDir::dir("ICBM"),
                       'TemplateModel'    => "icbm_template",
-                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni_autoreg"),
+                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_lin_symmetric_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
                       'SurfRegDataTerm'  => "surf_reg_model_left.txt",
+                      'SurfAtlas'        => "surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
                       'AnimalAtlas'      => undef,
@@ -307,8 +398,11 @@ my $inputType = "t1only";
 my $correctPVE = 0;
 my $maskType = "t1only";
 my $interpMethod = "trilinear";
-my $N3Distance = 200;
+my $Tesla = "1.5-Tesla";
+my $N3Distance = undef;
+my $N3Damping = "1.0e-07";
 my $lsqtype = "-lsq9";
+my $Area_fwhm = "40";
 my $VBM = "noVBM";
 my $VBM_fwhm = 8;
 my $VBM_symmetry = "noSymmetry";
@@ -316,6 +410,7 @@ my $VBM_cerebellum = "Cerebellum";
 my $surface = "SURFACE";
 my @thickness = ("tlink","20");
 my $ResampleSurfaces = 0;
+my $MeanCurvature = 0;
 my $CombineSurfaces = 0;
 
 my $AtlasModel = undef;
@@ -338,29 +433,32 @@ my $idTextFile = undef;
 my @leftOverArgs;
 my @argTbl = (
           ["Execution control", "section"],
-          ["-spawn", "const", "spawn", \$PMPtype, "Use the perl system interface to spawn jobs"],
-          ["-sge", "const", "sge", \$PMPtype, "Use SGE to spawn jobs."],
-          ["-pbs", "const", "pbs", \$PMPtype, "Use PBS to spawn jobs"],
-          ["-queue", "string", 1, \$PMPconf{$PMPtype}{queue}, "Which queue to use"],
-          ["-hosts", "string", 1, \$PMPconf{$PMPtype}{hosts}, "Colon separated list of hosts"],
-          ["-qopts", "string", 1, \$PMPconf{$PMPtype}{opts}, "Extra options to queuing system"],
+          ["-spawn", "const", "default", \$PMPtype, "Use the perl system interface to spawn jobs [default: use local host scheduler $PMPtype]"],
+          ["-queue", "string", 1, \$PMPqueue, "Which queue to use", "<queue>"],
+          ["-hosts", "string", 1, \$PMPhosts, "Colon separated list of hosts", "<hosts>"],
+          ["-qopts", "string", 1, \$PMPopts, "Extra options to queuing system", "<opts>"],
           ["-no-granular|-granular", "boolean", 1, \$PMPgranularity, 
            "Granularity level for submission of jobs using queueing system."],
           ["-maxqueued", "string", 1, \$PMPmaxQueued, 
-           "Maximum number of jobs that can be submitted at once."],
+           "Maximum number of jobs that can be submitted at once.", "<val>"],
 
           ["File options", "section"],
-          ["-sourcedir", "string", 1, \$sourceDir, "Directory containing the source files."],
-          ["-targetdir", "string", 1, \$target, "Directory where processed data will be placed."],
-          ["-prefix", "string", 1, \$prefix, "File prefix to be used in naming output files."],
-          ["-id-subdir", "const", "IdSubDir", \$sourceSubDir, "Indicate that the source directory contains sub-directories for each id"],
-          ["-id-file", "string", 1, \$idTextFile, "A text file that contains all the subject id\'s (separated by space, tab, return or comma) that CIVET will run on."],
+          ["-sourcedir", "string", 1, \$sourceDir, "Directory containing the source files.", "<dir>"],
+          ["-targetdir", "string", 1, \$target, "Directory where processed data will be placed.", "<dir>"],
+          ["-prefix", "string", 1, \$prefix, "File prefix to be used in naming output files.", "<prefix>"],
+          ["-id-subdir", "const", "IdSubDir", \$sourceSubDir, 
+           "Indicate that the source directory contains sub-directories for each id"],
+          ["-id-file", "string", 1, \$idTextFile, "A text file that contains all the subject id\'s (separated by space, tab, return or comma) that CIVET will run on.", "<file>"],
 
           ["Pipeline options", "section"],
           ["-template", "string", 1, \$TemplateSize, 
-           "Define the template for image processing in stereotaxic space (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00)."],
+           "Define the template for image processing in stereotaxic space (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00).", "<val>"],
           ["-model", "string", 1, \$CIVETModel,
-           "Define the model for image-processing (icbm152nl or icbm152lin)"],
+           "Define the model for image-processing: " .
+           "\"icbm152nl_09s\" (MNI ICBM152 non-linear symmetric (2009)), " .
+           "\"icbm152nl_09a\" (MNI ICBM152 non-linear asymmetric (2009)), " .
+           "\"icbm152nl\" (MNI ICBM152 non-linear 6th generation), " .
+           "\"icbm152lin\" (MNI ICBM152 linear", "<model>"],
 
           ["CIVET options", "section"],  
           ["-multispectral", "const", "multispectral", \$inputType, 
@@ -370,9 +468,14 @@ my @argTbl = (
           ["-spectral_mask", "const", "multispectral", \$maskType, 
            "Use T1, T2 and PD native files for brain masking."],
           ["-interp", "string", 1, \$interpMethod,
-           "Interpolation method from native to stereotaxic space (\"trilinear\", \"tricubic\", \"sinc\""],
+           "Interpolation method from native to stereotaxic space (\"trilinear\", \"tricubic\", \"sinc\"",
+           "<method>"],
+          ["-3Tesla ", "const", "3-Tesla", \$Tesla, 
+           "Use appropriate parameters for 3-Tesla scanner."],
           ["-N3-distance", "string", 1, \$N3Distance, 
-           "N3 spline distance in mm (suggested values: 200 for 1.5T scan; 25 for 3T scan)."],
+           "N3 spline distance in mm (suggested values: 200 for 1.5T scan; 50 for 3T scan).", "<dist>"],
+          ["-N3-damping", "string", 1, \$N3Damping, 
+           "N3 damping coefficient (lambda) (suggested values: 1.0e-07).", "<lambda>"],
           ["-lsq6", "const", "-lsq6", \$lsqtype,
            "use 6-parameter transformation for linear registration [default -lsq9]" ],
           ["-lsq12", "const", "-lsq12", \$lsqtype,
@@ -382,6 +485,10 @@ my @argTbl = (
            "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
           ["-resample-surfaces|-no-resample-surfaces", "boolean", 1, \$ResampleSurfaces,
            "resample cortical surfaces"],
+          ["-mean-curvature|-no-mean-curvature", "boolean", 1, \$MeanCurvature,
+           "produce mean curvature maps on surfaces"],
+          ["-area-fwhm", "string", 1, \$Area_fwhm, 
+           "blurring kernel size in mm for resampled surface areas", "<fwhm>"],
           ["-combine-surfaces|-no-combine-surfaces", "boolean", 1, \$CombineSurfaces,
            "combine left and right cortical surfaces"],
 
@@ -390,7 +497,7 @@ my @argTbl = (
            "process VBM files for analysis [default -no-VBM]"],
           ["-no-VBM", "const", "noVBM", \$VBM, "don\'t process VBM files for analysis"],
           ["-VBM-fwhm", "string", 1, \$VBM_fwhm, 
-           "blurring kernel size in mm for volume"],
+           "blurring kernel size in mm for volume", "<fwhm>"],
           ["-VBM-symmetry", "const", "Symmetry", \$VBM_symmetry, 
            "run symmetry tools [default -no-VBM-symmetry]"],
           ["-no-VBM-symmetry", "const", "noSymmetry", \$VBM_symmetry, 
@@ -410,7 +517,7 @@ my @argTbl = (
           ["-lobe_atlas", "const", "-lobe_atlas", \$AnimalAtlas, 
            "Use non-linear lobe atlas for ANIMAL segmentation (new way)"],
           ["-animal-atlas-dir", "string", 1, \$AnimalAtlasDir, 
-           "Directory containing the segmentation atlas"],
+           "Directory containing the segmentation atlas", "<dir>"],
 
           ["Pipeline control", "section"],
           ["-run", "const", "run", \$command, "Run the pipeline."],
@@ -422,8 +529,10 @@ my @argTbl = (
           ["-print-status-report", "const", "printStatusReport", \$command, "Writes a CSV status report to file in cwd."],
 
           ["Stage Control", "section"],
-          ["-reset-all", "const", "resetAll", \$reset, "Start the pipeline from the beginning."],
-          ["-reset-from", "string", 1, \$reset, "Restart from the specified stage."],
+          ["-reset-all", "const", "resetAll", \$resetAll, "Start the pipeline from the beginning."],
+          ["-reset-from", "string", 1, \$resetFrom, "Restart from the specified stage.", "<stage_name>"],
+          ["-reset-after", "string", 1, \$resetAfter, "Restart after the specified stage.", "<stage_name>"],
+          ["-reset-to", "string", 1, \$resetTo, "Run up to and including the specified stage.", "<stage_name>"],
           ["-reset-running|-no-reset-running", "boolean", 1, \$resetRunning, "Restart currently running jobs."],
           );
 
@@ -455,6 +564,21 @@ $target =~ s#/+$##;      # remove trailing / at end of directory name, if any
 $target = abs_path( $target );
 $sourceDir = abs_path( $sourceDir );
 
+############# N3 spline distance for 1.5 or 3.0 Tesla.
+if( !( defined $N3Distance ) ) {
+  if( $Tesla eq "3-Tesla" ) {
+    $N3Distance = 50.0;
+  } else {
+    $N3Distance = 200.0;
+  }
+}
+
+############# Override default PMP options based on command line options
+$PMPconf{$PMPtype}{maxqueued} = $PMPmaxQueued;
+$PMPconf{$PMPtype}{granularity} = $PMPgranularity;
+$PMPconf{$PMPtype}{queue} = $PMPqueue;
+$PMPconf{$PMPtype}{hosts} = $PMPhosts;
+$PMPconf{$PMPtype}{opts} = $PMPopts;
 
 ############# Set no file buffering for stdout (buffer is printed every 1 line)
 $| = 1;
@@ -470,7 +594,7 @@ print "\n* CIVET Command line is:\n       $0 @ARGV \n";
 print "\n* The source directory is: '$sourceDir' \n";
 print "* The target directory is: '$target' \n";
 print "* The prefix is: '$prefix' \n";
-print "* The PMP class is: '$PMPtype' \n";
+print "* The PMP class is: '$PMPconf{$PMPtype}{type}' \n";
 print "* The $PMPtype queue type is: '$PMPconf{$PMPtype}{queue}' \n";
 print "* The $PMPtype batch host(s) is/are: '$PMPconf{$PMPtype}{hosts}' \n";
 print "* The $PMPtype global options are: '$PMPconf{$PMPtype}{opts}' \n";
@@ -526,11 +650,11 @@ if( $animal eq "ANIMAL" ) {
       if( $AnimalAtlas eq "-symmetric_atlas" ) {
         $AnimalAtlasDir .= "icbm152-symmetric-v1.0/";
         $AnimalNLRegModel = "icbm_avg_152_t1_tal_lin_symmetric";
-        $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
+        $AnimalNLRegDir = MNI::DataDir::dir("mni-models");
       } elsif( $AnimalAtlas eq "-lobe_atlas" ) {
         $AnimalAtlasDir .= "icbm152-lobes-v1.1/";
         $AnimalNLRegModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
-        $AnimalNLRegDir = MNI::DataDir::dir("mni_autoreg");
+        $AnimalNLRegDir = MNI::DataDir::dir("mni-models");
       }
       if( !( -e $AnimalAtlasDir ) ) {
         print "Warning: Required ANIMAL atlas directory $AnimalAtlasDir does not exist.\n";
@@ -567,13 +691,17 @@ if( !($command eq "run") ) {
 	$resetRunning = 0;
 }
 print "\n\n* Pipeline Control command is: '$command'";
-	
-if ($reset and $resetRunning ne 0){
-    print "\n* Stage control commands are: '$reset' and 'reset-running'";
-}
-elsif ($reset and $resetRunning eq 0){
-    print "\n* Stage control commands are: '$reset' and 'no-reset-running'";
-}
+
+print "\n* Stage control commands are: " .
+      ( $resetAll ) ? ( "reset all" ) : (
+        ( $resetFrom ) ? ( "reset from '$resetFrom'" ) : (
+          ( $resetAfter ) ? ( "reset after '$resetAfter'" ) : (
+            ( $resetTo ) ? ( "reset to $resetTo" ) : ( "reset all" )
+          )
+        ) 
+      ) . " and " .
+      ( $resetRunning ) ? ( "'reset-running'" ) : ( "'no-reset-running'" );
+
 
 print "\n\n\n* Data-set Subject ID(s) is/are: '@dsids'\n\n\n";
 
@@ -611,10 +739,13 @@ foreach my $dsid (@dsids) {
                                 $maskType,
                                 $interpMethod,
                                 $N3Distance,
+                                $N3Damping,
                                 $lsqtype,
                                 $surface,
                                 \@thickness,
                                 $ResampleSurfaces,
+                                $MeanCurvature,
+                                $Area_fwhm,
                                 $CombineSurfaces,
                                 $VBM,
                                 $VBM_fwhm,
@@ -634,16 +765,16 @@ foreach my $dsid (@dsids) {
 
     my $pipeline;
 
-    if ($PMPtype eq "spawn") {
+    if ($PMPconf{$PMPtype}{type} eq "spawn") {
         $pipeline = PMP::spawn->new();
         $PMPgranularity = 0;
-    } elsif ($PMPtype eq "sge") {
+    } elsif ($PMPconf{$PMPtype}{type} eq "sge") {
         $pipeline = PMP::sge->new();
         $pipeline->setQueue($PMPconf{$PMPtype}{queue});
         $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
         $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
 	$pipeline->setPriorityScheme("later-stages");
-    } elsif ($PMPtype eq "pbs") {
+    } elsif ($PMPconf{$PMPtype}{type} eq "pbs") {
         $pipeline = PMP::pbs->new();
         $pipeline->setQueue($PMPconf{$PMPtype}{queue});
         $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
@@ -675,12 +806,15 @@ foreach my $dsid (@dsids) {
 
 ############# Set the status of the stages.
 
-    if ($reset && ($reset eq "resetAll") ) {
+    if ($resetAll && ($resetAll eq "resetAll") ) {
         # Restart all stages
         $pipeline->resetAll();
     } else {
         # restart from a given stage;
-        $pipeline->resetFromStage($reset) if( $reset );
+        $pipeline->resetFromStage($resetFrom) if( $resetFrom );
+        ## $pipeline->resetAfterStage($resetAfter) if( $resetAfter );
+        $pipeline->subsetToStage($resetTo) if( $resetTo );
+      
         # Rerun any failures from a previous run of this subjects pipe
         $pipeline->resetFailures();
         # Reset running jobs if that's what the user wants.

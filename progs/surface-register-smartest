@@ -4,6 +4,10 @@
 #
 # Oliver Lyttelton oliver@bic.mni.mcgill.ca
 #
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";
@@ -132,8 +136,8 @@ close(INOBJ);
 #then we blur the source and target fields using diffusion smoothing
 if (!$source_blur==0) { 
   if (!(-e  $source_field_blur) ) {
-    &do_cmd("diffuse", "-kernel", $source_blur,"-parametric", 0, $source_obj,
-            $source_field,$source_field_blur);
+    &do_cmd("diffuse", "-kernel", $source_blur,"-parametric", 0, 
+            "-iterations", 500, $source_obj, $source_field, $source_field_blur);
   }
 } else {
   $source_field_blur=$source_field;
@@ -141,8 +145,8 @@ if (!$source_blur==0) {
 
 if (!$target_blur==0) { 
   if (!(-e  $target_field_blur) ) {
-    &do_cmd("diffuse", "-kernel", $target_blur, "-parametric", 0, $target_obj, 
-            $target_field,$target_field_blur);
+    &do_cmd("diffuse", "-kernel", $target_blur, "-parametric", 0, 
+            "-iterations", 500, $target_obj, $target_field, $target_field_blur);
   }
 } else{
   $target_field_blur= $target_field;

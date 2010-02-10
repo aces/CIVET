@@ -8,6 +8,11 @@
 # enough to become the final pial surface in our corticometric analysis. But
 # it does a decent job as a mask to exclude the skull and meninges.
 
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 use strict;
 use warnings "all";
@@ -36,7 +41,9 @@ MNI::FileUtilities::check_output_dirs($TmpDir) or exit 1;
 
 my $cls_defrag = "${TmpDir}/cls_defrag.mnc";
 
-&run( "mincdefrag", $cls, $cls_defrag, 3, 6 );
+&run( "mincmath", "-clobber", "-mult", $cls, $skull_mask, $cls_defrag );
+
+&run( "mincdefrag", $cls_defrag, $cls_defrag, 3, 6 );
 
 &run( "mincdefrag", $cls_defrag, $cls_defrag, 2, 6 );
 

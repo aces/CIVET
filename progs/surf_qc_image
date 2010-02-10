@@ -1,8 +1,11 @@
 #!/usr/bin/env perl
 #
 # generate tal reg image using avg,std,input,output
-
-
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
 
 
 use strict;
