@@ -29,37 +29,74 @@ my @id2 = `cd $dir2; ls -1`;
 
 my ($str, $tmp);
 
+my $html = "";
+
+my $first = 1;
+my $count = 0;
+my @header = ();
+
 foreach my $id (@id1) {
   chomp( $id );
   if( !( -e "${dir2}/${id}" ) ) {
     print "Cannot find matching subject in ${dir2}/${id}\n";
   } else {
+
+    my $total = 0;
+    my $total1 = 0;
+    my $htmlline = "";
     print "Comparing subject $id...\n";
 
-    # Look at disk usage
-    my $du1 = `du -sh ${dir1}/${id}`;
-    my $du2 = `du -sh ${dir2}/${id}`;
-    chomp( $du1 );
-    chomp( $du2 );
-    print "  Disk usage:  $du1     vs     $du2\n";
+    # Look at native mask volume difference
+    my @mask1 = `cd ${dir1}/${id}/mask; ls -1 *skull_mask_native.mnc`;
+    my @mask2 = `cd ${dir2}/${id}/mask; ls -1 *skull_mask_native.mnc`;
+    chomp( @mask1[0] );
+    chomp( @mask2[0] );
+    my $mvol1 = `mincstats -quiet -sum ${dir1}/${id}/mask/@mask1[0]`;
+    my $mvol2 = `mincstats -quiet -sum ${dir2}/${id}/mask/@mask2[0]`;
+    my $val = sprintf( "%d", diff_volume( "${dir1}/${id}/mask/@mask1[0]",
+                                          "${dir2}/${id}/mask/@mask2[0]", $tmpdir ) );
+    $val = sprintf( "%7.4f", 200.0 * $val / ( $mvol1 + $mvol2 ) );
+    $total += $val;
+    $total1 += $val;
+    $htmlline .= "<td> $val </td>";
+    if( $first ) {
+      $count++;
+      push @header, ("Native mask (%)");
+    }
 
     # Look at stereotaxic mask volume difference
     my @mask1 = `cd ${dir1}/${id}/mask; ls -1 *skull_mask.mnc`;
     my @mask2 = `cd ${dir2}/${id}/mask; ls -1 *skull_mask.mnc`;
     chomp( @mask1[0] );
     chomp( @mask2[0] );
-    print "  Stereotaxic mask volume difference: " . 
-          sprintf( "%d", diff_volume( "${dir1}/${id}/mask/@mask1[0]", 
-                                      "${dir2}/${id}/mask/@mask2[0]", $tmpdir ) ) . "\n";
+    my $mvol1 = `mincstats -quiet -sum ${dir1}/${id}/mask/@mask1[0]`;
+    my $mvol2 = `mincstats -quiet -sum ${dir2}/${id}/mask/@mask2[0]`;
+    my $val = sprintf( "%d", diff_volume( "${dir1}/${id}/mask/@mask1[0]",
+                                          "${dir2}/${id}/mask/@mask2[0]", $tmpdir ) );
+    $val = sprintf( "%7.4f", 200.0 * $val / ( $mvol1 + $mvol2 ) );
+    $total += $val;
+    $total1 += $val;
+    $htmlline .= "<td> $val </td>";
+    if( $first ) {
+      $count++;
+      push @header, ("Stereotaxic mask(%)");
+    }
 
     # Look at tissue classification
     my @cls1 = `cd ${dir1}/${id}/classify; ls -1 *_classify.mnc`;
     my @cls2 = `cd ${dir2}/${id}/classify; ls -1 *_classify.mnc`;
     chomp( @cls1[0] );
     chomp( @cls2[0] );
-    print "  Stereotaxic classified volume difference: " . 
-          sprintf( "%d", diff_volume( "${dir1}/${id}/classify/@cls1[0]", 
-                                      "${dir2}/${id}/classify/@cls2[0]", $tmpdir ) ) ."\n";
+    $val = sprintf( "%d", diff_volume( "${dir1}/${id}/classify/@cls1[0]",
+                                       "${dir2}/${id}/classify/@cls2[0]", $tmpdir ) );
+    $val = sprintf( "%7.4f", 200.0 * $val / ( $mvol1 + $mvol2 ) );
+    $total += $val;
+    $total1 += $val;
+    $htmlline .= "<td> $val </td>";
+    if( $first ) {
+      $count++;
+      push @header, ("Classified image (%)");
+    }
 
     # Look at surfaces
     my @surf1 = `cd ${dir1}/${id}/surfaces; ls -1 *.obj`;
@@ -69,6 +106,30 @@ foreach my $id (@id1) {
       if( -e "${dir2}/${id}/surfaces/${surf}" ) {
         my @ret = `diff_surfaces ${dir1}/${id}/surfaces/${surf} ${dir2}/${id}/surfaces/${surf} link`;
         chomp( @ret[0] );
+        @ret[0] =~ /points: (.*)/;
+        my $rms = sprintf( "%6.2f", $1 );
+        chomp( @ret[4] );
+        @ret[4] =~ /dist: (.*)/;
+        my $max = sprintf( "%6.2f", $1 );
+        my $junk = `measure_surface_area ${dir1}/${id}/surfaces/${surf}`;
+        chomp( $junk );
+        $junk =~ /Area: (.*)/;
+        my $a1 = $1;
+        $junk = `measure_surface_area ${dir2}/${id}/surfaces/${surf}`;
+        chomp( $junk );
+        $junk =~ /Area: (.*)/;
+        my $a2 = $1;
+        my $area = sprintf( "%6.2f", 200.0 * abs( $a1 - $a2 ) / ( $a1 + $a2 ) );
+        $total += $rms + $max;
+        $htmlline .= "<td> $rms </td> <td> $max </td> <td> $area </td>";
+        if( $first ) {
+          $count++;
+          push @header, ("rms($surf)");
+          $count++;
+          push @header, ("max($surf)");
+          $count++;
+          push @header, ("area($surf)");
+        }
         print "  ${surf}: @ret[0]\n";
       } else {
         print "  No match for surface ${surf} in ${dir2}\n";
@@ -88,6 +149,13 @@ foreach my $id (@id1) {
       chomp( $txt );
       if( -e "${dir2}/${id}/thickness/${txt}" ) {
         my $ret = diff_txt( "${dir1}/${id}/thickness/${txt}", "${dir2}/${id}/thickness/${txt}" );
+        $ret = sprintf( "%6.2f", $ret );
+        $total += $ret;
+        $htmlline .= "<td> $ret </td>";
+        if( $first ) {
+          $count++;
+          push @header, ($txt);
+        }
         print "  ${txt}: $ret\n";
       } else {
         print "  No match for ${txt} in ${dir2}\n";
@@ -100,6 +168,57 @@ foreach my $id (@id1) {
       }
     }
 
+    # Look at gyrification index on gray surface
+    my @gi1 = `cd ${dir1}/${id}/surfaces; ls -1 *.dat |grep _gi_`;
+    my @gi2 = `cd ${dir2}/${id}/surfaces; ls -1 *.dat |grep _gi_`;
+    foreach my $gi (@gi1) {
+      chomp( $gi );
+      if( -e "${dir2}/${id}/surfaces/${gi}" ) {
+        open( IDFILE, "${dir1}/${id}/surfaces/${gi}" );
+        my $idline = <IDFILE>;
+        $idline =~ /gyrification index gray: (.*)/;
+        my $val1 = $1;
+        close (IDFILE);
+        open( IDFILE, "${dir2}/${id}/surfaces/${gi}" );
+        my $idline = <IDFILE>;
+        $idline =~ /gyrification index gray: (.*)/;
+        my $val2 = $1;
+        close (IDFILE);
+        my $err = sprintf( "%7.4f", 200.0 * abs( $val1 - $val2 ) / ( $val1 + $val2 ) );
+        $total += $err;
+        $htmlline .= "<td> $err </td>";
+        if( $first ) {
+          $count++;
+          push @header, ($gi);
+        }
+        print "  ${gi}: $err\%\n";
+      } else {
+        print "  No match for ${gi} in ${dir2}\n";
+      }
+    }
+    foreach my $gi (@gi2) {
+      chomp( $gi );
+      if( !( -e "${dir1}/${id}/surfaces/${gi}" ) ) {
+        print "  No match for ${gi} in ${dir1}\n";
+      }
+    }
+
+# Colour code the ID by warning colour.
+    $first = 0;
+    if( $total < 0.0001 ) {
+      $htmlline = "<td bgcolor=\"lightgreen\" > $id </td>" . $htmlline;
+    } else {
+      if( $total1 < 0.0001 ) {
+        $htmlline = "<td bgcolor=\"orange\" > $id </td>" . $htmlline;
+      } else {
+        $htmlline = "<td> $id </td>" . $htmlline;
+      }
+    }
+    $htmlline = "<tr bgcolor=\"\#dddddd\">" . $htmlline . "</tr>\n";
+
+
+    $html .= $htmlline;
+    print "\n";
   }
 }
 
@@ -109,6 +228,30 @@ foreach my $id (@id2) {
     print "Cannot find matching subject in ${dir1}/${id}\n";
   }
 }
+
+# The abbreviated header line.
+my $htmlline = "<tr bgcolor=\"\#cccccc\">";
+for( my $i = 0; $i <= $count; $i++ ) {
+  $htmlline .= "<td> $i </td>";
+}
+$htmlline .= "</tr>";
+
+$html = "<table cellspacing=\"2\" bgcolor=\"white\">\n" .
+        "$htmlline\n" . $html . 
+        "</table>\n";
+
+$html .= "<table>\n";
+$html .= "<tr> <td> 0 </td> <td> Subject ID </td> </tr>\n";
+for( my $i = 1; $i <= $count; $i++ ) {
+  $html .= "<tr> <td> $i </td> <td> @header[$i-1] </td> </tr>\n";
+}
+
+
+
+open FILE, ">diff_civet.html";
+print FILE $html;
+close FILE;
+
 
 print "All done!\n";
 
