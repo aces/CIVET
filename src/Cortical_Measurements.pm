@@ -413,8 +413,8 @@ sub position {
          label => "asymmetry map in position of cortical surfaces",
          inputs => [$mid_rsl_left, $mid_rsl_right, $t1_tal_xfm],
          outputs => [@outputs],
-         args => ["asymmetry_position_map", $mid_rsl_left, $mid_rsl_right, 
-                  $t1_tal_xfm, @outputs],
+         args => ["asymmetry_position_map", "-clobber", $mid_rsl_left,
+                  $mid_rsl_right, $t1_tal_xfm, @outputs],
          prereqs => $Prereqs });
 
     my @Position_complete = ( "asymmetry_map_position" );

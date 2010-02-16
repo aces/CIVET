@@ -44,8 +44,8 @@ $SIG{'TERM'} = 'CLEANUP';
 # Create tmp dir.
 my $tmpdir = tempdir( CLEANUP => 1 );
 
-my $version = "1.2.0";
-my $versionDate= "August, 2009";
+my $version = "1.1.10";
+my $versionDate= "December 1, 2009";
 my $authors= "Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n

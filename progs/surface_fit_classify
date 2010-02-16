@@ -198,9 +198,9 @@ sub fix_wm {
          $pve_wm_skel, $pve_wm_skel_new, $temp_diff);
 
     @args = ( "mincstats", "-sum", $temp_diff );
-    unlink( $temp_diff );
     print "@args\n" ;
     my $result = `@args` ;
+    unlink( $temp_diff );
     my @line = split/\s+/, $result ;
     print ("Iteration:${iteration} Voxels changed:${line[1]}\n");
  
@@ -238,9 +238,9 @@ sub fix_wm {
          $wm_with_skel, $wm_with_skel_new, $temp_diff );
 
     @args = ("mincstats", "-sum", $temp_diff );
-    unlink( $temp_diff );
     print "@args\n" ;
     my $result = `@args`;
+    unlink( $temp_diff );
     my @line = split/\s+/, $result;
     print ("Iteration B:${iteration} Voxels changed:${line[1]}\n") ;
 
@@ -334,9 +334,9 @@ sub fix_gm {
          $temp_gray_defrag, $temp_gray_new, $temp_gray_diff );
 
     @args = ("mincstats", "-sum", $temp_gray_diff) ;
-    unlink( $temp_gray_diff );
     print "@args\n" ;
     my $stats_result = `@args` ;
+    unlink( $temp_gray_diff );
     my @line = split/\s+/, $stats_result ;
     print ("Iteration:${count}\tVoxels changed:${line[1]}\n") ;
 

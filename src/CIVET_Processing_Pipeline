@@ -261,7 +261,7 @@ my $command = "printStatus";
 
 # Default queuing defaults:
 
-my %PMPconf = ( 'default' => { 'type' => "spawn",
+my %PMPconf = ( 'DEFAULT' => { 'type' => "spawn",
                                'maxqueued' => 10000,
                                'granularity' => 1,
                                'queue' => undef,
@@ -279,12 +279,18 @@ my %PMPconf = ( 'default' => { 'type' => "spawn",
                                'queue' => "brain",
                                'hosts' => undef,
                                'opts' => "-l ncpus=1" },
-                'RQCHP'   => { 'type' => "pbs",
+                'COLOSSE'  => { 'type' => "pbs",
                                'maxqueued' => 1000,
+                               'granularity' => 1,
+                               'queue' => "default",
+                               'hosts' => undef,
+                               'opts' => "-P eim-670-aa -l h_rt=6:00:00" },
+                'RQCHP'   => { 'type' => "pbs",
+                               'maxqueued' => 800,
                                'granularity' => 1,
                                'queue' => "qwork\@ms",
                                'hosts' => undef,
-                               'opts' => "-l walltime=12:00:00" },
+                               'opts' => "-l walltime=6:00:00" },
                 'NIH'     => { 'type' => "pbs",
                                'maxqueued' => 1000,
                                'granularity' => 1,
@@ -292,7 +298,7 @@ my %PMPconf = ( 'default' => { 'type' => "spawn",
                                'hosts' => undef,
                                'opts' => "-l nodes=1:p2800" } );
 
-my $PMPtype = ( $ENV{'CIVET_JOB_SCHEDULER'} || "default" );
+my $PMPtype = ( $ENV{'CIVET_JOB_SCHEDULER'} || "DEFAULT" );
 my $PMPmaxQueued = $PMPconf{$PMPtype}{maxqueued};
 my $PMPgranularity = $PMPconf{$PMPtype}{granularity};
 my $PMPqueue = $PMPconf{$PMPtype}{queue};
@@ -433,7 +439,7 @@ my $idTextFile = undef;
 my @leftOverArgs;
 my @argTbl = (
           ["Execution control", "section"],
-          ["-spawn", "const", "default", \$PMPtype, "Use the perl system interface to spawn jobs [default: use local host scheduler $PMPtype]"],
+          ["-spawn", "const", "DEFAULT", \$PMPtype, "Use the perl system interface to spawn jobs [default: use local host scheduler $PMPtype]"],
           ["-queue", "string", 1, \$PMPqueue, "Which queue to use", "<queue>"],
           ["-hosts", "string", 1, \$PMPhosts, "Colon separated list of hosts", "<hosts>"],
           ["-qopts", "string", 1, \$PMPopts, "Extra options to queuing system", "<opts>"],

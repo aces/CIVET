@@ -2,7 +2,7 @@
 AC_PREREQ([2.57])
 
 # The arguments are package name, and package version.
-AC_INIT([civet],[1.2.0],[Claude Lepage <claude@bic.mni.mcgill.ca>])
+AC_INIT([civet],[1.1.10],[Claude Lepage <claude@bic.mni.mcgill.ca>])
 AC_CONFIG_SRCDIR([epm-header.in])
 
 AM_INIT_AUTOMAKE
