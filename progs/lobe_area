@@ -69,9 +69,10 @@ if( defined $transform_xfm ) {
 # Define mesh areas at the nodes, applying the lobes on the native
 # gray surface. (This should probably be blurred too.)
 
-my $areas = "${TmpDir}/cortex_areas.obj";
+my $areas = "${TmpDir}/cortex_areas.txt";
 &run( "cortex_area", "-surface", $gray_native, "-output", $areas );
 &run( "lobe_stats", $areas, $surface_labels, "cortical area", $lobe_areas );
+unlink( $areas );
 
 
 #Execute a system call.

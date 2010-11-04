@@ -252,7 +252,8 @@ sub atlas {
 
     my $mid_rsl_left = ${$image}->{mid_surface_rsl}{left};
     my $mid_rsl_right = ${$image}->{mid_surface_rsl}{right};
-    my $labels = ${$image}->{surface_atlas};
+    my $labels_left = ${$image}->{surface_atlas}{left};
+    my $labels_right = ${$image}->{surface_atlas}{right};
 
     my $verify_file = ${$image}->{verify_atlas};
 
@@ -268,7 +269,7 @@ sub atlas {
           inputs => [ $mid_rsl_left, $mid_rsl_right ],
           outputs => [$verify_file],
           args => [ "verify_atlas", $mid_rsl_left,, $mid_rsl_right, 
-                    $labels, $verify_file ],
+                    $labels_left, $labels_right, $verify_file ],
           prereqs => $Prereqs });
           push @Verify_Atlas_complete, ("verify_atlas");
       }

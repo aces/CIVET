@@ -1,3 +1,7 @@
+2010-11-04  Claude Lepage <claude@bic.mni.mcgill.ca>
+    * Vertex-based cortical volumes on resampled surfaces
+    * AAL atlas for surface parcellation (Gaolang Gong)
+
 2009-07-29  Claude Lepage <claude@bic.mni.mcgill.ca>
 
     * Initial release/creation

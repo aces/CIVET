@@ -599,7 +599,8 @@ sub lobe_features {
     my $lobe_thickness_left = ${$image}->{lobe_thickness}{left};
     my $lobe_thickness_right = ${$image}->{lobe_thickness}{right};
 
-    my $surface_labels = ${$image}->{surface_atlas};
+    my $surface_labels_left = ${$image}->{surface_atlas}{left};
+    my $surface_labels_right = ${$image}->{surface_atlas}{right};
 
     ###################################################
     ##### Lobe parcellation of cortical thickness #####
@@ -615,7 +616,7 @@ sub lobe_features {
          inputs => [$native_rms_rsl_left],
          outputs => [$lobe_thickness_left],
          args => ["lobe_stats", "-norm", $native_rms_rsl_left,
-                  $surface_labels, "average cortical thickness", $lobe_thickness_left],
+                  $surface_labels_left, "average cortical thickness", $lobe_thickness_left],
          prereqs => $Prereqs });
 
     ############################
@@ -628,7 +629,7 @@ sub lobe_features {
          inputs => [$native_rms_rsl_right],
          outputs => [$lobe_thickness_right],
          args => ["lobe_stats", "-norm", $native_rms_rsl_right,
-                  $surface_labels, "average cortical thickness", $lobe_thickness_right],
+                  $surface_labels_right, "average cortical thickness", $lobe_thickness_right],
          prereqs => $Prereqs });
 
     my @Lobe_complete = ( "lobe_thickness_left", "lobe_thickness_right" );
@@ -657,7 +658,7 @@ sub lobe_features {
 #          inputs => [$native_rms_rsl_left],
 #          outputs => [$lobe_mc_left],
 #          args => ["lobe_stats", "-norm", $native_mc_rsl_left,
-#                   $surface_labels, "average absolute mean curvature", $lobe_mc_left],
+#                   $surface_labels_left, "average absolute mean curvature", $lobe_mc_left],
 #          prereqs => $Prereqs });
 
 #     ############################
@@ -670,7 +671,7 @@ sub lobe_features {
 #          inputs => [$native_rms_rsl_right],
 #          outputs => [$lobe_mc_right],
 #          args => ["lobe_stats", "-norm", $native_mc_rsl_right,
-#                   $surface_labels, "average absolute mean curvature", $lobe_mc_right],
+#                   $surface_labels_right, "average absolute mean curvature", $lobe_mc_right],
 #          prereqs => $Prereqs });
 
 #     push @Lobe_complete, ("lobe_mean_curvature_left");
@@ -701,7 +702,7 @@ sub lobe_features {
          inputs => [$gray_rsl_left, $t1_tal_xfm],
          outputs => [$lobe_area_left],
          args => ["lobe_area", "-transform", $t1_tal_xfm, 
-                  $gray_rsl_left, $surface_labels, $lobe_area_left ],
+                  $gray_rsl_left, $surface_labels_left, $lobe_area_left ],
          prereqs => $Prereqs });
 
       ############################
@@ -714,7 +715,7 @@ sub lobe_features {
          inputs => [$gray_rsl_right, $t1_tal_xfm],
          outputs => [$lobe_area_right],
          args => ["lobe_area", "-transform", $t1_tal_xfm,
-                  $gray_rsl_right, $surface_labels, 
+                  $gray_rsl_right, $surface_labels_right, 
                   $lobe_area_right],
          prereqs => $Prereqs });
 

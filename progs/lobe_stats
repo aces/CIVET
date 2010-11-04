@@ -62,7 +62,11 @@ my $field_abs = "${TmpDir}/field_abs.txt";
 my $numer = `vertstats_stats $field_abs | grep Sum:`;
 $numer =~ /Sum:\s+(\d.*)/;
 $numer = $1;
-my ($denom,$junk) = split(' ', `wc -l $field`);
+my ($denom,$junk) = split(' ', `wc -l $field_abs`);
+
+`cat $label_file | head -n $denom > ${TmpDir}/labels_rsl.txt`;
+$label_file = "${TmpDir}/labels_rsl.txt";
+
 $denom = 1 if( !$normalize );
 
 my $info = "# $title \n";

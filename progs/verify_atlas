@@ -11,9 +11,9 @@ use strict;
 use warnings "all";
 use File::Temp qw/ tempdir /;
 
-my ($mid_rsl_left, $mid_rsl_right, $atlas_labels, $output) = @ARGV;
+my ($mid_rsl_left, $mid_rsl_right, $atlas_labels_left, $atlas_labels_right, $output) = @ARGV;
 unless($output) {
-  print "Usage: $0 <mid_rsl_left.obj> <mid_rsl_right.obj> <labels.txt> <output.png>\n";
+  print "Usage: $0 <mid_rsl_left.obj> <mid_rsl_right.obj> <labels_left.txt> <labels_right.txt> <output.png>\n";
   print "Note that none of the inputs may be compressed!\n";
   exit(1);
 }
@@ -41,11 +41,22 @@ push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$title\"";
 my $num_rows = 2;
 # ROWS 1 - 2: surface atlas on left and right mid-surfaces
 
+my $min_label_left = `sort -n -u $atlas_labels_left |head -1`; 
+my $max_label_left = `sort -n -u $atlas_labels_left | tail -1`;
+my $min_label_right = `sort -n -u $atlas_labels_right | tail -1`;
+my $max_label_right = `sort -n -u $atlas_labels_right | head -1`;
+chomp( $min_label_left );
+chomp( $max_label_left );
+chomp( $min_label_right );
+chomp( $max_label_right );
+my $min_label = ( ( $min_label_left < $min_label_right ) ? $min_label_left : $min_label_right ) - 3;
+my $max_label = ( $max_label_left > $max_label_right ) ? $max_label_left : $max_label_right;
+
 my $mid_rsl_labels_left = "${tmpdir}/mid_rsl_labels_left.txt";
 my $mid_rsl_labels_right = "${tmpdir}/mid_rsl_labels_right.txt";
 
-`colour_object $mid_rsl_left $atlas_labels $mid_rsl_labels_left spectral -3 8`;
-`colour_object $mid_rsl_right $atlas_labels $mid_rsl_labels_right spectral -3 8`;
+`colour_object $mid_rsl_left $atlas_labels_left $mid_rsl_labels_left spectral $min_label $max_label`;
+`colour_object $mid_rsl_right $atlas_labels_right $mid_rsl_labels_right spectral $min_label $max_label`;
   
 foreach my $pos ('default', 'left', 'right') {
   print "Making left mid ${pos} surface\n" unless $quiet;

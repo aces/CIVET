@@ -40,6 +40,7 @@ progs_SCRIPTS := \
         progs/class_art \
         progs/classify_qc \
         progs/cortical_area_stats \
+        progs/cortical_volume_stats \
         progs/cortical_mask \
         progs/diff_civet.pl \
         progs/extract_surface_feature \

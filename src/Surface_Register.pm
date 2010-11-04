@@ -224,4 +224,50 @@ sub resampled_surface_areas {
 }
 
 
+#######################################################
+#### Compute surface volumes on resampled surfaces ####
+#######################################################
+
+sub resampled_surface_volumes {
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+    my $surfreg_model = @_[3];
+
+    my $fwhm = ${$image}->{rsl_volume_fwhm};
+    my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
+    my $left_white_surface_rsl = ${$image}->{cal_white_rsl}{left};
+    my $right_white_surface_rsl = ${$image}->{cal_white_rsl}{right};
+    my $left_gray_surface_rsl = ${$image}->{gray_rsl}{left};
+    my $right_gray_surface_rsl = ${$image}->{gray_rsl}{right};
+    my $left_surface_volume_rsl = ${$image}->{surface_volume_rsl}{left};
+    my $right_surface_volume_rsl = ${$image}->{surface_volume_rsl}{right};
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_volume_rsl_left",
+          label => "surface volumes on resampled left hemisphere",
+          inputs => [$t1_tal_xfm,$left_white_surface_rsl,$left_gray_surface_rsl],
+          outputs => [$left_surface_volume_rsl],
+          args => [ "cortical_volume_stats", $left_white_surface_rsl,
+                    $left_gray_surface_rsl, $surfreg_model, $t1_tal_xfm,
+                    $fwhm, $left_surface_volume_rsl],
+          prereqs => $Prereqs });
+
+    ${$pipeline_ref}->addStage( {
+          name => "surface_volume_rsl_right",
+          label => "surface volumes on resampled right mid hemisphere",
+          inputs => [$t1_tal_xfm,$right_white_surface_rsl,$right_gray_surface_rsl],
+          outputs => [$right_surface_volume_rsl],
+          args => [ "cortical_volume_stats", $right_white_surface_rsl,
+                    $right_gray_surface_rsl, $surfreg_model, $t1_tal_xfm,
+                    $fwhm, $right_surface_volume_rsl],
+          prereqs => $Prereqs });
+
+    my $SurfaceVolumes_complete = [ "surface_volume_rsl_left",
+                                    "surface_volume_rsl_right" ];
+
+    return( $SurfaceVolumes_complete );
+}
+
+
 1;

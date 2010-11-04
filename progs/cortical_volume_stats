@@ -1,0 +1,77 @@
+#!/usr/bin/env perl
+#
+# Compute the volume at the vertices of the resampled cortical surfaces. 
+# 
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+# --- set the help & usage strings ---
+my $help = <<HELP;
+Compute the area at the vertices of the cortical mid surface.
+HELP
+
+my $me = &basename($0);
+my $usage = <<USAGE;
+Usage: $me white_rsl.obj gray_rsl.obj surface_model.obj native_to_tal.xfm fwhm volume.txt
+         white_rsl.obj = resampled white surface in stereotaxic space
+         gray_rsl.obj = resampled gray surface in stereotaxic space
+         surface_model.obj = surface model in stereotaxic space
+         native_to_tal.xfm = linear transformation from native to stereotaxic space
+         fwhm = full width half maximum for surface blurring of the areas
+         volume.txt = output file for volumes at vertices
+USAGE
+
+Getopt::Tabular::SetHelp( $help, $usage );
+
+die "$usage\n" unless ( @ARGV == 5 );
+
+# define input variables:
+
+my $white = shift(@ARGV);
+my $gray = shift(@ARGV);
+my $model = shift(@ARGV);
+my $transform_xfm = shift(@ARGV);
+my $fwhm = shift(@ARGV);
+my $volume_file = shift(@ARGV);
+
+# Directory for temporary files.
+my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+# Invert transformation from stereotaxic to native space.
+my $inv_trans = "${tmpdir}/inv_trans.xfm";
+&run( "xfminvert", $transform_xfm, $inv_trans );
+
+# Transform resampled white/gray surfaces from stereotaxic to native space.
+my $white_native = "${tmpdir}/white_native.obj";
+my $gray_native = "${tmpdir}/white_native.obj";
+&run( "transform_objects", $white, $inv_trans, $white_native );
+&run( "transform_objects", $gray, $inv_trans, $gray_native );
+unlink( $inv_trans );
+
+# Compute volumes using resampled white/gray surfaces in native space.
+&run( "cortex_volume", "-zero", $white_native, $gray_native,
+      "${tmpdir}/rsl_native_volume.txt" );
+unlink( $white_native );
+unlink( $gray_native );
+
+# Smooth the volumes on the stereotaxic model.
+&run( "depth_potential", "-smooth", $fwhm, "${tmpdir}/rsl_native_volume.txt", 
+      $model, $volume_file );
+
+unlink( "${tmpdir}/rsl_native_volume.txt" );
+
+#Execute a system call.
+
+sub run {
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

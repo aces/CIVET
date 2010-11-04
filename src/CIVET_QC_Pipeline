@@ -166,6 +166,7 @@ my @thickness = ("tlink","20");
 my $ResampleSurfaces = 1;
 my $MeanCurvature = 0;
 my $Area_fwhm = 40;
+my $Volume_fwhm = 40;
 my $CombineSurfaces = 1;
 my $VBM = "noVBM";
 my $VBM_fwhm = 8;
@@ -294,6 +295,7 @@ foreach my $dsid (@dsids) {
                                 $ResampleSurfaces,
                                 $MeanCurvature,
                                 $Area_fwhm,
+                                $Volume_fwhm,
                                 $CombineSurfaces,
                                 $VBM,
                                 $VBM_fwhm,

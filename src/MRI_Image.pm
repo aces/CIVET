@@ -47,6 +47,7 @@ sub new {
     my $ResampleSurfaces = shift;
     my $MeanCurvature = shift;
     my $Area_fwhm = shift;
+    my $Volume_fwhm = shift;
     my $CombineSurfaces = shift;
     my $vbm = shift;
     my $VBM_fwhm = shift;
@@ -74,13 +75,15 @@ sub new {
     $image->{tkernel} = $$thickness[1];
     $image->{resamplesurfaces} = $ResampleSurfaces;
     $image->{meancurvature} = $MeanCurvature;
-    $image->{rsl_fwhm} = $Area_fwhm;
+    $image->{rsl_area_fwhm} = $Area_fwhm;
+    $image->{rsl_volume_fwhm} = $Volume_fwhm;
     $image->{combinesurfaces} = $CombineSurfaces;
     $image->{linmodel} = "${$models}->{RegLinDir}/${$models}->{RegLinModel}";
     $image->{nlinmodel} = "${$models}->{RegNLDir}/${$models}->{RegNLModel}";
     $image->{surfregmodel} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
     $image->{surfregdataterm} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
-    $image->{surface_atlas} = "${$models}->{SurfRegModelDir}/${$models}->{SurfAtlas}";
+    $image->{surface_atlas}{left} = "${$models}->{SurfAtlasLeft}";
+    $image->{surface_atlas}{right} = "${$models}->{SurfAtlasRight}";
     $image->{surfmask} = "${$models}->{SurfaceMaskDir}/${$models}->{SurfaceMask}";
 
     $image->{template} = $template;
@@ -221,8 +224,10 @@ sub new {
         $image->{gray_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_gray_surface_rsl_right_81920.obj";
         $image->{mid_surface_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_left_81920.obj";
         $image->{mid_surface_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_right_81920.obj";
-        $image->{surface_area_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_left_native_area_$image->{rsl_fwhm}mm.txt";
-        $image->{surface_area_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_right_native_area_$image->{rsl_fwhm}mm.txt";
+        $image->{surface_area_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_left_native_area_$image->{rsl_area_fwhm}mm.txt";
+        $image->{surface_area_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_right_native_area_$image->{rsl_area_fwhm}mm.txt";
+        $image->{surface_volume_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_surface_rsl_left_native_volume_$image->{rsl_volume_fwhm}mm.txt";
+        $image->{surface_volume_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_surface_rsl_right_native_volume_$image->{rsl_volume_fwhm}mm.txt";
       }
 
       # a bunch of associated temporary files for surface extraction (should clean this up!)

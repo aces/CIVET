@@ -51,8 +51,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.10";
-my $versionDate= "December 1, 2009";
+my $version = "1.1.11";
+my $versionDate= "November, 2010";
 my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -61,6 +61,24 @@ $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile
 my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
+
+    1 - option for user-defined surface parcellation atlas.
+    2 - AAL surface parcellation atlas in models.
+    3 - normalized cortical volumes maps on resampled surfaces
+        (Lu Zhao and Maxime Boucher).
+
+    More to come soon:
+
+    1 - improved masking for 3 Tesla.
+    2 - improved medial cut through the corpus callosum.
+    3 - bug fixed in N3 to be invariant to voxel size
+    4 - high-resolution surfaces at 320k polygons.
+    5 - classification and surface extraction in native space.
+    6 - intermediate model for linear and non-linear volume registration.
+    7 - removal of self-intersections in .sm file for surface
+        registration (Maxime Boucher)
+
+    ********** From Feb-2010 quarantine, version 1.1.10 **********
 
     1 - option for 3 Tesla.
     2 - options for reset-after and reset-to (PMP).
@@ -74,19 +92,6 @@ my $whatsnew = <<NEW;
     8 - sum of absolute mean curvature
     9 - gyrification index for whole brain (in addition to by hemisphere)
     10 - GI and mean curvature on white, gray, mid surfaces
-
-    More to come soon:
-
-    1 - improved masking for 3 Tesla.
-    2 - improved medial cut through the corpus callosum.
-    3 - bug fixed in N3 to be invariant to voxel size
-    4 - high-resolution surfaces at 320k polygons.
-    5 - classification and surface extraction in native space.
-    6 - intermediate model for linear and non-linear volume registration.
-    7 - cortical volume expansion/contraction maps on resampled surfaces
-        (Lu Zhao and Maxime Boucher).
-    8 - removal of self-intersections in .sm file for surface
-        registration (Maxime Boucher)
 
     ********** From Feb-14-2008 quarantine, version 1.1.9 **********
 
@@ -324,7 +329,8 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
                       'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlas'        => "surface_atlas.txt",
+                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
+                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
                       'AnimalAtlas'      => undef,
@@ -344,7 +350,8 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
                       'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlas'        => "surface_atlas.txt",
+                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
+                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
                       'AnimalAtlas'      => undef,
@@ -364,7 +371,8 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
                       'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlas'        => "surface_atlas.txt",
+                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
+                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
                       'AnimalAtlas'      => undef,
@@ -384,7 +392,8 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
                       'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlas'        => "surface_atlas.txt",
+                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
+                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
                       'AnimalAtlas'      => undef,
@@ -409,6 +418,7 @@ my $N3Distance = undef;
 my $N3Damping = "1.0e-07";
 my $lsqtype = "-lsq9";
 my $Area_fwhm = "40";
+my $Volume_fwhm = "40";
 my $VBM = "noVBM";
 my $VBM_fwhm = 8;
 my $VBM_symmetry = "noSymmetry";
@@ -418,9 +428,7 @@ my @thickness = ("tlink","20");
 my $ResampleSurfaces = 0;
 my $MeanCurvature = 0;
 my $CombineSurfaces = 0;
-
-my $AtlasModel = undef;
-my $AtlasModelDir = undef;
+my @SurfaceAtlas = undef;
 
 my $animal = "noANIMAL";
 my $AnimalAtlas = undef;
@@ -465,7 +473,9 @@ my @argTbl = (
            "\"icbm152nl_09a\" (MNI ICBM152 non-linear asymmetric (2009)), " .
            "\"icbm152nl\" (MNI ICBM152 non-linear 6th generation), " .
            "\"icbm152lin\" (MNI ICBM152 linear", "<model>"],
-
+          ["-surface-atlas", "string", 2, \@SurfaceAtlas,
+           "Define the atlas for surface parcellation ",
+           "<atlas_left.txt> <atlas_right.txt>"],
           ["CIVET options", "section"],  
           ["-multispectral", "const", "multispectral", \$inputType, 
            "Use T1, T2 and PD native files for tissue classification."],
@@ -495,6 +505,8 @@ my @argTbl = (
            "produce mean curvature maps on surfaces"],
           ["-area-fwhm", "string", 1, \$Area_fwhm, 
            "blurring kernel size in mm for resampled surface areas", "<fwhm>"],
+          ["-volume-fwhm", "string", 1, \$Volume_fwhm, 
+           "blurring kernel size in mm for resampled surface volumes", "<fwhm>"],
           ["-combine-surfaces|-no-combine-surfaces", "boolean", 1, \$CombineSurfaces,
            "combine left and right cortical surfaces"],
 
@@ -640,6 +652,30 @@ print "* Surface registration model directory is: \n  ${SurfRegModelDir} \n";
 print "* Surface registration model is:    \n   ${SurfRegModel} \n";
 print "* Surface registration dataterm is: \n   ${SurfRegDataTerm} \n";
 
+############# Choose surface parcellation atlas if surfaces are to be resampled.
+
+if( defined @SurfaceAtlas ) {
+  if( !$ResampleSurfaces ) {
+    die "You specified a surface parcellation atlas but did not ask to " .
+        "resample the surfaces. Use -resample-surfaces option.\n";
+  }
+  if( defined $SurfaceAtlas[0] && defined $SurfaceAtlas[1] ) {
+    if( -e $SurfaceAtlas[0] && -e $SurfaceAtlas[1] ) {
+      $CIVETmodels{$CIVETModel}{SurfAtlasLeft} = $SurfaceAtlas[0];
+      $CIVETmodels{$CIVETModel}{SurfAtlasRight} = $SurfaceAtlas[1];
+    } else {
+      if( -e "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[0]" && 
+          -e "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[1]" ) {
+        $CIVETmodels{$CIVETModel}{SurfAtlasLeft} = "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[0]";
+        $CIVETmodels{$CIVETModel}{SurfAtlasRight} = "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[1]";
+      } else {
+        die "You specified a surface parcellation atlas but the atlas" .
+            "cannot be found. Please check filename for atlas.\n";
+      }
+    }
+  }
+}
+
 ############# Choose ANIMAL model.
 
 if( $animal eq "ANIMAL" ) {
@@ -752,6 +788,7 @@ foreach my $dsid (@dsids) {
                                 $ResampleSurfaces,
                                 $MeanCurvature,
                                 $Area_fwhm,
+                                $Volume_fwhm,
                                 $CombineSurfaces,
                                 $VBM,
                                 $VBM_fwhm,
