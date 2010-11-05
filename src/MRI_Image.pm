@@ -306,6 +306,8 @@ sub new {
       if( $image->{resamplesurfaces} ) {
         $image->{lobe_areas}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
         $image->{lobe_areas}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
+        $image->{lobe_volumes}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_left.dat";
+        $image->{lobe_volumes}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_right.dat";
       }
 
       # Define gyrification index files.
@@ -522,6 +524,8 @@ sub print_options {
   print PIPE "Model for surface registration is\n  $image->{surfregmodel}\n";
   print PIPE "Dataterm for surface registration is\n  $image->{surfregdataterm}\n";
   print PIPE "Surface mask for linear registration is\n  $image->{surfmask}\n";
+  print PIPE "Surface parcellation atlas (left hemisphere) is\n  $image->{surface_atlas}{left}\n";
+  print PIPE "Surface parcellation atlas (right hemisphere) is\n  $image->{surface_atlas}{right}\n";
   print PIPE "Template for image-processing is\n  $image->{template}\n";
   if( $image->{VBM} eq "VBM" ) {
     print PIPE "VBM analysis with volumetric blurring $image->{VBM_fwhm}mm,\n";

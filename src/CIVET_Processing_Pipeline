@@ -669,12 +669,15 @@ if( defined @SurfaceAtlas ) {
         $CIVETmodels{$CIVETModel}{SurfAtlasLeft} = "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[0]";
         $CIVETmodels{$CIVETModel}{SurfAtlasRight} = "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[1]";
       } else {
-        die "You specified a surface parcellation atlas but the atlas" .
+        die "You specified a surface parcellation atlas but the atlas " .
             "cannot be found. Please check filename for atlas.\n";
       }
     }
   }
 }
+
+print "* Surface parcellation model (left) is: \n  $CIVETmodels{$CIVETModel}{SurfAtlasLeft}\n";
+print "* Surface parcellation model (right) is: \n  $CIVETmodels{$CIVETModel}{SurfAtlasRight}\n";
 
 ############# Choose ANIMAL model.
 

@@ -282,13 +282,20 @@ sub create_pipeline{
         );
         $SurfResample_complete = $res[0];
 
-        @res = Surface_Register::resampled_surface_areas(
+        my @resArea = Surface_Register::resampled_surface_areas(
           $pipeline_ref,
           $SurfResample_complete,
           $image,
           $Global_SurfRegModel
         );
-        $SurfResample_complete = $res[0];
+
+        @res = Surface_Register::resampled_surface_volumes(
+          $pipeline_ref,
+          $SurfResample_complete,
+          $image,
+          $Global_SurfRegModel
+        );
+        $SurfResample_complete = [@{$resArea[0]},@{$res[0]}];
 
         ######################################
         ##### Asymmetry map for position #####

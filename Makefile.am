@@ -73,6 +73,10 @@ pkgdata_DATA := \
         models/hemi_right_mask.mnc \
         models/midline_mask.mnc \
         models/surface_atlas.txt \
+        models/AAL_atlas_left.txt \
+        models/AAL_atlas_right.txt \
+        models/AAL_README.txt \
+        models/AAL_license.txt \
         models/surf_reg_model_left.obj \
         models/surf_reg_model_right.obj \
         models/surf_reg_model.obj \

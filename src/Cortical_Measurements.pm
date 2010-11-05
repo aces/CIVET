@@ -723,6 +723,51 @@ sub lobe_features {
       push @Lobe_complete, ("lobe_area_right");
     }
 
+    ##############################################
+    ##### Lobe parcellation of cortex volume #####
+    ##############################################
+
+    if( ${$image}->{resamplesurfaces} ) {
+
+      my $native_volume_rsl_left = ${$image}->{surface_volume_rsl}{left};
+      my $native_volume_rsl_right = ${$image}->{surface_volume_rsl}{right};
+
+      my $lobe_volume_left = ${$image}->{lobe_volumes}{left};
+      my $lobe_volume_right = ${$image}->{lobe_volumes}{right};
+
+      my $surface_labels_left = ${$image}->{surface_atlas}{left};
+      my $surface_labels_right = ${$image}->{surface_atlas}{right};
+
+      ###########################
+      ##### Left hemisphere #####
+      ###########################
+
+      ${$pipeline_ref}->addStage( {
+           name => "lobe_volume_left",
+           label => "native lobe vertex-volumes left",
+           inputs => [$native_volume_rsl_left],
+           outputs => [$lobe_volume_left],
+           args => ["lobe_stats", $native_volume_rsl_left,
+                    $surface_labels_left, "total cortical volume", $lobe_volume_left],
+           prereqs => $Prereqs });
+
+      ############################
+      ##### Right hemisphere #####
+      ############################
+
+      ${$pipeline_ref}->addStage( {
+           name => "lobe_volume_right",
+           label => "native lobe vertex-volumes right",
+           inputs => [$native_volume_rsl_right],
+           outputs => [$lobe_volume_right],
+           args => ["lobe_stats", $native_volume_rsl_right,
+                    $surface_labels_right, "total cortical volume", $lobe_volume_right],
+           prereqs => $Prereqs });
+
+      push @Lobe_complete, ("lobe_volume_left");
+      push @Lobe_complete, ("lobe_volume_right");
+    }
+
     return( \@Lobe_complete );
 }
 

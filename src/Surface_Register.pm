@@ -190,7 +190,7 @@ sub resampled_surface_areas {
     my $image = @_[2];
     my $surfreg_model = @_[3];
 
-    my $fwhm = ${$image}->{rsl_fwhm};
+    my $fwhm = ${$image}->{rsl_area_fwhm};
     my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
     my $left_mid_surface_rsl = ${$image}->{mid_surface_rsl}{left};
     my $right_mid_surface_rsl = ${$image}->{mid_surface_rsl}{right};

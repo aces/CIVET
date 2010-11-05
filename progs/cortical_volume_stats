@@ -32,7 +32,7 @@ USAGE
 
 Getopt::Tabular::SetHelp( $help, $usage );
 
-die "$usage\n" unless ( @ARGV == 5 );
+die "$usage\n" unless ( @ARGV == 6 );
 
 # define input variables:
 
@@ -52,14 +52,14 @@ my $inv_trans = "${tmpdir}/inv_trans.xfm";
 
 # Transform resampled white/gray surfaces from stereotaxic to native space.
 my $white_native = "${tmpdir}/white_native.obj";
-my $gray_native = "${tmpdir}/white_native.obj";
+my $gray_native = "${tmpdir}/gray_native.obj";
 &run( "transform_objects", $white, $inv_trans, $white_native );
 &run( "transform_objects", $gray, $inv_trans, $gray_native );
 unlink( $inv_trans );
 
 # Compute volumes using resampled white/gray surfaces in native space.
-&run( "cortex_volume", "-zero", $white_native, $gray_native,
-      "${tmpdir}/rsl_native_volume.txt" );
+&run( "cortex_volume", "-zero", "-white", $white_native, "-gray", $gray_native,
+      "-output", "${tmpdir}/rsl_native_volume.txt" );
 unlink( $white_native );
 unlink( $gray_native );
 
