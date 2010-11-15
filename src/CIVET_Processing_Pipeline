@@ -693,11 +693,11 @@ if( $animal eq "ANIMAL" ) {
       $animal = "noANIMAL";
     } else {
       if( $AnimalAtlas eq "-symmetric_atlas" ) {
-        $AnimalAtlasDir .= "icbm152-symmetric-v1.0/";
+        $AnimalAtlasDir .= "/icbm152-symmetric-v1.0/";
         $AnimalNLRegModel = "icbm_avg_152_t1_tal_lin_symmetric";
         $AnimalNLRegDir = MNI::DataDir::dir("mni-models");
       } elsif( $AnimalAtlas eq "-lobe_atlas" ) {
-        $AnimalAtlasDir .= "icbm152-lobes-v1.1/";
+        $AnimalAtlasDir .= "/icbm152-lobes-v1.1/";
         $AnimalNLRegModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
         $AnimalNLRegDir = MNI::DataDir::dir("mni-models");
       }

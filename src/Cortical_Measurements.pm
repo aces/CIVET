@@ -687,8 +687,8 @@ sub lobe_features {
       my $gray_rsl_left = ${$image}->{gray_rsl}{left};
       my $gray_rsl_right = ${$image}->{gray_rsl}{right};
 
-      my $lobe_area_left = ${$image}->{lobe_areas}{left};
-      my $lobe_area_right = ${$image}->{lobe_areas}{right};
+      my $lobe_area_left = ${$image}->{rsl_lobe_areas}{left};
+      my $lobe_area_right = ${$image}->{rsl_lobe_areas}{right};
 
       my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
 
@@ -732,8 +732,8 @@ sub lobe_features {
       my $native_volume_rsl_left = ${$image}->{surface_volume_rsl}{left};
       my $native_volume_rsl_right = ${$image}->{surface_volume_rsl}{right};
 
-      my $lobe_volume_left = ${$image}->{lobe_volumes}{left};
-      my $lobe_volume_right = ${$image}->{lobe_volumes}{right};
+      my $lobe_volume_left = ${$image}->{rsl_lobe_volumes}{left};
+      my $lobe_volume_right = ${$image}->{rsl_lobe_volumes}{right};
 
       my $surface_labels_left = ${$image}->{surface_atlas}{left};
       my $surface_labels_right = ${$image}->{surface_atlas}{right};

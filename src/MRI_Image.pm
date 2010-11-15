@@ -304,10 +304,10 @@ sub new {
         $image->{lobe_mc}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_mc_right.dat";
       }
       if( $image->{resamplesurfaces} ) {
-        $image->{lobe_areas}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
-        $image->{lobe_areas}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
-        $image->{lobe_volumes}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_left.dat";
-        $image->{lobe_volumes}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_right.dat";
+        $image->{rsl_lobe_areas}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
+        $image->{rsl_lobe_areas}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
+        $image->{rsl_lobe_volumes}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_left.dat";
+        $image->{rsl_lobe_volumes}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_right.dat";
       }
 
       # Define gyrification index files.
