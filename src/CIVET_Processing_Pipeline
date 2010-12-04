@@ -428,7 +428,7 @@ my @thickness = ("tlink","20");
 my $ResampleSurfaces = 0;
 my $MeanCurvature = 0;
 my $CombineSurfaces = 0;
-my @SurfaceAtlas = undef;
+my @SurfaceAtlas = ();
 
 my $animal = "noANIMAL";
 my $AnimalAtlas = undef;
