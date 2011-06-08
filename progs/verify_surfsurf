@@ -1,0 +1,156 @@
+#!/usr/bin/env perl
+
+# Plot the surface-surface intersections in 3D.
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+use File::Temp qw/ tempdir /;
+
+my ($wm_left, $wm_right, $gm_left, $gm_right, $output) = @ARGV;
+unless($output) {
+  print "Usage: $0 <wm_left.obj> <wm_right.obj> <gm_left.txt> <gm_right.txt> <output.png>\n";
+  print "Note that none of the inputs may be compressed!\n";
+  exit(1);
+}
+
+my $tmpdir = tempdir( CLEANUP => 1 );
+my $tilesize = 240;
+my $debug = 0;
+my $quiet = 1;
+my @mont_args = ();
+my @DrawText = ( "-font", "Helvetica" );
+
+my $xpos = 1.5*$tilesize;
+my $ypos = 15;
+
+# Compute surf-surf intersections on both hemispheres.
+my $surfsurf_left = "${tmpdir}/surfsurf_left.txt";
+my $surfsurf_right = "${tmpdir}/surfsurf_right.txt";
+&surfsurf( $wm_left, $gm_left, $surfsurf_left, $tmpdir );
+&surfsurf( $wm_right, $gm_right, $surfsurf_right, $tmpdir );
+
+# Title: Write number of surface-surface intersections on white surface.
+my @ret = `vertstats_stats $surfsurf_left |grep Sum`;
+$ret[0] =~ / Sum: (.*)/;
+my $left_inter = $1;
+
+@ret = `vertstats_stats $surfsurf_right |grep Sum`;
+$ret[0] =~ / Sum: (.*)/;
+my $right_inter = $1;
+
+my $title = sprintf( "Surface-surface intersections (Left=%d, Right=%d)", $left_inter, $right_inter );
+push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$title\"";
+
+my $num_rows = 2;
+# ROWS 1 - 2: surface-surface intersections on left and right wm surfaces
+
+my $wm_left_new = "${tmpdir}/wm_labels_left.obj";
+my $wm_right_new = "${tmpdir}/wm_labels_right.obj";
+
+`colour_object $wm_left $surfsurf_left $wm_left_new red_metal_inv 0 2`;
+`colour_object $wm_right $surfsurf_right $wm_right_new red_metal_inv 0 2`;
+unlink( $surfsurf_left );
+unlink( $surfsurf_right );
+  
+foreach my $pos ('default', 'left', 'right') {
+  print "Making left wm ${pos} surface\n" unless $quiet;
+  make_hemi($wm_left_new, "${tmpdir}/wm_left_$pos.rgb", $pos);
+  push(@mont_args, "${tmpdir}/wm_left_$pos.rgb");
+}
+foreach my $pos ('top', 'bottom') {
+  print "Making left/right wm ${pos} surface\n" unless $quiet;
+  make_surface( $wm_left_new, $wm_right_new, "${tmpdir}/wm_${pos}.rgb", $pos );
+  push(@mont_args, "${tmpdir}/wm_${pos}.rgb");
+}
+
+foreach my $pos ('default', 'right', 'left') {
+  print "Making right wm ${pos} surface\n" unless $quiet;
+  make_hemi($wm_right_new, "${tmpdir}/wm_right_$pos.rgb", $pos);
+  push(@mont_args, "${tmpdir}/wm_right_$pos.rgb");
+}
+foreach my $pos ('front', 'back') {
+  print "Making left/right wm ${pos} surface\n" unless $quiet;
+  make_surface( $wm_left_new, $wm_right_new, "${tmpdir}/wm_${pos}.rgb", $pos );
+  push(@mont_args, "${tmpdir}/wm_${pos}.rgb");
+}
+
+unlink( $wm_left_new );
+unlink( $wm_right_new );
+
+# do the montage
+print "Making montage\n" unless $quiet;
+my $cmd = "montage -tile 5x${num_rows} -background white " .
+          "-geometry ${tilesize}x${tilesize}+1+1 " .
+	  join(' ', @mont_args)." ${tmpdir}/mont.png";
+print "$cmd\n" if $debug; `$cmd`;
+
+# Add the title
+print "Adding title\n" unless $quiet;
+$cmd = "convert -box white -stroke green -pointsize 16 @DrawText ${tmpdir}/mont.png ${output}";
+print "$cmd\n" if $debug; `$cmd`;
+
+print "Done\n" unless $quiet;
+
+# end of function
+
+# Compute surface-surface intersections for this pair of
+# white and gray surfaces.
+
+sub surfsurf {
+  my $wm = shift;
+  my $gm = shift;
+  my $output = shift;
+  my $tmpdir = shift;
+
+  my $obj = "${tmpdir}/tmp.obj";
+  my $txt = "${tmpdir}/tmp.txt";
+
+  `objconcat $wm $gm none none $obj none`;
+  `check_self_intersect $obj $txt`;
+  unlink( $obj );
+
+  my @ret = split( / /, `wc -l $txt` );
+  my $npoints = $ret[0]; chomp( $npoints ); $npoints /= 2;
+  `head -${npoints} $txt > $output`;
+  unlink( $txt );
+
+  `vertstats_math -const2 -0.001 0.001 -seg -old_style_file $output $output`;
+}
+
+sub make_hemi {
+  my ($surface, $temp_output, $pos) = @_;
+  
+  my $cmd = "";
+  my $viewdir = "";
+  if ($pos eq 'default') {
+    $viewdir = "";
+  } else {
+    $viewdir = "-$pos";
+  }
+
+  $cmd = "ray_trace -shadows -output ${temp_output} ${surface} -bg white -crop ${viewdir}";
+  print "$cmd\n" if $debug; `$cmd`;
+}
+
+sub make_surface {
+  my ($left_hemi, $right_hemi, $temp_output, $pos) = @_;
+  
+  my $cmd = "";
+  my $viewdir = "";
+  if ($pos eq 'default') {
+    $viewdir = "";
+  } else {
+    $viewdir = "-$pos";
+  }
+
+  $cmd = "ray_trace -shadows -output ${temp_output} ${left_hemi} ${right_hemi} -bg white -crop ${viewdir}";
+  print "$cmd\n" if $debug; `$cmd`;
+}
+
+
+

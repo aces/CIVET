@@ -268,7 +268,7 @@ sub atlas {
           label => "create verification image for surface parcellation",
           inputs => [ $mid_rsl_left, $mid_rsl_right ],
           outputs => [$verify_file],
-          args => [ "verify_atlas", $mid_rsl_left,, $mid_rsl_right, 
+          args => [ "verify_atlas", $mid_rsl_left, $mid_rsl_right, 
                     $labels_left, $labels_right, $verify_file ],
           prereqs => $Prereqs });
           push @Verify_Atlas_complete, ("verify_atlas");
@@ -276,6 +276,77 @@ sub atlas {
     }
 
     return( \@Verify_Atlas_complete );
+
+}
+
+
+sub surfsurf {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $white_left = ${$image}->{cal_white}{left};
+    my $white_right = ${$image}->{cal_white}{right};
+    my $gray_left = ${$image}->{gray}{left};
+    my $gray_right = ${$image}->{gray}{right};
+
+    my $verify_file = ${$image}->{verify_surfsurf};
+
+    my @Verify_Surfsurf_complete = ( );
+
+    # Plot 3D views of surface-surface intersections.
+
+    unless (${$image}->{surface} eq "noSURFACE") {
+      if( ${$image}->{resamplesurfaces} ) {
+        ${$pipeline_ref}->addStage( {
+          name => "verify_surfsurf",
+          label => "create verification image for surf-surf intersections ",
+          inputs => [ $white_left, $white_right, $gray_left, $gray_right ],
+          outputs => [$verify_file],
+          args => [ "verify_surfsurf", $white_left, $white_right, 
+                    $gray_left, $gray_right, $verify_file ],
+          prereqs => $Prereqs });
+          push @Verify_Surfsurf_complete, ("verify_surfsurf");
+      }
+    }
+
+    return( \@Verify_Surfsurf_complete );
+
+}
+
+
+sub laplacian {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $gray_left = ${$image}->{gray}{left};
+    my $gray_right = ${$image}->{gray}{right};
+    my $clasp_field = ${$image}->{laplace};
+
+    my $verify_file = ${$image}->{verify_laplace};
+
+    my @Verify_Laplace_complete = ( );
+
+    # Plot 3D views of Laplacian on gray surfaces.
+
+    unless (${$image}->{surface} eq "noSURFACE") {
+      if( ${$image}->{resamplesurfaces} ) {
+        ${$pipeline_ref}->addStage( {
+          name => "verify_laplace",
+          label => "create verification image for Laplacian field",
+          inputs => [ $gray_left, $gray_right, $clasp_field ],
+          outputs => [$verify_file],
+          args => [ "verify_laplacian", $gray_left, $gray_right, 
+                    $clasp_field, $verify_file ],
+          prereqs => $Prereqs });
+          push @Verify_Laplace_complete, ("verify_laplace");
+      }
+    }
+
+    return( \@Verify_Laplace_complete );
 
 }
 

@@ -244,7 +244,7 @@ for ($i=0; $i<=$#conf; $i++){
    }
    
    # set up registration
-   @args = ('minctracc', '-clobber', '-xcorr', $opt{lsqtype},
+   @args = ('minctracc', '-clobber', '-xcorr', ($i==0) ? "-lsq6" : $opt{lsqtype},
             '-step', @{$conf[$i]{steps}}, '-simplex', $conf[$i]{simplex},
             '-tol', $conf[$i]{tolerance});
 

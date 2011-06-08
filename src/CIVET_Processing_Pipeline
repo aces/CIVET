@@ -51,8 +51,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.11";
-my $versionDate= "November, 2010";
+my $version = "1.2.0";
+my $versionDate= "June, 2011";
 my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -61,6 +61,36 @@ $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile
 my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
+
+    1 - marching-cubes algorithm for extraction of white surface
+    2 - improved node movement in surface fit program
+    3 - corrected functional for Laplacian constraint in surface 
+        fit program (for gray surface)
+    4 - improved surface registration by geometric smoothing of
+        the surface
+    5 - cleaner medial cut through the corpus callosum and better
+        filling of the ventricles
+    6 - new verify figures for Laplacian fit and surface-surface
+        intersections 
+    7 - now use smoothing from depth_potential instead of diffuse
+        (no more need for BLAS and LAPACK)
+
+    NOTE: This version requires the package surface-extraction-3.0.0
+          or higher.
+
+    More to come soon:
+
+    1 - improved masking for 3 Tesla.
+    2 - bug fixed in N3 to be invariant to voxel size (use N3-1.12.0).
+    3 - high-resolution surfaces at 320k polygons.
+    4 - classification and surface extraction in native space.
+    5 - intermediate model for linear and non-linear volume registration.
+    6 - removal of self-intersections in .sm file for surface
+        registration (Maxime Boucher).
+    7 - activation of surface-surface constraint in expansion to 
+        gray surface.
+
+    ********** From Feb-2010 quarantine, version 1.1.11 **********
 
     1 - option for user-defined surface parcellation atlas.
     2 - AAL surface parcellation atlas in models.
@@ -284,6 +314,12 @@ my %PMPconf = ( 'DEFAULT' => { 'type' => "spawn",
                                'queue' => "brain",
                                'hosts' => undef,
                                'opts' => "-l ncpus=1" },
+              'GUILLIMIN' => { 'type' => "pbs",
+                               'maxqueued' => 1000,
+                               'granularity' => 1,
+                               'queue' => undef,
+                               'hosts' => undef,
+                               'opts' => "-l walltime=6:00:00 -l nodes=1:ppn=1" },
                 'COLOSSE'  => { 'type' => "pbs",
                                'maxqueued' => 1000,
                                'granularity' => 1,
@@ -328,7 +364,6 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_asym_09a_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
                       'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
@@ -349,7 +384,6 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_sym_09a_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
                       'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
@@ -370,7 +404,6 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
                       'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
@@ -391,7 +424,6 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_lin_symmetric_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
                       'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
@@ -646,11 +678,9 @@ my $intermediate_model = undef;
 
 my $SurfRegModelDir = $CIVETmodels{$CIVETModel}{SurfRegModelDir};
 my $SurfRegModel = $CIVETmodels{$CIVETModel}{SurfRegModel};
-my $SurfRegDataTerm = $CIVETmodels{$CIVETModel}{SurfRegDataTerm};
 
 print "* Surface registration model directory is: \n  ${SurfRegModelDir} \n";
 print "* Surface registration model is:    \n   ${SurfRegModel} \n";
-print "* Surface registration dataterm is: \n   ${SurfRegDataTerm} \n";
 
 ############# Choose surface parcellation atlas if surfaces are to be resampled.
 

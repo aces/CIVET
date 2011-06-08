@@ -186,7 +186,6 @@ my %CIVETmodels = ( 'icbm152nl' => {
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlas'        => "surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",

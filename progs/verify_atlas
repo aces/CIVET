@@ -30,10 +30,10 @@ my $ypos = 15;
 
 # Title: Write number of self intersections on resampled mid surface.
 my @ret = `check_self_intersect $mid_rsl_left`;
-$ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
+$ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
 my $left_inter = $1;
 @ret = `check_self_intersect $mid_rsl_right`;
-$ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
+$ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
 my $right_inter = $1;
 my $title = sprintf( "Surface parcellation (Left=%d, Right=%d)", $left_inter, $right_inter );
 push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$title\"";

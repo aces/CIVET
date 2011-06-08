@@ -23,66 +23,41 @@ sub create_pipeline {
     my $Prereqs = @_[1];
     my $image = @_[2];
     my $surfreg_model = @_[3];
-    my $surfreg_dataterm = @_[4];
 
     my $left_mid_surface = ${$image}->{mid_surface}{left};
     my $right_mid_surface = ${$image}->{mid_surface}{right};
-    my $left_dataterm = ${$image}->{dataterm}{left};
-    my $right_dataterm = ${$image}->{dataterm}{right};
     my $left_surfmap = ${$image}->{surface_map}{left};
     my $right_surfmap = ${$image}->{surface_map}{right};
 
-# ---------------------------------------------------------------------------
-#  Step 1: Compute data term on mid surfaces using Maxime's depth potential.
-#          We must use alpha=0.05 to be consistent with Oliver's average
-#          surface model.
-# ---------------------------------------------------------------------------
-
-    ${$pipeline_ref}->addStage( {
-          name => "dataterm_left_surface",
-          label => "WM left surface depth potential",
-          inputs => [$left_mid_surface],
-          outputs => [$left_dataterm],
-          args => ["depth_potential", "-alpha", "0.05", "-depth_potential", 
-                   $left_mid_surface, $left_dataterm ],
           prereqs => $Prereqs } );
 
-    ${$pipeline_ref}->addStage( {
-          name => "dataterm_right_surface",
-          label => "WM right surface depth potential",
-          inputs => [$right_mid_surface],
-          outputs => [$right_dataterm],
-          args => ["depth_potential", "-alpha", "0.05", "-depth_potential", 
-                   $right_mid_surface, $right_dataterm ],
           prereqs => $Prereqs } );
 
 # ---------------------------------------------------------------------------
-#  Step 2: Surface registration to left+right hemispheric averaged model.
+#  Surface registration to left+right hemispheric averaged model.
 # ---------------------------------------------------------------------------
 
     ${$pipeline_ref}->addStage( {
           name => "surface_registration_left",
           label => "register left mid-surface nonlinearly",
-          inputs => [$left_mid_surface,$left_dataterm],
+          inputs => [$left_mid_surface],
           outputs => [$left_surfmap],
-          args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "80",
+          args => ["geom_surfreg.pl", "-clobber", "-min_control_mesh", "320",
                    "-max_control_mesh", "81920", "-blur_coef", "1.25", 
                    "-neighbourhood_radius", "2.8", "-target_spacing", "1.9", 
-                   $surfreg_model, $surfreg_dataterm,
-                   $left_mid_surface, $left_dataterm, $left_surfmap ],
-          prereqs => ["dataterm_left_surface"] });
+                   $surfreg_model, $left_mid_surface, $left_surfmap ],
+          prereqs => $Prereqs });
 
     ${$pipeline_ref}->addStage( {
           name => "surface_registration_right",
           label => "register right mid-surface nonlinearly",
-          inputs => [$right_mid_surface,$right_dataterm],
+          inputs => [$right_mid_surface],
           outputs => [$right_surfmap],
-          args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "80",
+          args => ["geom_surfreg.pl", "-clobber", "-min_control_mesh", "320",
                    "-max_control_mesh", "81920", "-blur_coef", "1.25",
                    "-neighbourhood_radius", "2.8", "-target_spacing", "1.9",
-                   $surfreg_model, $surfreg_dataterm,
-                   $right_mid_surface, $right_dataterm, $right_surfmap ],
-          prereqs => ["dataterm_right_surface"] });
+                   $surfreg_model, $right_mid_surface, $right_surfmap ],
+          prereqs => $Prereqs });
 
     my $SurfReg_complete = [ "surface_registration_left",
                              "surface_registration_right" ];

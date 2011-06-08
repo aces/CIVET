@@ -47,6 +47,7 @@ progs_SCRIPTS := \
         progs/extract_two_hemispheres \
         progs/extract_volume_feature \
         progs/extract_wm_hemispheres \
+        progs/geom_surfreg.pl \
         progs/gyrification_index \
         progs/lobe_area \
         progs/lobe_stats \
@@ -64,7 +65,9 @@ progs_SCRIPTS := \
         progs/talto6 \
         progs/talto7 \
         progs/verify_atlas \
-        progs/verify_clasp
+        progs/verify_clasp \
+        progs/verify_laplacian \
+        progs/verify_surfsurf
 
 # installed data
 pkgdata_DATA := \

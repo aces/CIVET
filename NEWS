@@ -1,3 +1,20 @@
+        New in Release 1.2.0
+* Marching-cubes algorithm for extraction of white surface
+* Improved node movement in surface fit program
+* Corrected functional for Laplacian constraint in surface
+  fit program (for gray surface)
+* Improved surface registration by geometric smoothing of
+  the surface
+* Cleaner medial cut through the corpus callosum and better
+  filling of the ventricles
+* New verify figures for Laplacian fit and surface-surface
+  intersections
+* Now use smoothing from depth_potential instead of diffuse
+  (no more need for BLAS and LAPACK)
+
+NOTE: This release requires the package surface-extraction-3.0.0
+      or higher.
+
         New in Release 1.1.11
 * Vertex-based cortical volumes on resampled surfaces
 * AAL atlas for surface parcellation (Gaolang Gong)

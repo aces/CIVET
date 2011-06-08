@@ -26,6 +26,8 @@ package Surface_Fit;
 use strict;
 use PMP::PMP;
 use MRI_Image;
+use FindBin;
+use lib "$FindBin::Bin";
 
 sub create_pipeline {
     my $pipeline_ref = @_[0];
@@ -109,13 +111,15 @@ sub create_pipeline {
 #  Step 3: Extraction of the white surfaces
 # ---------------------------------------------------------------------------
 
+    my $civet_dir = "$FindBin::Bin";
+
     ${$pipeline_ref}->addStage(
           { name => "extract_white_surface_left",
           label => "extract white left surface in Talairach",
           inputs => [$wm_left_centered], 
           outputs => [$white_surf_left_prelim],
-          args => ["extract_white_surface", $wm_left_centered,
-                  $white_surf_left_prelim, 0.5],
+          args => ["marching_cubes.pl", $wm_left_centered,
+                  $white_surf_left_prelim, $civet_dir, '-subsample'],
           prereqs => ["create_wm_hemispheres"] }
           );
 
@@ -124,8 +128,8 @@ sub create_pipeline {
           label => "extract white right surface in Talairach",
           inputs => [$wm_right_centered],
           outputs => [$white_surf_right_prelim],
-          args => ["extract_white_surface", $wm_right_centered,
-                  $white_surf_right_prelim, 0.5],
+          args => ["marching_cubes.pl", $wm_right_centered,
+                  $white_surf_right_prelim, $civet_dir, '-subsample'],
           prereqs => ["create_wm_hemispheres"] }
           );
 

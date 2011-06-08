@@ -46,6 +46,8 @@ $ENV{'MINC_COMPRESS'} = 0;
 
 make_custom_mask( $cls_correct, $nl_transform, $custom_mask, $Second_model_Dir );
 
+plug_ventricles( $cls_correct, $custom_mask );
+
 # copy contiguous pieces of white matter from pve image and custom mask
 
 fix_wm( $cls_correct, $pve_wm, $custom_mask, $classified_wm_fixed );
@@ -59,6 +61,19 @@ unlink( $classified_wm_fixed );
 # enable internal compression on output files
 
 $ENV{'MINC_COMPRESS'} = $MINC_COMPRESS if( defined $MINC_COMPRESS );
+
+# change WM voxels in contact with CSF/BG to GM.
+
+run( "minccalc", "-quiet", "-clobber", "-byte", "-unsigned", 
+     "-expression", "if(abs(A[0])<0.5||abs(A[0]-1)<0.5){1}else{0}",
+     $classified_wm_gm_fixed, "${tmpdir}/csf_bg_mask.mnc" );
+run( "dilate_volume", "${tmpdir}/csf_bg_mask.mnc", 
+     "${tmpdir}/csf_bg_mask.mnc", 1, 6, 1, $classified_wm_gm_fixed, 2.5, 3.5 );
+run( "minccalc", "-quiet", "-clobber",
+     "-expression", "if(abs(A[0]-3)<0.5&&abs(A[1]-1)<0.5){2}else{A[0]}",
+     $classified_wm_gm_fixed, "${tmpdir}/csf_bg_mask.mnc", "${tmpdir}/new_cls.mnc" );
+run( "mv", "-f", "${tmpdir}/new_cls.mnc", $classified_wm_gm_fixed );
+unlink( "${tmpdir}/csf_bg_mask.mnc" );
 
 # create a midline mask to separate the hemispheres
 
@@ -148,10 +163,6 @@ sub fix_wm {
   my $pve_wm =  shift;
   my $custom_mask = shift;
   my $output = shift;
-
-  ### make tmpdir
-  my $me = &basename($0) ;
-  my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 ) ;
 
   my $classified_temp= "${tmpdir}/classified_plugged.mnc" ;
   my $pve_wm_temp = "${tmpdir}/pve_plugged.mnc" ;
@@ -291,10 +302,6 @@ sub fix_gm {
   my $classified = shift;
   my $result = shift;
 
-  # make tmpdir
-  my $me = &basename($0);
-  my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 ) ;
-
   my $temp_white = "${tmpdir}/temp_white.mnc" ;
   my $temp_white_blur_prefix = "${tmpdir}/temp_white" ;
   my $temp_white_blur = "${temp_white_blur_prefix}_blur.mnc" ;
@@ -372,41 +379,153 @@ sub create_midline_mask {
 
   my $me = &basename($0);
 
-  # make tmpdir
-  my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
-
-  my $callosum_with_bits  = "${tmpdir}/callosum_with_bits.mnc";
-  my $callosal_defrag = "${tmpdir}/callosum_defrag.mnc";
-  my $callosal_blur  = "${tmpdir}/callosal_blur.mnc";
+  my $mid_tmp = "${tmpdir}/mid_tmp.mnc";
+  my $callosum_filled  = "${tmpdir}/callosum_filled.mnc";
+  my $callosum_extra  = "${tmpdir}/callosum_extra.mnc";
+  my $white_filled_left  = "${tmpdir}/white_filled_left.mnc";
+  my $white_filled_right  = "${tmpdir}/white_filled_right.mnc";
 
   # The creation of the midline mask below will work with
   # any template (0.5mm, 1.0mm, for example), assuming that
   # the centerline voxel is at x=0.
 
-  my $filled = "${tmpdir}/filled.mnc";
-  my $mid_tmp = "${tmpdir}/mid_tmp.mnc";
-  my $midline_mask = "${tmpdir}/midline_mask.mnc";
-
-  run( "minccalc", "-clobber", "-byte", "-expr", "out=1;", $classify, $filled );
-  run( "mincresample", "-clobber", "-xstart", 0, "-xnelements", 1,
-       $filled, $mid_tmp );
+  my $dx = `mincinfo -attvalue xspace:step $classify`; chomp( $dx );
+  my $xleft = -2*$dx;
+  my $xright = 2*$dx;
+  run( "mincresample", "-clobber", "-xstart", $xleft, "-xnelements", 1,
+       $classify, $mid_tmp );
+  run( "minccalc", "-clobber", "-byte", "-expr", "out=abs(A[0]-3)<0.45",
+       $mid_tmp, $white_filled_left );
+  run( "mincdefrag", $white_filled_left, $white_filled_left, 1, 27, 1000 );
+  run( "mincdefrag", $white_filled_left, $white_filled_left, 0, 27, 1000 );
+  run( "dilate_volume", $white_filled_left, $white_filled_left, 1, 6, 1 );
+  run( "dilate_volume", $white_filled_left, $mid_tmp, 0, 6, 1 );
   run( "mincresample", "-clobber", "-like", $classify, $mid_tmp,
-       $midline_mask );
+       $white_filled_left );
 
-  run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-3)<0.45&&A[1];",
-       $classify, $midline_mask, $callosum_with_bits );
+  run( "mincresample", "-clobber", "-xstart", $xright, "-xnelements", 1,
+       $classify, $mid_tmp );
+  run( "minccalc", "-clobber", "-byte", "-expr", "out=abs(A[0]-3)<0.45",
+       $mid_tmp, $white_filled_right );
+  run( "mincdefrag", $white_filled_right, $white_filled_right, 1, 27, 1000 );
+  run( "mincdefrag", $white_filled_right, $white_filled_right, 0, 27, 1000 );
+  run( "dilate_volume", $white_filled_right, $white_filled_right, 1, 6, 1 );
+  run( "dilate_volume", $white_filled_right, $mid_tmp, 0, 6, 1 );
+  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp,
+       $white_filled_right );
 
-  run( "mincdefrag", $callosum_with_bits, $callosal_defrag, 1, 27, 1000 );
+  run( "mincresample", "-clobber", "-xstart", 0, "-xnelements", 1,
+       $classify, $mid_tmp );
+  run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-3)<0.45",
+       $mid_tmp, $callosum_filled );
+  unlink( $mid_tmp );
+  run( "mincdefrag", $callosum_filled, $callosum_filled, 1, 27, 1000 );
+  run( "mincdefrag", $callosum_filled, $mid_tmp, 0, 27, 1000 );
+  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp, $callosum_filled );
 
-  run( "mincblur", "-clobber", "-fwhm", 2, $callosal_defrag, $callosal_blur );
+  run( "dilate_volume", $mid_tmp, $mid_tmp, 1, 6, 1 );
+  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp, $callosum_extra );
 
-  $callosal_blur = "${callosal_blur}_blur.mnc";    
-                   
+  run( "dilate_volume", $callosum_filled, $mid_tmp, 1, 6, 1 );
+
   run( "minccalc", "-clobber", "-byte", "-expr",
-       "if(A[0]>0.0001&&A[1]==1){out=1}else{if(A[0]>0.08){out=2}else{out=0;}};", 
-       $callosal_blur, $midline_mask, $output );
+       "if(A[2]>0.5){1}else{if(A[0]<0.5&&A[1]>0.5){out=2}else{if(A[3]>0.5||A[4]>0.5){3}else{A[1]}}}",
+       $callosum_filled, $mid_tmp, $callosum_extra, $white_filled_left, 
+       $white_filled_right, $output );
+
+  unlink( $white_filled_left );
+  unlink( $white_filled_right );
+  unlink( $callosum_extra );
+  unlink( $callosum_filled );
+  unlink( $mid_tmp );
 
 }  
+
+# fix custom mask to get all of the ventricles if non-linear transform
+# is incomplete. Note: this will overwrite custom_mask.
+
+sub plug_ventricles {
+
+  my $cls = shift;
+  my $custom_mask = shift;
+
+  my $custom_mask_new = "${tmpdir}/custom_mask_new.mnc";
+
+  # custom_mask = 1 (subcortical gray), = 2 (cerebellum), = 3 (ventricles).
+  # anything that is subcortical gray in the custom_mask will be turned
+  # to ventricles (3) if it is CSF in the classified image. anything that
+  # is ventricles in the custom_mask will be turned to subcortical gray
+  # in the custom mask it if is GM in the classified image.
+
+  run( 'minccalc',  '-clobber', '-quiet', '-byte', '-unsigned','-expr',
+       'if(abs(A[0]-1)<0.5&&abs(A[1]-1)<0.5){3}else{if(abs(A[0]-3)<0.5&&abs(A[1]-2)<0.5){1}else{A[0]}}',
+       $custom_mask, $cls, $custom_mask_new );
+  run( 'mv', '-f', $custom_mask_new, $custom_mask );
+
+  my $cls_plugged = "${tmpdir}/cls_plugged.mnc";
+  run( "minccalc", "-byte", "-unsigned", "-clobber", "-expr",
+       "if(abs(A[1]-1)<0.5||abs(A[1]-3)<0.5||abs(A[0]-3)<0.5){out=3}else{A[0]}",
+       $cls, $custom_mask, $cls_plugged );
+
+  my $csf_mask = "${tmpdir}/csf_mask.mnc";
+  run( 'minccalc', '-quiet', '-clobber', '-expr',
+       'if((A[1]>0.5&&A[0]<0.5)||abs(A[0]-1)<0.5){1}else{0}',
+       $cls_plugged, $cls, $csf_mask );
+  run( 'mincdefrag', $csf_mask, $csf_mask, 1, 27, 5 );
+
+  my $csf_groups = "${tmpdir}/csf_groups.mnc";
+  run( 'mincmorph', '-clobber', '-unsigned', '-short', '-3D26', '-group',
+       $csf_mask, $csf_groups );
+  unlink( $csf_mask );
+
+  # dilate through classified csf that's connected to the mask of the ventricles.
+  my $custom_mask_dil = "${tmpdir}/custom_mask_dil.mnc";
+  run( 'dilate_volume', $custom_mask, $custom_mask_dil, 3, 6, 20, $cls, 0.5, 1.5 );
+
+  # find the groups that are connected to the csf of the dilated ventricles mask.
+  my $final_groups = "${tmpdir}/final_groups.mnc";
+  run( 'minccalc', '-clobber', '-quiet', '-expr',
+       'if(A[0]>1.5&&abs(A[1]-3)<0.5){A[0]}else{0}',
+       $csf_groups, $custom_mask_dil, $final_groups );
+
+  my @fg = `print_all_labels $final_groups`;
+  my @cg = `print_all_labels $csf_groups`;
+  unlink( $custom_mask_dil );
+  unlink( $final_groups );
+
+  open LUT, "> ${tmpdir}/table.lut";
+  for( my $g1 = 0; $g1 <= $#cg; $g1++ ) {
+    $cg[$g1] =~ /Label: ([0-9]+) ([0-9]+)/;
+    my $label = $1;
+    my $count = $2;
+ 
+    my $new_label = 0;
+    for( my $g2 = 0; $g2 <= $#fg; $g2++ ) {
+      $fg[$g2] =~ /Label: ([0-9]+) ([0-9]+)/;
+      if( $1 == $label ) {
+        $new_label = 1;
+        last;
+      }
+    }
+    print LUT "$label $new_label\n";
+  }
+  close( LUT );
+
+  my $csf_extra = "${tmpdir}/csf_extra.mnc";
+  &run( 'minclookup', '-clob', '-quiet', '-discrete', '-lookup_table',
+        "${tmpdir}/table.lut", $csf_groups, $csf_extra );
+  unlink( $csf_groups );
+  unlink( "${tmpdir}/table.lut" );
+
+  # expand one layer to try to account for partial volume effects.
+  run( 'dilate_volume', $csf_extra, $csf_extra, 1, 6, 1 );
+
+  # final correction to the custom mask.
+  run( 'minccalc', '-quiet', '-clobber', '-expr',
+       'if(A[1]>0.5){3}else{A[0]}', $custom_mask, $csf_extra,
+       $custom_mask_new );
+  run( 'mv', '-f', $custom_mask_new, $custom_mask );
+}
 
 
 #Execute a system call.
@@ -415,7 +534,5 @@ sub run {
   print shellquote(@_), "\n";
   system(@_)==0 or die "Command @_ failed with status: $?";
 }
-
-
 
 

@@ -260,13 +260,11 @@ sub create_pipeline{
       ################################
 
       my $Global_SurfRegModel = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
-      my $Global_SurfRegDataTerm = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
       @res = Surface_Register::create_pipeline(
         $pipeline_ref,
         $Surface_Fit_complete,
         $image,
-        $Global_SurfRegModel,
-        $Global_SurfRegDataTerm
+        $Global_SurfRegModel
       );
       $SurfReg_complete = $res[0];
 
@@ -369,6 +367,8 @@ sub create_pipeline{
 
     my $Verify_CLASP_complete = undef;
     my $Verify_Atlas_complete = undef;
+    my $Verify_Laplace_complete = undef;
+    my $Verify_Surfsurf_complete = undef;
     unless (${$image}->{surface} eq "noSURFACE") {
       my $CLASPPrereqs = [ @{$Surface_Fit_complete} ];
       push @{$CLASPPrereqs}, @{$GyrificationIndex_complete};
@@ -379,6 +379,20 @@ sub create_pipeline{
         $image
       );
       $Verify_CLASP_complete = $res[0];
+
+      @res = Verify::laplacian(
+        $pipeline_ref,
+        [@{$Surface_Fit_complete}],
+        $image
+      );
+      $Verify_Laplace_complete = $res[0];
+
+      @res = Verify::surfsurf(
+        $pipeline_ref,
+        [@{$Surface_Fit_complete}],
+        $image
+      );
+      $Verify_Surfsurf_complete = $res[0];
 
       if( ${$image}->{resamplesurfaces} ) {
         @res = Verify::atlas(

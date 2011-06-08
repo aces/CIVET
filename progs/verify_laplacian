@@ -1,0 +1,142 @@
+#!/usr/bin/env perl
+
+# Plot the laplacian field on the gray surfaces. This
+# shows how good the convergence of the gray surfaces is.
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+use File::Temp qw/ tempdir /;
+
+my ($gm_left, $gm_right, $clasp_field, $output) = @ARGV;
+unless($output) {
+  print "Usage: $0 <gm_left.obj> <gm_right.obj> <clasp_field.mnc> <output.png>\n";
+  print "Note that none of the inputs may be compressed!\n";
+  exit(1);
+}
+
+my $tmpdir = tempdir( CLEANUP => 1 );
+my $tilesize = 240;
+my $debug = 0;
+my $quiet = 1;
+my @mont_args = ();
+my @DrawText = ( "-font", "Helvetica" );
+
+my $xpos = 1.2*$tilesize;
+my $ypos = 15;
+
+# Intersect gray surfaces with Laplacian field.
+my $phi_left = "${tmpdir}/phi_left.txt";
+`volume_object_evaluate -linear $clasp_field $gm_left $phi_left`;
+my $phi_right = "${tmpdir}/phi_right.txt";
+`volume_object_evaluate -linear $clasp_field $gm_right $phi_right`;
+
+# Title: Write min/max of Laplacian field on gray surfaces
+my @ret = `vertstats_stats $phi_left |grep Minimum`;
+$ret[0] =~ / Minimum: (.*)/;
+my $left_min = $1;
+@ret = `vertstats_stats $phi_right |grep Minimum`;
+$ret[0] =~ / Minimum: (.*)/;
+my $right_min = $1;
+
+@ret = `vertstats_stats $phi_left |grep Maximum`;
+$ret[0] =~ / Maximum: (.*)/;
+my $left_max = $1;
+@ret = `vertstats_stats $phi_right |grep Maximum`;
+$ret[0] =~ / Maximum: (.*)/;
+my $right_max = $1;
+
+my $phi_min = ( $left_min < $right_min ) ? $left_min : $right_min;
+my $phi_max = ( $left_max > $right_max ) ? $left_max : $right_max;
+
+my $title = sprintf( "Laplacian field on gray surfaces (Min=%f, Max=%f)", $phi_min, $phi_max );
+push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$title\"";
+
+my $num_rows = 2;
+# ROWS 1 - 2 Laplacian field on gray surfaces.
+
+my $gm_left_clr = "${tmpdir}/gm_phi_left.obj";
+my $gm_right_clr = "${tmpdir}/gm_phi_right.obj";
+
+`colour_object $gm_left $phi_left $gm_left_clr spectral 9.75 10.25`;
+`colour_object $gm_right $phi_right $gm_right_clr spectral 9.75 10.25`;
+unlink( $phi_left );
+unlink( $phi_right );
+  
+foreach my $pos ('default', 'left', 'right') {
+  print "Making left gm ${pos} surface\n" unless $quiet;
+  make_hemi($gm_left_clr, "${tmpdir}/gm_left_$pos.rgb", $pos);
+  push(@mont_args, "${tmpdir}/gm_left_$pos.rgb");
+}
+foreach my $pos ('top', 'bottom') {
+  print "Making left/right gm ${pos} surface\n" unless $quiet;
+  make_surface( $gm_left_clr, $gm_right_clr, "${tmpdir}/gm_${pos}.rgb", $pos );
+  push(@mont_args, "${tmpdir}/gm_${pos}.rgb");
+}
+
+foreach my $pos ('default', 'right', 'left') {
+  print "Making right gm ${pos} surface\n" unless $quiet;
+  make_hemi($gm_right_clr, "${tmpdir}/gm_right_$pos.rgb", $pos);
+  push(@mont_args, "${tmpdir}/gm_right_$pos.rgb");
+}
+foreach my $pos ('front', 'back') {
+  print "Making left/right gm ${pos} surface\n" unless $quiet;
+  make_surface( $gm_left_clr, $gm_right_clr, "${tmpdir}/gm_${pos}.rgb", $pos );
+  push(@mont_args, "${tmpdir}/gm_${pos}.rgb");
+}
+
+unlink( $gm_left_clr );
+unlink( $gm_right_clr );
+
+# do the montage
+print "Making montage\n" unless $quiet;
+my $cmd = "montage -tile 5x${num_rows} -background white " .
+          "-geometry ${tilesize}x${tilesize}+1+1 " .
+	  join(' ', @mont_args)." ${tmpdir}/mont.png";
+print "$cmd\n" if $debug; `$cmd`;
+
+# Add the title
+print "Adding title\n" unless $quiet;
+$cmd = "convert -box white -stroke green -pointsize 16 @DrawText ${tmpdir}/mont.png ${output}";
+print "$cmd\n" if $debug; `$cmd`;
+
+print "Done\n" unless $quiet;
+
+# end of function
+
+sub make_hemi {
+  my ($surface, $temp_output, $pos) = @_;
+  
+  my $cmd = "";
+  my $viewdir = "";
+  if ($pos eq 'default') {
+    $viewdir = "";
+  } else {
+    $viewdir = "-$pos";
+  }
+
+  $cmd = "ray_trace -shadows -output ${temp_output} ${surface} -bg white -crop ${viewdir}";
+  print "$cmd\n" if $debug; `$cmd`;
+}
+
+sub make_surface {
+  my ($left_hemi, $right_hemi, $temp_output, $pos) = @_;
+  
+  my $cmd = "";
+  my $viewdir = "";
+  if ($pos eq 'default') {
+    $viewdir = "";
+  } else {
+    $viewdir = "-$pos";
+  }
+
+  $cmd = "ray_trace -shadows -output ${temp_output} ${left_hemi} ${right_hemi} -bg white -crop ${viewdir}";
+  print "$cmd\n" if $debug; `$cmd`;
+}
+
+
+

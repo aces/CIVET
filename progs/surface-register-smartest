@@ -136,8 +136,8 @@ close(INOBJ);
 #then we blur the source and target fields using diffusion smoothing
 if (!$source_blur==0) { 
   if (!(-e  $source_field_blur) ) {
-    &do_cmd("diffuse", "-kernel", $source_blur,"-parametric", 0, 
-            "-iterations", 500, $source_obj, $source_field, $source_field_blur);
+    &do_cmd("depth_potential", "-smooth", $source_blur, $source_field,
+            $source_obj, $source_field_blur);
   }
 } else {
   $source_field_blur=$source_field;
@@ -145,8 +145,8 @@ if (!$source_blur==0) {
 
 if (!$target_blur==0) { 
   if (!(-e  $target_field_blur) ) {
-    &do_cmd("diffuse", "-kernel", $target_blur, "-parametric", 0, 
-            "-iterations", 500, $target_obj, $target_field, $target_field_blur);
+    &do_cmd("depth_potential", "-smooth", $target_blur, $target_field,
+            $target_obj, $target_field_blur);
   }
 } else{
   $target_field_blur= $target_field;
@@ -214,10 +214,11 @@ while(!$doneflag) {
       $doneflag=1;
     }
 
-    print "Fit Diagnostics,Iteration: ${iteration}, ",
+    print "Fit Diagnostics,Iteration: ", sprintf( "%3d, ", ${iteration} ),
           ($convergence_control==1) ? " Field Dif:${fielddif}, " : "",
-          "Movement:${movement}, ", "Error:${rel_error}, ",
-          "Res:", ${sum}/${firstsum}, "\n";
+          "Movement:", sprintf( " %10.8f, ", ${movement} ), 
+          "Error:", sprintf( "%10.8f, ", ${rel_error} ),
+          "Res:", sprintf( "%10.8f", ${sum}/${firstsum} ), "\n";
   }
   if (!$doneflag) {
     &do_cmd('cp',$output_sm,$current_sm);

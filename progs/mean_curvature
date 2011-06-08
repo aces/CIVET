@@ -66,8 +66,7 @@ if( defined $transform_xfm ) {
 
 if( $fwhm gt 0 ) {
   my $output_blurred = "${TmpDir}/mc_blurred.txt";
-  &run( "diffuse", "-kernel", $fwhm, "-iterations", 1000, "-parametric", 1,
-        $mid, $output, $output_blurred );
+  &run( "depth_potential", "-smooth", $fwhm, $output, $mid, $output_blurred );
   &run( "mv", "-f", $output_blurred, $output );
 }
 

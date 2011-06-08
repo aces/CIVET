@@ -81,7 +81,6 @@ sub new {
     $image->{linmodel} = "${$models}->{RegLinDir}/${$models}->{RegLinModel}";
     $image->{nlinmodel} = "${$models}->{RegNLDir}/${$models}->{RegNLModel}";
     $image->{surfregmodel} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
-    $image->{surfregdataterm} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
     $image->{surface_atlas}{left} = "${$models}->{SurfAtlasLeft}";
     $image->{surface_atlas}{right} = "${$models}->{SurfAtlasRight}";
     $image->{surfmask} = "${$models}->{SurfaceMaskDir}/${$models}->{SurfaceMask}";
@@ -243,8 +242,6 @@ sub new {
 
       # Define surface registration files.
       my $sr_dir = "${Base_Dir}/$image->{directories}{SR}";
-      $image->{dataterm}{left} = "${surf_dir}/${prefix}_${dsid}_left_dataterm.vv";
-      $image->{dataterm}{right} = "${surf_dir}/${prefix}_${dsid}_right_dataterm.vv";
       $image->{surface_map}{left} = "${sr_dir}/${prefix}_${dsid}_left_surfmap.sm";
       $image->{surface_map}{right} = "${sr_dir}/${prefix}_${dsid}_right_surfmap.sm";
 
@@ -323,6 +320,8 @@ sub new {
     $image->{verify} = "${verify_dir}/${prefix}_${dsid}_verify.png";
     $image->{verify_clasp} = "${verify_dir}/${prefix}_${dsid}_clasp.png";
     $image->{verify_atlas} = "${verify_dir}/${prefix}_${dsid}_atlas.png";
+    $image->{verify_surfsurf} = "${verify_dir}/${prefix}_${dsid}_surfsurf.png";
+    $image->{verify_laplace} = "${verify_dir}/${prefix}_${dsid}_laplace.png";
     $image->{skull_mask_nat_stx} = "${tmp_dir}/${prefix}_${dsid}_skull_mask_native_stx.mnc";
     $image->{t1_nl_final} = "${Base_Dir}/$image->{directories}{FINAL}/${prefix}_${dsid}_t1_nl.mnc";
     $image->{surface_qc} = "${verify_dir}/${prefix}_${dsid}_surface_qc.txt";
@@ -476,9 +475,6 @@ sub validate_options {
     if( ! -e $image->{surfregmodel} ) {
       die "ERROR: Surface registration model $image->{surfregmodel} must exist.\n";
     }
-    if( ! -e $image->{surfregdataterm} ) {
-      die "ERROR: Surface registration model $image->{surfregdataterm} must exist.\n";
-    }
   }
 
   if( ! -e $image->{template} ) {
@@ -522,7 +518,6 @@ sub print_options {
   print PIPE "Model for linear registration is\n  $image->{linmodel}\n";
   print PIPE "Model for non-linear registration is\n  $image->{nlinmodel}\n";
   print PIPE "Model for surface registration is\n  $image->{surfregmodel}\n";
-  print PIPE "Dataterm for surface registration is\n  $image->{surfregdataterm}\n";
   print PIPE "Surface mask for linear registration is\n  $image->{surfmask}\n";
   print PIPE "Surface parcellation atlas (left hemisphere) is\n  $image->{surface_atlas}{left}\n";
   print PIPE "Surface parcellation atlas (right hemisphere) is\n  $image->{surface_atlas}{right}\n";
