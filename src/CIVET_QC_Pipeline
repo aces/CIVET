@@ -562,7 +562,7 @@ foreach my $dsid (@dsids) {
     my $gray_left = $image->{gray}{left};
     if( -e $white_left && -e $gray_left ) {
       my @ret = `check_surf_surf_intersect $white_left $gray_left`;
-      $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
+      $ret[2] =~ /Number of surface-surface intersections = (\d+)/;
       my $left_inter = $1;
       $infoline .= "$left_inter ";
       if( $left_inter < 500 ) {
@@ -589,7 +589,7 @@ foreach my $dsid (@dsids) {
     my $gray_right = $image->{gray}{right};
     if( -e $white_right && -e $gray_right ) {
       my @ret = `check_surf_surf_intersect $white_right $gray_right`;
-      $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
+      $ret[2] =~ /Number of surface-surface intersections = (\d+)/;
       my $right_inter = $1;
       $infoline .= "$right_inter ";
       if( $right_inter < 500 ) {
