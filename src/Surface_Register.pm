@@ -29,10 +29,6 @@ sub create_pipeline {
     my $left_surfmap = ${$image}->{surface_map}{left};
     my $right_surfmap = ${$image}->{surface_map}{right};
 
-          prereqs => $Prereqs } );
-
-          prereqs => $Prereqs } );
-
 # ---------------------------------------------------------------------------
 #  Surface registration to left+right hemispheric averaged model.
 # ---------------------------------------------------------------------------
