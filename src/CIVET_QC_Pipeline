@@ -225,6 +225,8 @@ $html .= "<tr bgcolor=\"\#cccccc\">" .
          "<th>GMsurf</th>" .
          "<th>SRLeft</th>" .
          "<th>SRRight</th>" .
+         "<th>SSLeft</th>" .
+         "<th>SSRight</th>" .
          "<th>GIleft</th>" .
          "<th>GIright</th>" .
          "<th>GIfull</th>" .
@@ -257,6 +259,12 @@ my $count_surfreg_left = 0.0;
 my $avg_surfreg_right = 0.0;
 my $stddev_surfreg_right = 0.0;
 my $count_surfreg_right = 0.0;
+my $avg_surfsurf_left = 0.0;
+my $stddev_surfsurf_left = 0.0;
+my $count_surfsurf_left = 0.0;
+my $avg_surfsurf_right = 0.0;
+my $stddev_surfsurf_right = 0.0;
+my $count_surfsurf_right = 0.0;
 
 my $count = 0;
 foreach my $dsid (@dsids) {
@@ -501,7 +509,7 @@ foreach my $dsid (@dsids) {
     my $mid_rsl_left = $image->{mid_surface_rsl}{left};
     if( -e $mid_rsl_left ) {
       my @ret = `check_self_intersect $mid_rsl_left`;
-      $ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
+      $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
       my $left_inter = $1;
       $infoline .= "$left_inter ";
       if( $left_inter < 500 ) {
@@ -527,7 +535,7 @@ foreach my $dsid (@dsids) {
     my $mid_rsl_right = $image->{mid_surface_rsl}{right};
     if( -e $mid_rsl_right ) {
       my @ret = `check_self_intersect $mid_rsl_right`;
-      $ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
+      $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
       my $right_inter = $1;
       $infoline .= "$right_inter ";
       if( $right_inter < 500 ) {
@@ -549,7 +557,61 @@ foreach my $dsid (@dsids) {
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 14: gyrification index for left hemisphere
+    # Columns 14: number of white-gray surface-surface intersections on left hemisphere
+    my $white_left = $image->{cal_white}{left};
+    my $gray_left = $image->{gray}{left};
+    if( -e $white_left && -e $gray_left ) {
+      my @ret = `check_surf_surf_intersect $white_left $gray_left`;
+      $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
+      my $left_inter = $1;
+      $infoline .= "$left_inter ";
+      if( $left_inter < 500 ) {
+        $avg_surfsurf_left += $left_inter;
+        $stddev_surfsurf_left += $left_inter*$left_inter;
+        $count_surfsurf_left++;
+      }
+      if( $left_inter >= 500 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( $left_inter >= 250 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $left_inter . "</td> ";
+    } else {
+      $infoline .= " 0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 15: number of white-gray surface-surface intersections on right hemisphere
+    my $white_right = $image->{cal_white}{right};
+    my $gray_right = $image->{gray}{right};
+    if( -e $white_right && -e $gray_right ) {
+      my @ret = `check_surf_surf_intersect $white_right $gray_right`;
+      $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
+      my $right_inter = $1;
+      $infoline .= "$right_inter ";
+      if( $right_inter < 500 ) {
+        $avg_surfsurf_right += $right_inter;
+        $stddev_surfsurf_right += $right_inter*$right_inter;
+        $count_surfsurf_right++;
+      }
+      if( $right_inter >= 500 ) {
+        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+      } elsif( $right_inter >= 250 ) {
+        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+      } else {
+        $htmlline .= "<td>";
+      }
+      $htmlline .= $right_inter . "</td> ";
+    } else {
+      $infoline .= " 0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Columns 16: gyrification index for left hemisphere
     my $gi_left = $image->{gyrification_index}{left};
     if( -e $gi_left ) {
       open (IDFILE, $gi_left);
@@ -565,7 +627,7 @@ foreach my $dsid (@dsids) {
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 15: gyrification index for right hemisphere
+    # Columns 17: gyrification index for right hemisphere
     my $gi_right = $image->{gyrification_index}{right};
     if( -e $gi_right ) {
       open (IDFILE, $gi_right);
@@ -581,7 +643,7 @@ foreach my $dsid (@dsids) {
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 16: gyrification index for left+right hemispheres combined
+    # Columns 18: gyrification index for left+right hemispheres combined
     my $gi_full = $image->{gyrification_index}{full};
     if( -e $gi_full ) {
       open (IDFILE, $gi_full);
@@ -624,6 +686,8 @@ foreach my $dsid (@dsids) {
     print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_verify.png\"></td></tr>\n";
     print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_clasp.png\"></td></tr>\n";
     print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_atlas.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_laplace.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_surfsurf.png\"></td></tr>\n";
     print FILE "</table>\n";
     close FILE;
 
@@ -640,6 +704,8 @@ $avg_gm_surf /= $count_gm_wm_surf if( $count_gm_wm_surf );
 $avg_wm_surf /= $count_gm_wm_surf if( $count_gm_wm_surf );
 $avg_surfreg_left /= $count_surfreg_left if( $count_surfreg_left );
 $avg_surfreg_right /= $count_surfreg_right if( $count_surfreg_right );
+$avg_surfsurf_left /= $count_surfsurf_left if( $count_surfsurf_left );
+$avg_surfsurf_right /= $count_surfsurf_right if( $count_surfsurf_right );
 
 $html .= "<tr> </tr> ";
 $html .= "<tr bgcolor=\"#dddddd\">" .
@@ -653,6 +719,8 @@ $html .= "<tr bgcolor=\"#dddddd\">" .
          "<td>" . sprintf( "%5.2f", $avg_gm_surf ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $avg_surfreg_left ) . "</td>" .
          "<td>" . sprintf( "%5.2f", $avg_surfreg_right ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $avg_surfsurf_left ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $avg_surfsurf_right ) . "</td>" .
          "<td></td> <td></td> <td></td>" .
          "</tr>\n";
 
@@ -671,6 +739,10 @@ $stddev_surfreg_left = sqrt( $stddev_surfreg_left/$count_surfreg_left -
                               $avg_surfreg_left*$avg_surfreg_left ) if( $count_surfreg_left );
 $stddev_surfreg_right = sqrt( $stddev_surfreg_right/$count_surfreg_right -
                               $avg_surfreg_right*$avg_surfreg_right ) if( $count_surfreg_right );
+$stddev_surfsurf_left = sqrt( $stddev_surfsurf_left/$count_surfsurf_left -
+                              $avg_surfsurf_left*$avg_surfsurf_left ) if( $count_surfsurf_left );
+$stddev_surfsurf_right = sqrt( $stddev_surfsurf_right/$count_surfsurf_right -
+                              $avg_surfsurf_right*$avg_surfsurf_right ) if( $count_surfsurf_right );
 
 $html .= "<tr bgcolor=\"#dddddd\">" .
          "<th>StdDev</th> <td></td> <td></td> <td></td> <td></td> " .
@@ -683,6 +755,8 @@ $html .= "<tr bgcolor=\"#dddddd\">" .
          "<td>" . sprintf( "%5.2f", $stddev_gm_surf ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $stddev_surfreg_left ) . "</td>" .
          "<td>" . sprintf( "%5.2f", $stddev_surfreg_right ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $stddev_surfsurf_left ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $stddev_surfsurf_right ) . "</td>" .
          "<td></td> <td></td> <td></td>" .
          "</tr>\n";
 $html .= "</table>";
@@ -860,9 +934,24 @@ $html .= "<table>\n" .
          "mid surface as a result of surface registration. </td></tr>\n" .
          "</table>\n";
 
-# not meaningful here in this graph
-# $avg_surfreg_left /= $count_surfreg_left if( $count_surfreg_left );
-# $avg_surfreg_right /= $count_surfreg_right if( $count_surfreg_right );
+# ----------------------------------------------------------------------------------------------
+print FILE "# Number of white-gray surface-surface intersections\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "set key\n";
+print FILE "set title \"Number of white-gray surface-surface intersections\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"Number of intersections\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/SurfSurfInter.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 14 t \"Left\" w po 1, " .
+           "\"${qc_dir}/civet_${prefix}.dat\" u 15 t \"Right\" w po 2\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"SurfSurfInter.png\"> </td></tr>\n" .
+         "<tr> <td> Figure 9: </td> <td> Number of white-gray surface-surface intersections. " .
+         "</td></tr>\n" .
+         "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
 print FILE "# Gyrification index for the left hemisphere\n";
@@ -874,11 +963,11 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"GI\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/GILeft.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 14 w po\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 16 w po\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"GILeft.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 9: </td> <td> Gyrification index for the left hemisphere." .
+         "<tr> <td> Figure 10: </td> <td> Gyrification index for the left hemisphere." .
          "</td></tr>\n" .
          "</table>\n";
 
@@ -892,11 +981,11 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"GI\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/GIRight.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 15 w po\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 17 w po\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"GIRight.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 10: </td> <td> Gyrification index for the right hemisphere." .
+         "<tr> <td> Figure 11: </td> <td> Gyrification index for the right hemisphere." .
          "</td></tr>\n" .
          "</table>\n";
 
@@ -910,11 +999,11 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"GI\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/GIFull.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 16 w po\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 18 w po\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"GIFull.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 11: </td> <td> Gyrification index for the full brain." .
+         "<tr> <td> Figure 12: </td> <td> Gyrification index for the full brain." .
          "</td></tr>\n" .
          "</table>\n";
 
