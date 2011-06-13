@@ -62,7 +62,12 @@ if ( -e $input ) {
 
   my $tmp = "${tmpdir}/nuc.mnc";
 
-  my $tmp_input = $input;
+  # Expand borders of image to prevent some N3 instabilities (1.10.1).
+  # I know, this is insane.
+
+  my $tmp_input = "${tmpdir}/nuc_tmp_input.mnc";
+  &run( "autocrop", "-quiet", "-clobber", "-isoexpand", 5, 
+        $input, $tmp_input );
 
   # Use a mask if one is given. Resample the mask to be like the input.
   # This can happen if a model's mask is used which does not match the
@@ -71,7 +76,7 @@ if ( -e $input ) {
   my @mask_opts = ();
   if( $mask ne "none" and ( -e $mask ) ) {
     my $mask_tmp = "${tmpdir}/nuc_mask.mnc";
-    &run( "mincresample", "-like", $input, "-nearest_neighbour",
+    &run( "mincresample", "-like", $tmp_input, "-nearest_neighbour",
           $mask, $mask_tmp );
     push @mask_opts, ( "-mask", $mask_tmp );
   }
@@ -98,6 +103,12 @@ if ( -e $input ) {
   my $imp_file = $output;
   $imp_file =~ s/\.[^\.]*$/\.imp/;
   &run( "rm", "-f", $imp_file );
+
+  # By law of conservation of insanities, shrink borders of image 
+  # back to initial size.
+
+  &run( "mincresample", "-quiet", "-clobber", "-like", $input, $tmp, $output );
+  &run( "mv", "-f", $output, $tmp );
 
   # remove high extremum (low extremum - background - will be taken care of by the mask).
   my $top;
