@@ -78,7 +78,7 @@ foreach my $pos ('top', 'bottom') {
   push(@mont_args, "${tmpdir}/gm_${pos}.rgb");
 }
 
-foreach my $pos ('default', 'right', 'left') {
+foreach my $pos ('flipped', 'right', 'left') {
   print "Making right gm ${pos} surface\n" unless $quiet;
   make_hemi($gm_right_clr, "${tmpdir}/gm_right_$pos.rgb", $pos);
   push(@mont_args, "${tmpdir}/gm_right_$pos.rgb");
@@ -114,9 +114,13 @@ sub make_hemi {
   my $cmd = "";
   my $viewdir = "";
   if ($pos eq 'default') {
-    $viewdir = "";
+    $viewdir = "-view 0.77 -0.18 -0.6 0.55 0.6 0.55";
   } else {
-    $viewdir = "-$pos";
+    if ($pos eq 'flipped') {
+      $viewdir = "-view -0.77 -0.18 -0.6 -0.55 0.6 0.55";
+    } else {
+      $viewdir = "-$pos";
+    }
   }
 
   $cmd = "ray_trace -shadows -output ${temp_output} ${surface} -bg white -crop ${viewdir}";

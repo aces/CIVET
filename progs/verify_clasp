@@ -45,7 +45,7 @@ foreach my $pos ('top', 'bottom') {
 
 # ROW 2: white right hemi surfaces + white front and back views
 $ypos += $tilesize;
-foreach my $pos ('default', 'right', 'left') {
+foreach my $pos ('flipped', 'right', 'left') {
   print "Making right white ${pos} surface\n" unless $quiet;
   make_hemi($white_right, "${tmpdir}/white_right_$pos.rgb", $pos);
   push(@mont_args, "${tmpdir}/white_right_$pos.rgb");
@@ -75,7 +75,7 @@ foreach my $pos ('top', 'bottom') {
 $ypos += $tilesize - 0.10*$tilesize;
 push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$rg_title\"";
 $ypos += 0.10*$tilesize;
-foreach my $pos ('default', 'right', 'left') {
+foreach my $pos ('flipped', 'right', 'left') {
   print "Making right gray ${pos} surface\n" unless $quiet;
   make_hemi($gray_right, "${tmpdir}/gray_right_$pos.rgb", $pos);
   push(@mont_args, "${tmpdir}/gray_right_$pos.rgb");
@@ -136,7 +136,7 @@ if( -e $thickness_left && $thickness_left ne "none" &&
     push(@mont_args, "${tmpdir}/mid_${pos}.rgb");
   }
 
-  foreach my $pos ('default', 'right', 'left') {
+  foreach my $pos ('flipped', 'right', 'left') {
     print "Making right mid ${pos} surface\n" unless $quiet;
     make_hemi($mid_rms_right, "${tmpdir}/mid_right_$pos.rgb", $pos);
     push(@mont_args, "${tmpdir}/mid_right_$pos.rgb");
@@ -171,9 +171,13 @@ sub make_hemi {
   my $cmd = "";
   my $viewdir = "";
   if ($pos eq 'default') {
-    $viewdir = "";
+    $viewdir = "-view 0.77 -0.18 -0.6 0.55 0.6 0.55";
   } else {
-    $viewdir = "-$pos";
+    if ($pos eq 'flipped') {
+      $viewdir = "-view -0.77 -0.18 -0.6 -0.55 0.6 0.55";
+    } else {
+      $viewdir = "-$pos";
+    }
   }
 
   $cmd = "ray_trace -shadows -output ${temp_output} ${surface} -bg white -crop ${viewdir}";
