@@ -40,7 +40,7 @@ sub create_pipeline {
           outputs => [$left_surfmap],
           args => ["geom_surfreg.pl", "-clobber", "-min_control_mesh", "320",
                    "-max_control_mesh", "81920", "-blur_coef", "1.25", 
-                   "-neighbourhood_radius", "2.8", "-target_spacing", "1.9", 
+                   "-neighbourhood_radius", "1.8", "-target_spacing", "1.9", 
                    $surfreg_model, $left_mid_surface, $left_surfmap ],
           prereqs => $Prereqs });
 
@@ -51,7 +51,7 @@ sub create_pipeline {
           outputs => [$right_surfmap],
           args => ["geom_surfreg.pl", "-clobber", "-min_control_mesh", "320",
                    "-max_control_mesh", "81920", "-blur_coef", "1.25",
-                   "-neighbourhood_radius", "2.8", "-target_spacing", "1.9",
+                   "-neighbourhood_radius", "1.8", "-target_spacing", "1.9",
                    $surfreg_model, $right_mid_surface, $right_surfmap ],
           prereqs => $Prereqs });
 

@@ -174,7 +174,7 @@ if( -e $nativeT2 or -e $nativePD ) {
   }
 
   # concatenate transforms to get T2/PD to tal transform
-  Spawn(["xfmconcat", $T2toT1, $T1total, $T2PDtotal]);
+  Spawn(["xfmconcat", '-clobber', $T2toT1, $T1total, $T2PDtotal]);
 }
 
 ########################### done! ############################

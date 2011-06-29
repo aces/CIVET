@@ -1,4 +1,6 @@
 2011-06-08  Claude Lepage <claude@bic.mni.mcgill.ca>
+    * New model Cerebellum_Ventricles_SubCortical_Mask.mnc for
+      masking regions
     * Marching-cubes algorithm for extraction of white surface
     * Improved node movement in surface fit program
     * Corrected functional for Laplacian constraint in surface
