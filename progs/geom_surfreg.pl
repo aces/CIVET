@@ -240,7 +240,7 @@ for ($i=0; $i<=$#conf; $i++) {
     }
     print STDOUT " | geometric blur factor:          $conf[$i]{geom_factor}\n".
                  " | dataterm blur factor:           $conf[$i]{blur_factor}\n".
-                 " | depth potential alpha:          $conf[$i]{alpah}\n".
+                 " | depth potential alpha:          $conf[$i]{alpha}\n".
                  " | search radius:                  $conf[$i]{search_radius}\n".
                  " | penalty ratio:                  $conf[$i]{penalty_ratio}\n".
                  " | source blur:                    $source_blur mm\n".
