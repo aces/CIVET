@@ -34,40 +34,43 @@ print "${me} @{ARGV}\n";
 
 my $verbose   = 0;
 my $clobber   = 0;
-my $control_mesh_min =20;
-my $control_mesh_max =10000000;
-my $mesh_smooth =1;
-my $blur_coef =1.25;
-my $neighbourhood_radius =2.3;
-my $target_spacing = undef;
+my $control_mesh_min = 320;
+my $control_mesh_max = 81920;
+my $mesh_smooth = 1;
+my $blur_coef = 1.25;
+my $neighbourhood_radius = 1.8;
+my $target_spacing = 1.9;
 my $max_blur = undef;
 my $keep_blur = 0;  
 
 my @conf = (
-   { control_size     => 20,
+   { control_size     => 20,     # This step should never be used.
      target_size      => 81920,
      geom_factor      => 150,
      blur_factor      => 64.0,
+     alpha            => 0.05,
      search_radius    => 1.5,
      penalty_ratio    => 0.05,
      max_ngh_rad      => 1.1,
      conv_control     => 0,
      conv_thresh      => 50 },
 
-   { control_size     => 80,
+   { control_size     => 80,     # This step not very reliable. Kind of unstable.
      target_size      => 81920,
-     geom_factor      => 150,
-     blur_factor      => 32.0,
-     search_radius    => 0.75,
+     geom_factor      => 200,
+     blur_factor      => 24.0,
+     alpha            => 0.001,
+     search_radius    => 0.25,      # 0.75,
      penalty_ratio    => 0.05,
-     max_ngh_rad      => 1.9,
+     max_ngh_rad      => 2.3,
      conv_control     => 0,
-     conv_thresh      => 50},
+     conv_thresh      => 20},
 
    { control_size     => 320,
      target_size      => 81920,
      geom_factor      => 150,
-     blur_factor      => 20.0,
+     blur_factor      => 16.0,
+     alpha            => 0.00625,
      search_radius    => 0.375,
      penalty_ratio    => 0.05,
      max_ngh_rad      => undef,
@@ -78,6 +81,7 @@ my @conf = (
      target_size      => 81920,
      geom_factor      => 150,
      blur_factor      => 8.0,
+     alpha            => 0.0125,
      search_radius    => 0.325,
      penalty_ratio    => 0.05,
      max_ngh_rad      => undef,
@@ -88,6 +92,7 @@ my @conf = (
      target_size      => 81920,
      geom_factor      => 120,
      blur_factor      => 4.0,
+     alpha            => 0.025,
      search_radius    => 0.25,
      penalty_ratio    => 0.05,
      max_ngh_rad      => undef,
@@ -98,6 +103,7 @@ my @conf = (
      target_size      => 81920,
      geom_factor      => 100,
      blur_factor      => 2.0,
+     alpha            => 0.05,
      search_radius    => 0.225,
      penalty_ratio    => 0.10,
      max_ngh_rad      => undef,
@@ -108,6 +114,7 @@ my @conf = (
      target_size      => 81920,
      geom_factor      => 40,
      blur_factor      => 1.0,
+     alpha            => 0.10,
      search_radius    => 0.20,
      penalty_ratio    => 0.10,
      max_ngh_rad      => undef,
@@ -118,6 +125,7 @@ my @conf = (
      target_size      => 81920,
      geom_factor      => 0,
      blur_factor      => 1.0,
+     alpha            => 0.10,
      search_radius    => 0.15,
      penalty_ratio    => 0.10,
      max_ngh_rad      => undef,
@@ -232,6 +240,7 @@ for ($i=0; $i<=$#conf; $i++) {
     }
     print STDOUT " | geometric blur factor:          $conf[$i]{geom_factor}\n".
                  " | dataterm blur factor:           $conf[$i]{blur_factor}\n".
+                 " | depth potential alpha:          $conf[$i]{alpah}\n".
                  " | search radius:                  $conf[$i]{search_radius}\n".
                  " | penalty ratio:                  $conf[$i]{penalty_ratio}\n".
                  " | source blur:                    $source_blur mm\n".
@@ -266,10 +275,12 @@ for ($i=0; $i<=$#conf; $i++) {
              $conf[$i]{geom_factor} );
     &do_cmd( 'adapt_object_mesh', $target_obj, $target_obj_blur, 99999999, 
              $conf[$i]{geom_factor} );
-    &do_cmd( 'depth_potential', $source_obj_blur, '-alpha', 0.05, '-depth_potential',
-             $source_field_blur );
-    &do_cmd( 'depth_potential', $target_obj_blur, '-alpha', 0.05, '-depth_potential',
-             $target_field_blur );
+    # small alpha: means more damping/blurring
+    # large alpha: means less damping/blurring, sharper signal
+    &do_cmd( 'depth_potential', $source_obj_blur, '-alpha', $conf[$i]{alpha}, 
+             '-depth_potential', $source_field_blur );
+    &do_cmd( 'depth_potential', $target_obj_blur, '-alpha', $conf[$i]{alpha},
+             '-depth_potential', $target_field_blur );
 
     &do_cmd($surf_reg_smart, "-verbose", "-clobber", $keep_blur_cmd, "-source_blur",
             $source_blur, "-target_blur", $target_blur,
