@@ -39,6 +39,8 @@ sub new {
     my $correctPVE = shift;
     my $maskType = shift;
     my $interpMethod = shift;
+    my $headheight = shift;
+    my $bloodvessels = shift;
     my $nuc_dist = shift;
     my $nuc_damping = shift;
     my $lsqtype = shift;
@@ -62,6 +64,8 @@ sub new {
     $image->{correctPVE} = $correctPVE;
     $image->{maskType} = $maskType;
     $image->{interpMethod} = $interpMethod;
+    $image->{headheight} = $headheight;
+    $image->{removebloodvessels} = $bloodvessels;
     $image->{nuc_dist} = $nuc_dist;
     $image->{nuc_damping} = $nuc_damping;
     $image->{lsqtype} = $lsqtype;
@@ -81,9 +85,13 @@ sub new {
     $image->{linmodel} = "${$models}->{RegLinDir}/${$models}->{RegLinModel}";
     $image->{nlinmodel} = "${$models}->{RegNLDir}/${$models}->{RegNLModel}";
     $image->{surfregmodel} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
+    $image->{surfregdataterm} = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
     $image->{surface_atlas}{left} = "${$models}->{SurfAtlasLeft}";
     $image->{surface_atlas}{right} = "${$models}->{SurfAtlasRight}";
     $image->{surfmask} = "${$models}->{SurfaceMaskDir}/${$models}->{SurfaceMask}";
+    $image->{tagdir} = "${$models}->{TagFileDir}";
+    $image->{tagfile} = "${$models}->{TagFile}";
+    $image->{bgtagfile} = "${$models}->{bgTagFile}";
 
     $image->{template} = $template;
 
@@ -144,11 +152,11 @@ sub new {
     $image->{dilated_cls_mask} = "${tmp_dir}/${prefix}_${dsid}_skull_mask_dilated.mnc";
     $image->{cls_clean} = "${cls_dir}/${prefix}_${dsid}_cls_clean.mnc";
     $image->{cls_volumes} = "${cls_dir}/${prefix}_${dsid}_cls_volumes.dat";
-    $image->{artefact} = "${cls_dir}/${prefix}_${dsid}_artefact.mnc";
     $image->{pve_prefix} = "${cls_dir}/${prefix}_${dsid}_pve";
     $image->{pve_wm} = "$image->{pve_prefix}_wm.mnc";
     $image->{pve_gm} = "$image->{pve_prefix}_gm.mnc";
     $image->{pve_csf} = "$image->{pve_prefix}_csf.mnc";
+    $image->{pve_disc} = "$image->{pve_prefix}_disc.mnc";
     $image->{cls_correct} = "$image->{pve_prefix}_classify.mnc";
     $image->{curve_prefix} = "${tmp_dir}/${prefix}_${dsid}_curve";
     $image->{curve_cg} = "$image->{curve_prefix}_cg.mnc";
@@ -174,8 +182,8 @@ sub new {
     } else {
       $image->{user_mask} = "${Source_Dir}/${prefix}_${dsid}_mask.mnc",
     }
+    $image->{skull_mask_native} = "${Base_Dir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_mask.mnc";
     $image->{brain_mask} = "${mask_dir}/${prefix}_${dsid}_brain_mask.mnc";
-    $image->{skull_mask_native} = "${mask_dir}/${prefix}_${dsid}_skull_mask_native.mnc";
     $image->{skull_mask_tal} = "${mask_dir}/${prefix}_${dsid}_skull_mask.mnc";
     $image->{cortex} = "${mask_dir}/${prefix}_${dsid}_cortex.obj";
 
@@ -242,6 +250,8 @@ sub new {
 
       # Define surface registration files.
       my $sr_dir = "${Base_Dir}/$image->{directories}{SR}";
+      $image->{dataterm}{left} = "${surf_dir}/${prefix}_${dsid}_left_dataterm.vv";
+      $image->{dataterm}{right} = "${surf_dir}/${prefix}_${dsid}_right_dataterm.vv";
       $image->{surface_map}{left} = "${sr_dir}/${prefix}_${dsid}_left_surfmap.sm";
       $image->{surface_map}{right} = "${sr_dir}/${prefix}_${dsid}_right_surfmap.sm";
 
@@ -301,10 +311,10 @@ sub new {
         $image->{lobe_mc}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_mc_right.dat";
       }
       if( $image->{resamplesurfaces} ) {
-        $image->{rsl_lobe_areas}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_left.dat";
-        $image->{rsl_lobe_areas}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_right.dat";
-        $image->{rsl_lobe_volumes}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_left.dat";
-        $image->{rsl_lobe_volumes}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_right.dat";
+        $image->{rsl_lobe_areas}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_$image->{rsl_area_fwhm}mm_left.dat";
+        $image->{rsl_lobe_areas}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_areas_$image->{rsl_area_fwhm}mm_right.dat";
+        $image->{rsl_lobe_volumes}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_$image->{rsl_volume_fwhm}mm_left.dat";
+        $image->{rsl_lobe_volumes}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_volumes_$image->{rsl_volume_fwhm}mm_right.dat";
       }
 
       # Define gyrification index files.
@@ -322,10 +332,7 @@ sub new {
     $image->{verify_atlas} = "${verify_dir}/${prefix}_${dsid}_atlas.png";
     $image->{verify_surfsurf} = "${verify_dir}/${prefix}_${dsid}_surfsurf.png";
     $image->{verify_laplace} = "${verify_dir}/${prefix}_${dsid}_laplace.png";
-    $image->{skull_mask_nat_stx} = "${tmp_dir}/${prefix}_${dsid}_skull_mask_native_stx.mnc";
-    $image->{t1_nl_final} = "${Base_Dir}/$image->{directories}{FINAL}/${prefix}_${dsid}_t1_nl.mnc";
     $image->{surface_qc} = "${verify_dir}/${prefix}_${dsid}_surface_qc.txt";
-    $image->{brainmask_qc} = "${verify_dir}/${prefix}_${dsid}_brainmask_qc.txt";
     $image->{classify_qc} = "${verify_dir}/${prefix}_${dsid}_classify_qc.txt";
 
     return( $image );
@@ -475,6 +482,9 @@ sub validate_options {
     if( ! -e $image->{surfregmodel} ) {
       die "ERROR: Surface registration model $image->{surfregmodel} must exist.\n";
     }
+    if( ! -e $image->{surfregdataterm} ) {
+      die "ERROR: Surface registration model $image->{surfregdataterm} must exist.\n";
+    }
   }
 
   if( ! -e $image->{template} ) {
@@ -509,6 +519,7 @@ sub print_options {
     if( $image->{correctPVE} );
   print PIPE "Brain masking is $image->{maskType}\n";
   print PIPE "Interpolation method from native to stereotaxic is $image->{interpMethod}\n";
+  print PIPE "Head height for neck cropping is $image->{headheight}mm\n";
   print PIPE "N3 distance is $image->{nuc_dist}mm\n";
   print PIPE "N3 damping is $image->{nuc_damping}mm\n";
   print PIPE "Linear registration type is $image->{lsqtype}\n";
@@ -518,6 +529,7 @@ sub print_options {
   print PIPE "Model for linear registration is\n  $image->{linmodel}\n";
   print PIPE "Model for non-linear registration is\n  $image->{nlinmodel}\n";
   print PIPE "Model for surface registration is\n  $image->{surfregmodel}\n";
+  print PIPE "Dataterm for surface registration is\n  $image->{surfregdataterm}\n";
   print PIPE "Surface mask for linear registration is\n  $image->{surfmask}\n";
   print PIPE "Surface parcellation atlas (left hemisphere) is\n  $image->{surface_atlas}{left}\n";
   print PIPE "Surface parcellation atlas (right hemisphere) is\n  $image->{surface_atlas}{right}\n";

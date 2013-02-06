@@ -1,8 +1,10 @@
 #! /usr/bin/env perl
 #
 # linear fitting using parameters optimised by Claude Lepage,
-# using a brain mask for the source and the target. This was
-# greatly inspired by best1stepnlreg.pl by Steve Robbins.
+# using a brain mask for the source and the target. The best
+# way to run this script is to use -nmi with only the target
+# brain mask applied on the last fitting stage.
+# This was greatly inspired by best1stepnlreg.pl by Steve Robbins.
 #
 # Claude Lepage - claude@bic.mni.mcgill.ca
 # Andrew Janke - rotor@cmr.uq.edu.au
@@ -24,40 +26,39 @@ use File::Temp qw/ tempdir /;
 my @conf = (
 
    { type        => "blur",
-     # trans       => [qw/-est_translations -est_center -pat/],
      trans       => [qw/-est_translations/],
      blur_fwhm   => 16,
      steps       => [qw/8 8 8/],
-     tolerance   => 0.01,
+     tolerance   => 0.001,
      simplex     => 32 },
 
-   { type        => "blur",
+   { type        => "blur",       # -lsq7 scaling only
      trans       => undef,
      blur_fwhm   => 8,
      steps       => [qw/4 4 4/],
-     tolerance   => 0.004,
+     tolerance   => 0.0001,
+     simplex     => 16 },
+
+   { type        => "blur",       # -lsqXX full options
+     trans       => undef,
+     blur_fwhm   => 8,
+     steps       => [qw/4 4 4/],
+     tolerance   => 0.0001,
      simplex     => 16 },
 
    { type        => "blur",
      trans       => undef,
      blur_fwhm   => 4,
      steps       => [qw/4 4 4/],
-     tolerance   => 0.004,
+     tolerance   => 0.0001,
      simplex     => 8 },
 
-   { type        => "dxyz",
+   { type        => "blur",
      trans       => undef,
-     blur_fwhm   => 8,
-     steps       => [qw/4 4 4/],
-     tolerance   => 0.004,
+     blur_fwhm   => 2,
+     steps       => [qw/2 2 2/],
+     tolerance   => 0.0005,
      simplex     => 4 },
-
-   { type        => "dxyz",
-     trans       => undef,
-     blur_fwhm   => 4,
-     steps       => [qw/4 4 4/],
-     tolerance   => 0.004,
-     simplex     => 2 }
 
    );
 
@@ -73,7 +74,8 @@ $me = &basename($0);
    'init_xfm'  => undef,
    'source_mask' => undef,
    'target_mask' => undef,
-   'lsqtype'     => "-lsq9"
+   'lsqtype'     => "-lsq9",
+   'objective'   => "-xcorr"
    );
 
 $Help = <<HELP;
@@ -95,17 +97,23 @@ $Usage = "Usage: $me [options] source.mnc target.mnc output.xfm [output.mnc]\n".
    ["-fake", "boolean", 0, \$opt{fake},
       "do a dry run, (echo cmds only)" ],
    ["-init_xfm", "string", 1, \$opt{init_xfm},
-      "initial transformation (default identity)" ],
+      "initial transformation [default identity]" ],
    ["-source_mask", "string", 1, \$opt{source_mask},
-      "source mask to use during fitting" ],
+      "source mask to use during fitting (on last stage only)" ],
    ["-target_mask", "string", 1, \$opt{target_mask},
-      "target mask to use during fitting" ],
-   ["-lsq9", "const", "-lsq9", \$opt{lsqtype},
-      "use 9-parameter transformation (default)" ],
-   ["-lsq12", "const", "-lsq12", \$opt{lsqtype},
-      "use 12-parameter transformation (default -lsq9)" ],
+      "target mask to use during fitting (on last stage only)" ],
    ["-lsq6", "const", "-lsq6", \$opt{lsqtype},
-      "use 6-parameter transformation" ]
+      "use 6-parameter transformation" ],
+   ["-lsq7", "const", "-lsq7", \$opt{lsqtype},
+      "use 7-parameter transformation" ],
+   ["-lsq9", "const", "-lsq9", \$opt{lsqtype},
+      "use 9-parameter transformation [default]" ],
+   ["-lsq12", "const", "-lsq12", \$opt{lsqtype},
+      "use 12-parameter transformation" ],
+   ["-mi", "const", "-mi", \$opt{objective},
+      "use mutual information as objective function [default -xcorr]" ],
+   ["-nmi", "const", "-nmi", \$opt{objective},
+      "use normalized mutual information as objective function [default -xcorr]" ]
    );
 
 # Check arguments
@@ -178,29 +186,10 @@ if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
   }
 }
 
-# initial transformation supplied by the user, applied to both the 
-# source image and its mask.
+# initial transformation supplied by the user.
 
-if( defined $opt{init_xfm} ) { 
-  my $source_resampled = "${tmpdir}/${s_base}_resampled.mnc";
-  ### &do_cmd( 'mincresample', '-clobber', '-like', $source_masked, 
-  &do_cmd( 'mincresample', '-clobber', '-tfm_input_sampling',
-           '-transform', $opt{init_xfm}, $source_masked, $source_resampled );
-  $source_masked = $source_resampled;
-
-  # apply it to the mask, if it's defined
-
-  if( defined( $opt{source_mask} ) ) {
-    my $mask_resampled = "${tmpdir}/${s_base}_mask_resampled.mnc";
-    ### &do_cmd( 'mincresample', '-clobber', '-like', $opt{source_mask},
-    &do_cmd( 'mincresample', '-clobber', '-tfm_input_sampling',
-             '-nearest_neighbour', '-transform', $opt{init_xfm}, 
-             $opt{source_mask}, $mask_resampled );
-    $opt{source_mask} = $mask_resampled;
-  }
-}
-
-$prev_xfm = undef;
+$prev_xfm = ( defined $opt{init_xfm} && -e $opt{init_xfm} ) ?
+            $opt{init_xfm} : undef;
 
 # a fitting we shall go...
 for ($i=0; $i<=$#conf; $i++){
@@ -231,20 +220,34 @@ for ($i=0; $i<=$#conf; $i++){
                 "\n";
    
    # blur the masked source and target images
-   my @grad_opt = ();
-   push( @grad_opt, '-gradient' ) if( $conf[$i]{type} eq "dxyz" );
 
    if(!-e "$tmp_source\_$conf[$i]{type}.mnc") {
-     &do_cmd('mincblur', '-clobber', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
-             @grad_opt, $source_masked, $tmp_source);
+     if( $conf[$i]{type} eq "dxyz" ) {
+       # use unmasked image for gradients to avoid false gradient
+       # at border of mask if mask is not so good
+       &do_cmd('mincblur', '-clobber', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
+               -gradient, $source, $tmp_source);
+     } else {
+       &do_cmd('mincblur', '-clobber', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
+               $source_masked, $tmp_source);
+     }
    }
    if(!-e "$tmp_target\_$conf[$i]{type}.mnc") {
-     &do_cmd('mincblur', '-clobber', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
-             @grad_opt, $target_masked, $tmp_target);
+     if( $conf[$i]{type} eq "dxyz" ) {
+       # use unmasked image for gradients to avoid false gradient
+       # at border of mask if mask is not so good
+       &do_cmd('mincblur', '-clobber', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
+               -gradient, $target, $tmp_target);
+     } else {
+       &do_cmd('mincblur', '-clobber', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
+               $target_masked, $tmp_target);
+     }
    }
    
    # set up registration
-   @args = ('minctracc', '-clobber', '-xcorr', ($i==0) ? "-lsq6" : $opt{lsqtype},
+   @args = ('minctracc', '-clobber', $opt{objective},
+            ( $i==0 ) ? '-lsq6' : 
+            ( ( $i==1 && $opt{lsqtype} ne "-lsq6" ) ? '-lsq7' : $opt{lsqtype} ),
             '-step', @{$conf[$i]{steps}}, '-simplex', $conf[$i]{simplex},
             '-tol', $conf[$i]{tolerance});
 
@@ -257,8 +260,8 @@ for ($i=0; $i<=$#conf; $i++){
 
    # masks (even if the blurred image is masked, it's still preferable
    # to use the mask in minctracc)
-   push(@args, '-source_mask', $opt{source_mask} ) if defined($opt{source_mask});
-   push(@args, '-model_mask', $opt{target_mask}) if defined($opt{target_mask});
+   push(@args, '-source_mask', $opt{source_mask} ) if $i==$#conf && defined($opt{source_mask});
+   push(@args, '-model_mask', $opt{target_mask}) if $i==$#conf && defined($opt{target_mask});
    
    # add files and run registration
    push(@args, "$tmp_source\_$conf[$i]{type}.mnc", "$tmp_target\_$conf[$i]{type}.mnc", 
@@ -274,13 +277,7 @@ for ($i=0; $i<=$#conf; $i++){
    $prev_xfm = $tmp_xfm;
 }
 
-# Concatenate transformations if an initial transformation was given.
-
-if( defined $opt{init_xfm} ) { 
-  &do_cmd( 'xfmconcat', $opt{init_xfm}, $prev_xfm, $outxfm );
-} else {
-  &do_cmd( 'mv', '-f', $prev_xfm, $outxfm );
-}
+&do_cmd( 'mv', '-f', $prev_xfm, $outxfm );
 
 # resample if required
 if(defined($outfile)){

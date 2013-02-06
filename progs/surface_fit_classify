@@ -19,14 +19,18 @@ use File::Temp qw/ tempdir / ;
 use MNI::MiscUtilities qw(shellquote);
 
 # inputs:
+my $t1_final = shift;
 my $cls_correct = shift;
 my $pve_wm = shift;
 my $pve_csf = shift;
+my $pve_disc = shift;
+my $brain_mask = shift;
 my $final_callosum = shift;
 my $final_classify = shift;
 my $skel_csf = shift;
 my $nl_transform = shift;
-my $Second_model_Dir = shift;
+my $model_mask = shift;
+my $RemoveBloodVessels = shift;
 
 # make tmpdir:
 my $me = &basename($0);
@@ -44,7 +48,7 @@ $ENV{'MINC_COMPRESS'} = 0;
 
 # create $custom_mask
 
-make_custom_mask( $cls_correct, $nl_transform, $custom_mask, $Second_model_Dir );
+make_custom_mask( $cls_correct, $nl_transform, $model_mask, $custom_mask );
 
 plug_ventricles( $cls_correct, $custom_mask );
 
@@ -64,10 +68,10 @@ $ENV{'MINC_COMPRESS'} = $MINC_COMPRESS if( defined $MINC_COMPRESS );
 
 # change WM voxels in contact with CSF/BG to GM.
 
-run( "minccalc", "-quiet", "-clobber", "-byte", "-unsigned", 
+run( "minccalc", "-quiet", "-clobber", "-byte", "-unsigned",
      "-expression", "if(abs(A[0])<0.5||abs(A[0]-1)<0.5){1}else{0}",
      $classified_wm_gm_fixed, "${tmpdir}/csf_bg_mask.mnc" );
-run( "dilate_volume", "${tmpdir}/csf_bg_mask.mnc", 
+run( "dilate_volume", "${tmpdir}/csf_bg_mask.mnc",
      "${tmpdir}/csf_bg_mask.mnc", 1, 6, 1, $classified_wm_gm_fixed, 2.5, 3.5 );
 run( "minccalc", "-quiet", "-clobber",
      "-expression", "if(abs(A[0]-3)<0.5&&abs(A[1]-1)<0.5){2}else{A[0]}",
@@ -89,6 +93,17 @@ unlink( $classified_wm_gm_fixed );
 # create the csf skeleton
 
 make_csf_skel( $final_classify, $pve_csf, $skel_csf, $tmpdir );
+
+if( $RemoveBloodVessels ) {
+  my $blood_vessels = "${tmpdir}/blood_vessels.mnc";
+  my $tmp_cls = "${tmpdir}/tmp_cls.mnc";
+  remove_blood_vessels( $t1_final, $brain_mask, $cls_correct, $pve_disc,
+                        $blood_vessels );
+  run( 'minccalc', '-quiet', '-clobber', '-expression', 
+       "if(A[1]>0.5&&abs(A[0]-3)<0.5){1}else{A[0]}",
+       $final_classify, $blood_vessels, $tmp_cls );
+  run( 'mv', '-f', $tmp_cls, $final_classify );
+}
 
 # the end!
 
@@ -136,10 +151,9 @@ sub make_custom_mask {
 
   my $cls_correct = shift;
   my $nl_transform = shift;
+  my $model_mask = shift;
   my $custom_mask = shift;
-  my $Second_model_Dir = shift;
  
-  my $model_mask = "${Second_model_Dir}/Cerebellum_Ventricles_SubCortical_Mask.mnc";
   run( "mincresample", "-clobber", "-like", $cls_correct, 
        "-invert_transformation", "-nearest_neighbour",
        "-transform", $nl_transform, $model_mask, $custom_mask );
@@ -186,9 +200,9 @@ sub fix_wm {
   #                  should be if pve_csf>threshold_csf
   #   pve_wm>threshold_wm: any partial value of WM becomes 1
 
-  my $expr = "if(abs(A[1]-2)<0.45){out=0}else{if((abs(A[1]-1)<0.45&&abs(A[0]-2)<0.45)||(abs(A[1]-3)<0.45&&abs(A[0]-1)<0.45)){out=1}else{if(A[0]>1.0e-06){out=1}else{out=0}}}";
+  my $expr = "if(abs(A[1]-2)<0.45){out=0}else{if((abs(A[1]-1)<0.45&&abs(A[0]-2)<0.45)||(abs(A[1]-3)<0.45&&abs(A[0]-1)<0.45)){out=1}else{if(A[2]>1.0e-06){out=1}else{out=0}}}";
   run( "minccalc", "-byte", "-clobber", "-expr", $expr,
-       $pve_wm, $custom_mask, $pve_wm_temp );
+       $classified, $custom_mask, $pve_wm, $pve_wm_temp );
    
   run( "skel", $pve_wm_temp, $pve_wm_skel );
   unlink( $pve_wm_temp );
@@ -390,68 +404,43 @@ sub create_midline_mask {
   my $classify = shift;
   my $output = shift;
 
-  my $me = &basename($0);
-
-  my $mid_tmp = "${tmpdir}/mid_tmp.mnc";
-  my $callosum_filled  = "${tmpdir}/callosum_filled.mnc";
-  my $callosum_extra  = "${tmpdir}/callosum_extra.mnc";
-  my $white_filled_left  = "${tmpdir}/white_filled_left.mnc";
-  my $white_filled_right  = "${tmpdir}/white_filled_right.mnc";
+  my $callosum_with_bits  = "${tmpdir}/callosum_with_bits.mnc";
+  my $callosal_defrag = "${tmpdir}/callosum_defrag.mnc";
+  my $callosal_blur  = "${tmpdir}/callosal_blur.mnc";
 
   # The creation of the midline mask below will work with
   # any template (0.5mm, 1.0mm, for example), assuming that
   # the centerline voxel is at x=0.
 
-  my $dx = `mincinfo -attvalue xspace:step $classify`; chomp( $dx );
-  my $xleft = -2*$dx;
-  my $xright = 2*$dx;
-  run( "mincresample", "-clobber", "-xstart", $xleft, "-xnelements", 1,
-       $classify, $mid_tmp );
-  run( "minccalc", "-clobber", "-byte", "-expr", "out=abs(A[0]-3)<0.45",
-       $mid_tmp, $white_filled_left );
-  run( "mincdefrag", $white_filled_left, $white_filled_left, 1, 27, 1000 );
-  run( "mincdefrag", $white_filled_left, $white_filled_left, 0, 27, 1000 );
-  run( "dilate_volume", $white_filled_left, $white_filled_left, 1, 6, 1 );
-  run( "dilate_volume", $white_filled_left, $mid_tmp, 0, 6, 1 );
-  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp,
-       $white_filled_left );
+  my $filled = "${tmpdir}/filled.mnc";
+  my $mid_tmp = "${tmpdir}/mid_tmp.mnc";
+  my $midline_mask = "${tmpdir}/midline_mask.mnc";
 
-  run( "mincresample", "-clobber", "-xstart", $xright, "-xnelements", 1,
-       $classify, $mid_tmp );
-  run( "minccalc", "-clobber", "-byte", "-expr", "out=abs(A[0]-3)<0.45",
-       $mid_tmp, $white_filled_right );
-  run( "mincdefrag", $white_filled_right, $white_filled_right, 1, 27, 1000 );
-  run( "mincdefrag", $white_filled_right, $white_filled_right, 0, 27, 1000 );
-  run( "dilate_volume", $white_filled_right, $white_filled_right, 1, 6, 1 );
-  run( "dilate_volume", $white_filled_right, $mid_tmp, 0, 6, 1 );
-  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp,
-       $white_filled_right );
-
+  run( "minccalc", "-clobber", "-byte", "-expr", "out=1;", $classify, $filled );
   run( "mincresample", "-clobber", "-xstart", 0, "-xnelements", 1,
-       $classify, $mid_tmp );
-  run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-3)<0.45",
-       $mid_tmp, $callosum_filled );
-  unlink( $mid_tmp );
-  run( "mincdefrag", $callosum_filled, $callosum_filled, 1, 27, 1000 );
-  run( "mincdefrag", $callosum_filled, $mid_tmp, 0, 27, 1000 );
-  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp, $callosum_filled );
+       $filled, $mid_tmp );
+  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp,
+       $midline_mask );
 
-  run( "dilate_volume", $mid_tmp, $mid_tmp, 1, 6, 1 );
-  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp, $callosum_extra );
+  run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-3)<0.45&&A[1];",
+       $classify, $midline_mask, $callosum_with_bits );
 
-  run( "dilate_volume", $callosum_filled, $mid_tmp, 1, 6, 1 );
+  run( "mincdefrag", $callosum_with_bits, $callosal_defrag, 1, 27, 1000 );
 
+  run( "mincblur", "-clobber", "-fwhm", 2, $callosal_defrag, $callosal_blur );
+
+  $callosal_blur = "${callosal_blur}_blur.mnc";    
+                   
   run( "minccalc", "-clobber", "-byte", "-expr",
-       "if(A[2]>0.5){1}else{if(A[0]<0.5&&A[1]>0.5){out=2}else{if(A[3]>0.5||A[4]>0.5){3}else{A[1]}}}",
-       $callosum_filled, $mid_tmp, $callosum_extra, $white_filled_left, 
-       $white_filled_right, $output );
-
-  unlink( $white_filled_left );
-  unlink( $white_filled_right );
-  unlink( $callosum_extra );
-  unlink( $callosum_filled );
+       "if(A[0]>0.0001&&A[1]==1){out=1}else{if(A[0]>0.08){out=2}else{out=0;}};", 
+       $callosal_blur, $midline_mask, $output );
+  
+  unlink( $filled );
   unlink( $mid_tmp );
-
+  unlink( $callosal_blur );
+  unlink( $midline_mask );
+  unlink( $callosal_defrag );
+  unlink( $callosum_with_bits );
 }  
 
 # fix custom mask to get all of the ventricles if non-linear transform
@@ -540,6 +529,164 @@ sub plug_ventricles {
   run( 'mv', '-f', $custom_mask_new, $custom_mask );
 }
 
+# Identify blood vessels in the classified image.
+
+sub remove_blood_vessels {
+
+  my $t1 = shift;
+  my $mask = shift;
+  my $pve_cls = shift;
+  my $pve_disc = shift;
+  my $output = shift;
+
+  # Find intensity thresholds for WM.
+
+  my $base = &basename( $pve_cls );
+  $base =~ s/\.mnc//g;
+  my $cls_masked = "${tmpdir}/$base\_masked.mnc";
+  &run( 'minccalc', '-quiet', '-clobber', '-unsigned', '-byte', '-expression',
+        "if(A[1]>0.5){A[0]}else{0}", $pve_cls, $mask, $cls_masked );
+
+  my $WMmean = `mincstats -quiet -majority -mask $cls_masked -mask_binvalue 3 $t1`;
+  chomp( $WMmean );
+
+  my $WMsdev = `mincstats -quiet -stddev -mask $cls_masked -mask_binvalue 3 $t1`;
+  chomp( $WMsdev );
+
+  my $WMthresh = $WMmean + 2 * $WMsdev;
+
+  print "WM-mean = $WMmean\n";
+  print "WM-stddev = $WMsdev\n";
+  print "WM-thresh = $WMthresh\n";
+
+  # Find a mask for pure WM in the cerebrum for which there cannot be
+  # any blood vessels (t1 > WMthresh). This sometimes fails on the mid-
+  # sagittal plane where the major blood vessel is very close to the
+  # corpus-callosum and classified as pure WM.
+
+  my $cerebral_wm = "${tmpdir}/cerebral_wm.mnc";
+  my $wmgroups = "${tmpdir}/wmgroups.mnc";
+  &run( 'minccalc', '-clobber', '-quiet', '-unsigned', '-byte', '-expression',
+        "if((abs(A[0]-3)<0.5)&&(abs(A[1]-1)<0.5)&&(A[2]<$WMthresh)){1}else{0}",
+        $pve_disc, $mask, $t1, $cerebral_wm );
+  &run( 'mincdefrag', $cerebral_wm, $cerebral_wm, 1, 6, 1000 );
+  &run( 'mincmorph', '-clobber', '-unsigned', '-byte', '-group', '-3D06',
+        $cerebral_wm, $wmgroups );
+  &run( 'minccalc', '-clobber', '-quiet', '-unsigned', '-byte',
+        '-expression', "if(abs(A[0]-1)<0.5){1}else{0}", $wmgroups, $cerebral_wm );
+  unlink( $wmgroups );
+  &run( 'dilate_volume', $cerebral_wm, $cerebral_wm, 0, 6, 1 );
+  &run( 'mincdefrag', $cerebral_wm, $cerebral_wm, 1, 6 );
+  &run( 'dilate_volume', $cerebral_wm, $cerebral_wm, 1, 6, 1 );
+  &run( 'mincdefrag', $cerebral_wm, $cerebral_wm, 0, 6 );
+  &run( 'dilate_volume', $cerebral_wm, $cerebral_wm, 1, 6, 1 );
+
+  # Find zones of high second derivatives (this is approximate).
+
+  my $Htrace = "${tmpdir}/hessian_trace.mnc";
+  &hessian_trace( $t1, $Htrace );
+
+  my $tmp_wm = "${tmpdir}/tmp_wm.mnc";
+  &run( 'minccalc', '-clobber', '-quiet', '-unsigned', '-byte', '-expression',
+        "if(A[2]>0.5&&A[1]<0.5&&A[0]>$WMthresh){1}else{0}",
+        $t1, $cerebral_wm, $mask, $tmp_wm );
+  my $d2thresh = `mincstats -quiet -pctT 10.0 $Htrace -mask $tmp_wm -mask_binvalue 1`;
+  chomp( $d2thresh );
+  print "D2-thresh = $d2thresh\n";
+  unlink( $tmp_wm );
+
+  # initial guess at the blood vessels based on:
+  #   t1 > wm-threshold (high intensities)
+  #   tr(|H|) > d2-threshold (high second derivatives for line features)
+
+  my $tmp_blood = "${tmpdir}/tmp_blood.mnc";
+  &run( 'minccalc', '-clobber', '-quiet', '-unsigned', '-byte', '-expression',
+        "if(A[2]>0.5&&A[1]<0.5&&A[0]>$d2thresh&&A[3]>$WMthresh){1}else{0}",
+        $Htrace, $cerebral_wm, $mask, $t1, $tmp_blood );
+  unlink( $Htrace );
+  unlink( $cerebral_wm );
+  &run( 'mincdefrag', $tmp_blood, $tmp_blood, 0, 6 );
+  &run( 'mincdefrag', $tmp_blood, $tmp_blood, 1, 6, 10 );
+  &run( 'dilate_volume', $tmp_blood, $tmp_blood, 1, 6, 1 );
+
+  # remove large chunks of the blood vessels from classified image.
+
+  my $new_cls = "${tmpdir}/new_cls.mnc";
+  &run( 'minccalc', '-quiet', '-clobber', '-unsigned', '-byte', '-expression',
+        'if(abs(A[0]-3)<0.5&&A[1]>0.5){1}else{A[0]}',
+        $cls_masked, $tmp_blood, $new_cls );
+  unlink( $tmp_blood );
+
+  # remove remaining small bits of the blood vessels from classified image.
+  &run( 'mincdefrag', $new_cls, $new_cls, 3, 6 );
+
+  # save the blood vessels
+
+  &run( 'minccalc', '-quiet', '-clobber', '-unsigned', '-byte', '-expression',
+        '(abs(A[0]-A[1])>0.5)', $cls_masked, $new_cls, $output );
+  &run( 'mincdefrag', $output, $output, 1, 6, 10 );
+
+  unlink( $new_cls );
+  unlink( $cls_masked );
+}
+
+# Compute the trace of the Hessian matrix H (matrix of second derivatives).
+# Note that the trace(H) is equal to the sum of the eigenvalues of H.
+
+sub hessian_trace {
+
+  my $t1 = shift;
+  my $Htrace = shift;
+
+  open DXX, "> ${tmpdir}/kernel.dxx";
+  print DXX "MNI Morphology Kernel File\n";
+  print DXX "Kernel_Type = Normal_Kernel;\n";
+  print DXX "Kernel =\n";
+  print DXX "-1.0  0.0  0.0  0.0  0.0  1.0\n";
+  print DXX "1.0  0.0  0.0  0.0  0.0  1.0\n";
+  print DXX "0.0  0.0  0.0  0.0  0.0 -2.0;\n";
+  close DXX;
+  &run( 'mincmorph', '-clobber', '-convolve', '-kernel', "${tmpdir}/kernel.dxx",
+        $t1, "${tmpdir}/dxx.mnc" );
+  unlink( "${tmpdir}/kernel.dxx" );
+
+  open DYY, "> ${tmpdir}/kernel.dyy";
+  print DYY "MNI Morphology Kernel File\n";
+  print DYY "Kernel_Type = Normal_Kernel;\n";
+  print DYY "Kernel =\n";
+  print DYY "0.0 -1.0  0.0  0.0  0.0  1.0\n";
+  print DYY "0.0  1.0  0.0  0.0  0.0  1.0\n";
+  print DYY "0.0  0.0  0.0  0.0  0.0 -2.0;\n";
+  close DYY;
+  &run( 'mincmorph', '-clobber', '-convolve', '-kernel', "${tmpdir}/kernel.dyy",
+        $t1, "${tmpdir}/dyy.mnc" );
+  unlink( "${tmpdir}/kernel.dyy" );
+
+  open DZZ, "> ${tmpdir}/kernel.dzz";
+  print DZZ "MNI Morphology Kernel File\n";
+  print DZZ "Kernel_Type = Normal_Kernel;\n";
+  print DZZ "Kernel =\n";
+  print DZZ "0.0  0.0 -1.0  0.0  0.0  1.0\n";
+  print DZZ "0.0  0.0  1.0  0.0  0.0  1.0\n";
+  print DZZ "0.0  0.0  0.0  0.0  0.0 -2.0;\n";
+  close DZZ;
+  &run( 'mincmorph', '-clobber', '-convolve', '-kernel', "${tmpdir}/kernel.dzz",
+        $t1, "${tmpdir}/dzz.mnc" );
+  unlink( "${tmpdir}/kernel.dzz" );
+
+  # Compute the trace of the Hessian matrix: dxx + dyy + dzz,
+  # which is equal to the sum of the eigenvalues. However, here
+  # we compute the sum of the absolute values of the diagonal
+  # elements of the matrix.
+
+  &run( 'minccalc', '-quiet', '-clobber', '-expression',
+        "abs(A[0])+abs(A[1])+abs(A[2])", "${tmpdir}/dxx.mnc",
+        "${tmpdir}/dyy.mnc", "${tmpdir}/dzz.mnc", $Htrace );
+
+  unlink( "${tmpdir}/dxx.mnc" );
+  unlink( "${tmpdir}/dyy.mnc" );
+  unlink( "${tmpdir}/dzz.mnc" );
+}
 
 #Execute a system call.
 

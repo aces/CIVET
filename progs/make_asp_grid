@@ -133,7 +133,7 @@ Spawn(["mincresample", "-nearest_neighbour", "-like",
        $clsMasked, $skelCSF, $rslCSF]);
 
 # create the grid itself
-$expression = 'if(abs(A[4]-1)<0.45){out=10;}else{if(abs(A[4]-2)<0.45){out=5;}else{if(A[2]>0 && A[3]==0){out=0;}else if(A[0]>0 && A[3]==0){out=10;}else if(A[1]<=1.1){out=10;}else if(A[1]>2.5 && A[2]==0){out=10;}else{out=5;}}}';
+$expression = 'if(abs(A[4]-1)<0.45){out=10;}else{if(abs(A[4]-2)<0.45){out=5;}else{if(A[2]>0 && abs(A[3])<0.5){out=0;}else if(A[0]>0 && abs(A[3])<0.5){out=10;}else if(A[1]<=1.1){out=10;}else if(A[1]>2.5 && abs(A[2])<0.5){out=10;}else{out=5;}}}';
 $grid = "${TmpDir}/grid.mnc";
 Spawn(["minccalc", "-expression", $expression, $rslCSF, $clsMasked,
        $wmMask, $wmLine, $callosal_mask,$grid]);
@@ -163,7 +163,7 @@ unlink( $laplace );
 
 # chamfer map in WM area
 $in_chamfer="${TmpDir}/in_chamfer.mnc";
-Spawn(["minccalc", "-expression", 'if(A[0]==0){out=0;}else{out=10;}', $grid, $in_chamfer]);
+Spawn(["minccalc", "-expression", 'if(abs(A[0])<0.5){out=0;}else{out=10;}', $grid, $in_chamfer]);
 Spawn(["mincchamfer", "-max_dist", "10", $in_chamfer, "${TmpDir}/chamfer.mnc"]);
 
 $expression = "if(A[0]>=10){out=A[0];}else{out=A[0]-A[1];}";
@@ -174,7 +174,7 @@ unlink( "${TmpDir}/chamfer.mnc" );
 
 # chamfer map in CSF and background area
 $out_chamfer="${TmpDir}/out_chamfer.mnc";
-Spawn(["minccalc", "-expression", 'if(A[0]==10){out=0;}else{out=11;}', $grid, $out_chamfer]);
+Spawn(["minccalc", "-expression", 'if(abs(A[0]-10)<0.5){out=0;}else{out=11;}', $grid, $out_chamfer]);
 Spawn(["mincchamfer", "-max_dist", "11", $out_chamfer, "${TmpDir}/chamfer.mnc"]);
 
 unlink( $grid );

@@ -25,8 +25,8 @@ use PMP::PMP;
 use MRI_Image;
 use File::Basename;
 
-# Compute the transformations necessary to bring source images into MNI-Talairach
-# space.
+# Compute the transformations necessary to bring source images 
+# into MNI-Talairach space.
 
 sub stx_register {
 
@@ -36,23 +36,26 @@ sub stx_register {
     my $regModel = @_[3];
     my $intermediateModel = @_[4];
 
-    my $skull_mask = ${$image}->{skull_mask_native};
-
     my $t1_tal_xfm    = ${$image}->{t1_tal_xfm};
     my $t2pd_t1_xfm  = ${$image}->{t2pd_t1_xfm};
     my $t2pd_tal_xfm  = ${$image}->{t2pd_tal_xfm};
     my $tal_to_6_xfm  = ${$image}->{tal_to_6_xfm};
     my $tal_to_7_xfm  = ${$image}->{tal_to_7_xfm};
 
+    my $multi = ( ${$image}->{inputType} eq "multispectral" ) ||
+                ( ${$image}->{maskType} eq "multispectral" );
+
     my $regModelDir  = dirname( $regModel );
     my $regModelName = basename( $regModel );
 
     # Preliminary nu_correct on the native images to improve the 
-    # results of mincbet and bestlinreg. Run only 100 iterations.
-    # No need to be too fancy at this stage.
+    # results bestlinreg. Run only 100 iterations. No need to be 
+    # too fancy at this stage.
 
+    my $source_files = ${$image}->get_hash( "source" );
     my $native_files = ${$image}->get_hash( "native" );
     my $nuc_files = ${$image}->get_hash( "nuc" );
+    my $headheight = ${$image}->{headheight};
     my $nuc_dist = ${$image}->{nuc_dist};
     my $nuc_damping = ${$image}->{nuc_damping};
     my $nuc_cycles = 1;
@@ -61,17 +64,21 @@ sub stx_register {
     my @nuc_complete = ();
 
     foreach my $type ( keys %{ $native_files } ) {
+      my $source = $source_files->{$type};
       my $input = $native_files->{$type};
       my $output = $nuc_files->{$type};
-      if( -e $input ) {
-        my $mask_option = "none";
-        ${$pipeline_ref}->addStage(
-             { name => "nuc_${type}_native",
+
+      next if( $type ne "t1" && !$multi );
+
+      if( -e $source ) {
+        ${$pipeline_ref}->addStage( {
+             name => "nuc_${type}_native",
              label => "non-uniformity correction on native ${type}",
              inputs => [ $input ],
              outputs => [ $output ],
-             args => ["nuc_inorm_stage", $input, $output, $mask_option, $nuc_dist, 
-                      $nuc_damping, $nuc_cycles, $nuc_iters],
+             args => ["nuc_inorm_stage", $input, $output, "native", ${regModel},
+                      "none", $headheight, $nuc_dist, $nuc_damping, 
+                      $nuc_cycles, $nuc_iters],
              prereqs => $Prereqs } );
         push @nuc_complete, ("nuc_${type}_native");
       }
@@ -87,59 +94,36 @@ sub stx_register {
     my $pd_input = ${$image}->{pd}{nuc};
 
     my @skullInputs = ($t1_input);
-    push @skullInputs, ($t2_input) if (-e ${$image}->{t2}{native});
-    push @skullInputs, ($pd_input) if (-e ${$image}->{pd}{native});
+    push @skullInputs, ($t2_input) if (-e ${$image}->{t2}{source} && $multi);
+    push @skullInputs, ($pd_input) if (-e ${$image}->{pd}{source} && $multi);
     my $Coregister_complete = \@nuc_complete;
 
-    if( -e ${$image}->{t2}{native} ) {
-      ${$pipeline_ref}->addStage(
-           { name => "t2_pd_coregister",
-           label => "co-register t2/pd to t1",
-           inputs => [$t1_input, $t2_input],
-           outputs => [$t2pd_t1_xfm],
-           args => ["mritoself", "-clobber", "-nothreshold", "-mi", "-lsq6", 
-                    $t2_input, $t1_input, $t2pd_t1_xfm ],
-           prereqs => \@nuc_complete } );
-      push @skullInputs, ($t2pd_t1_xfm);
-      $Coregister_complete = ["t2_pd_coregister"];
-    } else {
-      if( -e ${$image}->{pd}{native} ) {
+    if( $multi ) {
+      if( -e ${$image}->{t2}{source} ) {
         ${$pipeline_ref}->addStage(
              { name => "t2_pd_coregister",
              label => "co-register t2/pd to t1",
-             inputs => [$t1_input, $pd_input],
+             inputs => [$t1_input, $t2_input],
              outputs => [$t2pd_t1_xfm],
              args => ["mritoself", "-clobber", "-nothreshold", "-mi", "-lsq6", 
-                      $pd_input, $t1_input, $t2pd_t1_xfm ],
+                      $t2_input, $t1_input, $t2pd_t1_xfm ],
              prereqs => \@nuc_complete } );
         push @skullInputs, ($t2pd_t1_xfm);
         $Coregister_complete = ["t2_pd_coregister"];
+      } else {
+        if( -e ${$image}->{pd}{source} ) {
+          ${$pipeline_ref}->addStage(
+               { name => "t2_pd_coregister",
+               label => "co-register t2/pd to t1",
+               inputs => [$t1_input, $pd_input],
+               outputs => [$t2pd_t1_xfm],
+               args => ["mritoself", "-clobber", "-nothreshold", "-mi", "-lsq6", 
+                        $pd_input, $t1_input, $t2pd_t1_xfm ],
+               prereqs => \@nuc_complete } );
+          push @skullInputs, ($t2pd_t1_xfm);
+          $Coregister_complete = ["t2_pd_coregister"];
+        }
       }
-    }
-
-    ##### Compute a preliminary skull mask using t1 native only, 
-    ##### to apply during linear registration. Use the user mask
-    ##### if one is given.
-
-    my $user_mask = ${$image}->{user_mask};
-    if( -e $user_mask ) {
-      ${$pipeline_ref}->addStage(
-           { name => "skull_masking_native",
-           label => "masking of skull in native space",
-           inputs => [],
-           outputs => [$skull_mask],
-           args => ["ln", "-sf", $user_mask, $skull_mask ],
-           prereqs => $Prereqs } );
-
-    } else {
-      ${$pipeline_ref}->addStage(
-           { name => "skull_masking_native",
-           label => "masking of skull in native space",
-           inputs => \@skullInputs,
-           outputs => [$skull_mask],
-           args => ["remove_skull", "t1Only", $t1_input, $t2_input,
-                    $pd_input, $t2pd_t1_xfm, $skull_mask ],
-           prereqs => $Coregister_complete });
     }
 
     ##### Compute transforms to STX space directly or indirectly #####
@@ -165,16 +149,19 @@ sub stx_register {
 
     # TEMPORARY: This will actually recompute t2pd_t1_xfm a second time,
     #            but no big deal, it's cheap. This can be cleaned-up later.
+    #            Note that multispectral_stx_registration does not save
+    #            t2pd_t1_xfm but saves only t2pd_tal_xfm.
 
     my @registerInputs = ($t1_input);
-    push @registerInputs, ($t2_input) if (-e ${$image}->{t2}{native});
-    push @registerInputs, ($pd_input) if (-e ${$image}->{pd}{native});
+    push @registerInputs, ($t2_input) if (-e ${$image}->{t2}{source} && $multi );
+    push @registerInputs, ($pd_input) if (-e ${$image}->{pd}{source} && $multi );
 
     my @registerOutputs = ($t1_tal_xfm);
-    if ( (-e ${$image}->{t2}{native}) or (-e ${$image}->{pd}{native}) ) {
+    if ( $multi && ( (-e ${$image}->{t2}{source}) or (-e ${$image}->{pd}{source}) ) ) {
       push @registerOutputs, ($t2pd_tal_xfm);
     }
 
+    # Note: no more need for a mask with new bestlinreg.pl using -nmi.
     ${$pipeline_ref}->addStage(
        { name => "stx_register",
          label => "compute transforms to stx space",
@@ -183,10 +170,9 @@ sub stx_register {
          args => ["multispectral_stx_registration", "-nothreshold",
                   "-clobber", @extraTransform, ${$image}->{lsqtype},
                   "-modeldir", $regModelDir, "-model", $regModelName,
-                  "-source_mask", $skull_mask,
-                  $t1_input, $t2_input, $pd_input,
-                  $t1_tal_xfm, $t2pd_tal_xfm ],
-         prereqs => ["skull_masking_native"] } );
+                  "-source_mask", "targetOnly", $t1_input, $t2_input, 
+                  $pd_input, $t1_tal_xfm, $t2pd_tal_xfm ],
+         prereqs => $Coregister_complete } );
 
    ############## Generate the tal to 6 and 7 space transforms (only on t1)
 
@@ -227,12 +213,15 @@ sub transform {
     my $image = @_[2];
     my $Template = @_[3];
 
-    my $t1_native = (-e ${$image}->{t1}{native}) ? ${$image}->{t1}{native} : undef;
-    my $t2_native = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{native} : undef;
-    my $pd_native = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{native} : undef;
-    my $t1_tal  = (-e ${$image}->{t1}{native}) ? ${$image}->{t1}{tal} : undef;
-    my $t2_tal  = (-e ${$image}->{t2}{native}) ? ${$image}->{t2}{tal} : undef;
-    my $pd_tal  = (-e ${$image}->{pd}{native}) ? ${$image}->{pd}{tal} : undef;
+    my $multi = ( ${$image}->{inputType} eq "multispectral" ) ||
+                ( ${$image}->{maskType} eq "multispectral" );
+
+    my $t1_native = (-e ${$image}->{t1}{source}) ? ${$image}->{t1}{native} : undef;
+    my $t2_native = (-e ${$image}->{t2}{source} && $multi ) ? ${$image}->{t2}{native} : undef;
+    my $pd_native = (-e ${$image}->{pd}{source} && $multi ) ? ${$image}->{pd}{native} : undef;
+    my $t1_tal  = (-e ${$image}->{t1}{source}) ? ${$image}->{t1}{tal} : undef;
+    my $t2_tal  = (-e ${$image}->{t2}{source} && $multi ) ? ${$image}->{t2}{tal} : undef;
+    my $pd_tal  = (-e ${$image}->{pd}{source} && $multi ) ? ${$image}->{pd}{tal} : undef;
 
     my $t1_tal_xfm   = ${$image}->{t1_tal_xfm};
     my $t2pd_tal_xfm = ${$image}->{t2pd_tal_xfm};

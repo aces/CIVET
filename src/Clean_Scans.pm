@@ -3,7 +3,7 @@
 # Professor of Neurology
 # McGill University
 #
-#Non-uniformity correction and normalization
+#Non-uniformity correction and normalization in stereotaxic space.
 
 package Clean_Scans;
 use strict;
@@ -24,19 +24,24 @@ sub create_pipeline {
     my $nuc_cycles = 3;
     my $nuc_iters = 100;
 
+    my $multi = ( ${$image}->{inputType} eq "multispectral" ) ||
+                ( ${$image}->{maskType} eq "multispectral" );
+
     my @Clean_Scans_complete = ();
 
     foreach my $type ( keys %{ $input_files } ) {
       my $input = $input_files->{$type};
       my $output = $output_files->{$type};
-      if( -e ${$image}->{$type}{native} ) {
+      next if( $type ne "t1" && !$multi );
+      if( -e ${$image}->{$type}{source} ) {
         ${$pipeline_ref}->addStage(
              { name => "nuc_inorm_${type}",
-             label => "non-uniformity correction and normalization on ${type}",
+             label => "non-uniformity correction and normalization on stx ${type}",
              inputs => [ $input ],
              outputs => [ $output ],
-             args => ["nuc_inorm_stage", $input, $output, "${regModel}_mask.mnc",
-                      $nuc_dist, $nuc_damping, $nuc_cycles, $nuc_iters],
+             args => ["nuc_inorm_stage", $input, $output, "stx", ${regModel},
+                      "none", 0, $nuc_dist, $nuc_damping, $nuc_cycles, 
+                      $nuc_iters],
              prereqs => $Prereqs } );
         push @Clean_Scans_complete, ("nuc_inorm_${type}");
       }

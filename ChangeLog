@@ -1,3 +1,27 @@
+2013-02-01  Claude Lepage <claude@bic.mni.mcgill.ca>
+    * New verify figures for Laplacian fit and surface-surface
+      intersections
+    * Improved linear registration (based on blurred image only,
+      no longer uses gradients of image, using mutual information,
+      with neck-cropping, target mask on last stage)
+    * Improved non-linear registration (with 2mm steps, extra sampling
+      and reduced weight parameter)
+    * Improved masking of white matter mask using cortical_surface
+      with a new model (on which the non-linear transform is applied)
+    * Masking of bright blood vessels applied to white matter mask
+    * Application of population model's head mask to reduce background
+      noise in image before mincbet (could do it before native N3 as well)
+    * Generation of basic glim file as part of the CIVET QC
+    * Now use smoothing from depth_potential instead of diffuse
+      for cortical thickness and surface registration (no more need
+      for BLAS and LAPACK). Note: 20mm with old code is like 30mm
+      with new code.
+    * Improved filling of ventricles
+    * Fixed WM/GM border by not allowing CSF/BG next to WM (under
+      brainstem, mostly)
+    * Plug-in for ADNI population template
+    * PMP option for msub (moab) instead of qsub
+
 2011-06-08  Claude Lepage <claude@bic.mni.mcgill.ca>
     * New model Cerebellum_Ventricles_SubCortical_Mask.mnc for
       masking regions

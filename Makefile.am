@@ -11,7 +11,6 @@ progsdir = $(bindir)/progs/
 bin_SCRIPTS = \
         src/CIVET_Processing_Pipeline \
         src/CIVET_QC_Pipeline \
-        src/Artefact.pm \
         src/Classify.pm \
         src/Clean_Scans.pm \
         src/Cortex_Mask.pm \
@@ -39,9 +38,10 @@ progs_SCRIPTS = \
         progs/cerebral_volume \
         progs/class_art \
         progs/classify_qc \
+        progs/clean_native_scan \
         progs/cortical_area_stats \
-        progs/cortical_volume_stats \
         progs/cortical_mask \
+        progs/cortical_volume_stats \
         progs/diff_civet.pl \
         progs/extract_surface_feature \
         progs/extract_two_hemispheres \
@@ -57,20 +57,22 @@ progs_SCRIPTS = \
         progs/nuc_inorm_stage \
         progs/qc_metric_from_bin_mask \
         progs/remove_skull \
-        progs/surf_qc_image \
-        progs/surface-register-smartest \
-        progs/surface-resample2 \
         progs/surface_fit_classify \
         progs/surface_qc \
+        progs/surface-register-smartest \
+        progs/surface-resample2 \
+        progs/surf_qc_image \
         progs/talto6 \
         progs/talto7 \
         progs/verify_atlas \
         progs/verify_clasp \
+        progs/verify_image \
         progs/verify_laplacian \
         progs/verify_surfsurf
 
 # installed data
 pkgdata_DATA = \
+        models/Cerebellum_Ventricles_SubCortical_Mask-1.2.0.mnc \
         models/Cerebellum_Ventricles_SubCortical_Mask.mnc \
         models/hemi_left_mask.mnc \
         models/hemi_right_mask.mnc \

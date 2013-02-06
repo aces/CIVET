@@ -30,9 +30,10 @@ sub pve {
     my $t2_input = ${$image}->{t2}{final};
     my $pd_input = ${$image}->{pd}{final};
     my $skull_mask = ${$image}->{skull_mask_tal};
-    my $dilated_mask = ${$image}->{dilated_cls_mask};
+    my $blank_mask = ${$image}->{dilated_cls_mask};
     my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
     my $t1_tal_nl_xfm = ${$image}->{t1_tal_nl_xfm};
+    my $model_headmask = "${$image}->{nlinmodel}_headmask.mnc";
 
     # these are in temp/ dir
     my $pve_curve_prefix = ${$image}->{curve_prefix};
@@ -59,7 +60,7 @@ sub pve {
 
     my @classify_images = ($t1_input);
     if ($inputType eq "multispectral") {
-      if( -e ${$image}->{t2}{native} and -e ${$image}->{pd}{native} ) {
+      if( -e ${$image}->{t2}{source} and -e ${$image}->{pd}{source} ) {
         push @classify_images, ($t2_input);
         push @classify_images, ($pd_input);
       } else {
@@ -83,12 +84,14 @@ sub pve {
          outputs => [$cls_clean],
          args => ["classify_clean", "-clobber", "-clean_tags", "-mask_source",
                   "-mask", $skull_mask, "-mask_classified", "-mask_tag",
-                  "-tagfile", "ntags_1000_prob_90_nobg.tag",
+                  "-tagdir", ${$image}->{tagdir},
+                  "-tagfile", ${$image}->{tagfile},
+                  "-bgtagfile", ${$image}->{bgtagfile},
                   "-tag_transform", $t1_tal_nl_xfm,
                   @classify_images, $cls_clean],
          prereqs => $Prereqs });
 
-    # Compute pve maps based on masked brain.
+    # Compute pve maps based on full brain.
     # Note: This needs to be extended to multispectral somehow. The
     #       effect of curve_cg is to enhance the pve_csf, so it is
     #       very useful. However, pd image may yield a better definition
@@ -106,36 +109,34 @@ sub pve {
     my @extraPVE = ();
     push @extraPVE, ("-iterate") if( $correctPVE );
 
-    if( $DILATED_MASK ) {
+    # Create a head mask to extend pve classification 
+    # outside brain mask. Note that cls_clean is masked,
+    # but pve_classify will not be (to avoid losing bits
+    # of classified tissue due to masking). Linear mask
+    # is ok, no need for non-linear here.
 
-      # Create a dilated mask (2 voxels) from the brain mask
-      # to include a little more csf and perhaps catch some
-      # little bits of gray matter missing from the mincbet
-      # mask.
-
-      ${$pipeline_ref}->addStage( {
-           name => "dilate_cls_mask",
-           label => "dilated mask for classification",
-           inputs => [$skull_mask],
-           outputs => [$dilated_mask],
-           args => ["dilate_volume", $skull_mask, $dilated_mask, 1, 6, 2 ],
-           prereqs => $Prereqs });
-
-      $skull_mask = $dilated_mask;
-    }
+    ${$pipeline_ref}->addStage( {
+         name => "blank_pve_mask",
+         label => "blank mask for pve classification",
+         inputs => [$t1_input],
+         outputs => [$blank_mask],
+         args => ["mincresample", '-clobber', '-unsigned', '-byte', 
+                  '-like', $t1_input, '-nearest', $model_headmask, 
+                  $blank_mask ],
+         prereqs => $Prereqs });
 
     if( $OLD_PVE ) {
       ${$pipeline_ref}->addStage( {
            name => "pve",
            label => "partial volume estimation",
            inputs => [$pve_curvature, @classify_images,
-                     $skull_mask, $cls_clean],
+                     $blank_mask, $cls_clean],
            outputs => [$pve_gm, $pve_wm, $pve_csf],
            args => ["pve_script", "-clobber", "-nosubcortical", @extraPVE,
-                    "-curve", $pve_curvature, "-mask", $skull_mask,
+                    "-curve", $pve_curvature, "-mask", $blank_mask,
                     "-image", $cls_clean, @classify_images,
                     $pve_prefix],
-           prereqs => ($DILATED_MASK) ? ["pve_curvature", "dilate_cls_mask" ] : ["pve_curvature"] });
+           prereqs => ["pve_curvature", "blank_pve_mask" ] });
 
       # Rebinarize the final masked pve maps.
 
@@ -154,13 +155,13 @@ sub pve {
            name => "pve",
            label => "partial volume estimation",
            inputs => [$pve_curvature, @classify_images,
-                     $skull_mask, $cls_clean],
+                     $blank_mask, $cls_clean],
            outputs => [$pve_gm, $pve_wm, $pve_csf, $cls_correct],
            args => ["pve_script", "-clobber", "-nosubcortical", @extraPVE,
-                    "-curve", $pve_curvature, "-mask", $skull_mask,
+                    "-curve", $pve_curvature, "-mask", $blank_mask,
                     "-image", $cls_clean, "-classify", @classify_images,
                     $pve_prefix],
-           prereqs => ($DILATED_MASK) ? ["pve_curvature", "dilate_cls_mask" ] : ["pve_curvature"] });
+           prereqs => ["pve_curvature", "blank_pve_mask" ] });
     }
 
     ${$pipeline_ref}->addStage( {

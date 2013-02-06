@@ -11,15 +11,12 @@
 #     * the image is not in Talairach space, in this case use biModalT
 #       to get some kind of mask, but this mask usually includes some
 #       of the skull and neck tissues (and does not produce great results)
-# Procedure to follow:
-#   - doing some iterations of nu_correct on a native image (without a
-#     mask) is better than nothing and is generally necessary in order 
-#     to extract a reliable brain mask
-#   - using the avg305 mask in Talairach space is sufficient to remove
-#     non-uniformities (start from non-corrected native image) and to
-#     extract the final brain mask (in fact, using the avg305 mask may
-#     be advantageous when mincbet fails to remove all the skull, eyes,
-#     neck)
+#     * neither avg305_mask or biModalT mask is good -- we must provide an
+#       explicit mask
+#   - to generate an initial brain mask in native space, crop the neck,
+#     do a quick linear registration to the model (-nmi) then use the
+#     model's mask (inverted linear xfm).
+#   - the icbm152 mask is provided in stx space (better and avg305)
 # 
 # Be careful: the input file might come as .mnc.gz.
 #
@@ -27,10 +24,10 @@
 # The accuracy of nu_correct is quite sensitive to this distance. A small
 # value is more accurate, but it must not be chosen too small so as not to
 # remove biological variations. The smaller d is, the longer the code will
-# take to run. Accuracy is not free. In the old version, d=200 was used and 
-# this created hot spots in the corrected images when the spline was not able 
+# take to run. Accuracy is not free. For 1.5T scans, d=200 is used but this
+# can created hot spots in the corrected 3T images when the spline is not able 
 # to represent non-uniformities at a smaller wavelength. (This likely depends
-# on the scanner too.) In the new way, d=25 to 50 seems to give reliable
+# on the scanner too.) For 3T scans, d=50 to 100 seems to give reliable
 # results. 
 #
 # Copyright Alan C. Evans
@@ -47,14 +44,16 @@ use File::Temp qw/ tempdir /;
 my $me = &basename($0);
 my $tmpdir = &tempdir( "$me-XXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
-my $input = $ARGV[0];
-my $output = $ARGV[1];
-my $mask = $ARGV[2];
-my $nuc_dist = $ARGV[3];
-my $nuc_damping = $ARGV[4];   # for future usage
-my $nuc_cycles = $ARGV[5];
-my $nuc_iters = $ARGV[6];
-
+my $input = $ARGV[0];         # input image t1, t2, or pd
+my $output = $ARGV[1];        # output of N3 on input image
+my $space = $ARGV[2];         # space = "native" or "stx"
+my $model = $ARGV[3];         # path+basename of model for the population average
+my $mask = $ARGV[4];          # actual brain mask of the subject (or "none")
+my $headheight = $ARGV[5];    # distance from top of head for neck-cropping
+my $nuc_dist = $ARGV[6];
+my $nuc_damping = $ARGV[7];   # for future usage
+my $nuc_cycles = $ARGV[8];
+my $nuc_iters = $ARGV[9];
 
 # apply non-uniformity correction and intensity normalization on image.
 
@@ -62,23 +61,43 @@ if ( -e $input ) {
 
   my $tmp = "${tmpdir}/nuc.mnc";
 
-  # Expand borders of image to prevent some N3 instabilities (1.10.1).
-  # I know, this is insane.
+  my $tmp_input = $input;
 
-  my $tmp_input = "${tmpdir}/nuc_tmp_input.mnc";
-  &run( "autocrop", "-quiet", "-clobber", "-isoexpand", 5, 
-        $input, $tmp_input );
+  # In native space, do neck-cropping to help linear registration.
+
+  if( $space eq "native" and $headheight > 0 ) {
+    $tmp_input = "${tmpdir}/t1_cropped.mnc";
+    &cropneck( $input, $headheight, $tmp_input );
+  }
 
   # Use a mask if one is given. Resample the mask to be like the input.
   # This can happen if a model's mask is used which does not match the
-  # template used to resample the input.
+  # template used to resample the input. If no mask is given, try a 
+  # full head linear registration and use the mask from the template
+  # as a starting point.
 
-  my @mask_opts = ();
-  if( $mask ne "none" and ( -e $mask ) ) {
-    my $mask_tmp = "${tmpdir}/nuc_mask.mnc";
-    &run( "mincresample", "-like", $tmp_input, "-nearest_neighbour",
-          $mask, $mask_tmp );
-    push @mask_opts, ( "-mask", $mask_tmp );
+  my $initial_mask = undef;
+  if( $space eq "native" ) {
+    $initial_mask = "${tmpdir}/nuc_mask.mnc";
+    if( ( $mask ne "none" ) and ( -e $mask ) ) {
+      # user-supplied mask, simply resample it like image
+      &run( "mincresample", "-like", $tmp_input, "-nearest_neighbour",
+            $mask, $initial_mask );
+    } else {
+      # no mask: create one from the population model
+      &run( 'bestlinreg.pl', '-clobber', '-lsq12', '-nmi', $tmp_input, 
+            "${model}.mnc", "${tmpdir}/native2tal.xfm" );
+      &run( 'mincresample', '-clobber', '-quiet', '-like', $tmp_input, 
+            '-nearest', '-transform', "${tmpdir}/native2tal.xfm", '-invert', 
+            "${model}\_mask.mnc", $initial_mask );
+      unlink( "${tmpdir}/native2tal.xfm" );
+      &run( 'mincdefrag', $initial_mask, $initial_mask, 1, 6 );
+      &run( 'dilate_volume', $initial_mask, $initial_mask, 1, 6, 1 );
+    }
+  } else {
+    # model's mask in stereotaxic space (assumes good registration).
+    # At this point, we don't have the non-linear transformation.
+    $initial_mask = "${model}\_mask.mnc";
   }
 
   # Important note: Because of the way nu_correct converges, it is better to
@@ -88,8 +107,8 @@ if ( -e $input ) {
   # leave as it is until nu_correct is fixed.
 
   for( my $i = 0; $i < $nuc_cycles; $i++ ) {
-    &run( "nu_correct", "-clobber", "-iter", $nuc_iters, "-stop", 0.0001,
-          "-fwhm", 0.1, "-distance", $nuc_dist, @mask_opts,
+    &run( "nu_correct", "-clobber", "-iter", $nuc_iters, "-stop", 0.00001,
+          "-fwhm", 0.1, "-distance", $nuc_dist, '-mask', $initial_mask,
           $tmp_input, $output );
     &run( "mv", "-f", $output, $tmp );
     $tmp_input = $tmp;
@@ -104,12 +123,6 @@ if ( -e $input ) {
   $imp_file =~ s/\.[^\.]*$/\.imp/;
   &run( "rm", "-f", $imp_file );
 
-  # By law of conservation of insanities, shrink borders of image 
-  # back to initial size.
-
-  &run( "mincresample", "-quiet", "-clobber", "-like", $input, $tmp, $output );
-  &run( "mv", "-f", $output, $tmp );
-
   # remove high extremum (low extremum - background - will be taken care of by the mask).
   my $top;
   my $upper = 99.950;
@@ -123,8 +136,69 @@ if ( -e $input ) {
 
 }
 
+# Determine how to crop the neck in native space, up to a given
+# distance from the top of the skull. Assume axial direction in
+# the z-direction.
 
-#Execute a system call.
+sub cropneck {
+
+  my $input = shift;
+  my $headheight = shift;
+  my $output = shift;
+
+  my $nz = `mincinfo -dimlength zspace $input`; chomp( $nz );
+  my $dz = `mincinfo -attvalue zspace:step $input`; chomp( $dz );
+  my $zstart = `mincinfo -attvalue zspace:start $input`; chomp( $zstart );
+  # work in positive z-direction
+  if( $dz < 0 ) {
+    $zstart += ( $nz - 1 ) * $dz;
+    $dz = -$dz;
+  }
+  my $sz = $zstart;
+
+  my @avg = ();
+  my $maxavg = 0;
+  my $minavg = undef;
+  my @stdev = ();
+  my $maxstdev = 0;
+  my $minstdev = undef;
+
+  for( my $j = 1; $j < $nz; $j+=2 ) {
+    `mincresample -clobber -quiet -znelements 1 -zstart $sz $input ${tmpdir}/slice.mnc`;
+    my $ret = `mincstats -quiet -mean ${tmpdir}/slice.mnc`; chomp( $ret );
+    push @avg, $ret;
+    $maxavg = $ret if( $ret > $maxavg );
+    $minavg = $ret if( !defined( $minavg ) );
+    $minavg = $ret if( $ret < $minavg );
+    my $ret2 = `mincstats -quiet -stddev ${tmpdir}/slice.mnc`; chomp( $ret2 );
+    push @stdev, $ret2;
+    $maxstdev = $ret2 if( $ret2 > $maxstdev );
+    $minstdev = $ret2 if( !defined( $minstdev ) );
+    $minstdev = $ret2 if( $ret2 < $minstdev );
+    $sz += 2*$dz;
+  }
+  unlink( "${tmpdir}/slice.mnc" );
+
+  $maxavg = $minavg + 0.15 * ( $maxavg - $minavg );
+  $maxstdev = $minstdev + 0.10 * ( $maxstdev - $minstdev );
+  for( my $j = 1; $j < $nz; $j+=2 ) {
+    $sz -= 2*$dz;
+    my $ret = pop @avg;
+    my $ret2 = pop @stdev;
+    last if( $ret > $maxavg || $ret2 > $maxstdev );
+  }
+  $sz -= $headheight;
+  my $wcrop = $sz - $zstart;   # this is the world coord at bottom of cerebellum
+
+  if( $wcrop > 0 ) {
+    &run( 'autocrop', '-clobber', '-extend', '0,0', '0,0', "-$wcrop,0",
+          $input, $output );
+  } else {
+    &run( 'cp', '-f', $input, $output );
+  }
+}
+
+# Execute a system call.
 
 sub run {
   print "@_\n";

@@ -51,9 +51,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.2.0";
-my $versionDate= "June, 2011";
-my $authors= "Yasser Ad-Dab\'bagh, Oliver Lyttelton, J-Sebastian Muehlboeck, Kelvin Mok, and Claude Lepage";
+my $version = "1.1.12";
+my $versionDate= "February, 2013";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
 $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile> &\n\n";
@@ -62,51 +61,51 @@ my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
 
-    1 - marching-cubes algorithm for extraction of white surface
-    2 - improved node movement in surface fit program
-    3 - corrected functional for Laplacian constraint in surface 
-        fit program (for gray surface)
-    4 - improved surface registration by geometric smoothing of
-        the surface
-    5 - cleaner medial cut through the corpus callosum and better
-        filling of the ventricles
-    6 - new verify figures for Laplacian fit and surface-surface
-        intersections 
-    7 - now use smoothing from depth_potential instead of diffuse
-        (no more need for BLAS and LAPACK)
-
-    NOTE: This version requires the package surface-extraction-3.0.0
-          or higher.
+    1 - Neck-cropping option on native image (-headheight)
+    2 - Improved linear registration (now using normalized mutual information
+        and with model_mask on last fitting stage only)
+    3 - Improved non-linear registration (now with a headmask and with
+        reduced weight parameter, 2mm steps and higher sampling)
+    4 - Application of population model's head mask to reduce background
+        noise in image for mincbet
+    5 - Final pve classification is unmasked so it can recover any small
+        bits of tissue missing from the brain mask
+    6 - Improved masking of white matter mask using cortical_surface
+        with a new model (on which the non-linear transform is applied)
+    7 - Use smoothing from depth_potential instead of diffuse for 
+        cortical thickness and surface registration (more accurate smoothing
+        and no more need for BLAS and LAPACK). Note: 20mm with old code is 
+        like 30mm with new code.
+    8 - Improved filling of ventricles using an improved atlas (for
+        white surface extraction)
+    9 - Fixed WM/GM border by not allowing CSF/BG next to WM (under
+        brainstem, mostly)
+    10 - New ADNI population models
+    11 - Generation of basic glim file as part of the CIVET QC
+    12 - New verify figures for Laplacian fit and surface-surface
+         intersections
 
     More to come soon:
 
-    1 - improved masking for 3 Tesla.
-    2 - bug fixed in N3 to be invariant to voxel size (use N3-1.12.0).
+    1 - improved medial cut through the corpus callosum.
+    2 - bug fixed in N3 to be invariant to voxel size
     3 - high-resolution surfaces at 320k polygons.
     4 - classification and surface extraction in native space.
     5 - intermediate model for linear and non-linear volume registration.
-    6 - removal of self-intersections in .sm file for surface
-        registration (Maxime Boucher).
-    7 - activation of surface-surface constraint in expansion to 
-        gray surface.
+    6 - Plug-in for alternate population templates
+    7 - removal of self-intersections in .sm file for surface
+        registration (Maxime Boucher)
+    8 - Improved surface registration by geometric smoothing of
+        the surface
+    9 - Longitudinal surface registration and QC
+    10 - Marching-cubes for initial white surface
 
-    ********** From Feb-2010 quarantine, version 1.1.11 **********
+    ********** From Nov-2010 quarantine, version 1.1.11 **********
 
     1 - option for user-defined surface parcellation atlas.
     2 - AAL surface parcellation atlas in models.
     3 - normalized cortical volumes maps on resampled surfaces
         (Lu Zhao and Maxime Boucher).
-
-    More to come soon:
-
-    1 - improved masking for 3 Tesla.
-    2 - improved medial cut through the corpus callosum.
-    3 - bug fixed in N3 to be invariant to voxel size
-    4 - high-resolution surfaces at 320k polygons.
-    5 - classification and surface extraction in native space.
-    6 - intermediate model for linear and non-linear volume registration.
-    7 - removal of self-intersections in .sm file for surface
-        registration (Maxime Boucher)
 
     ********** From Feb-2010 quarantine, version 1.1.10 **********
 
@@ -268,7 +267,6 @@ NEW
 my $help = <<HELP;
 
 $ProgramName, version $version, released $versionDate.
-    Released by $authors.
 
     Takes any number of multi or single spectral input MINC volumes and
     extracts the cortical surfaces from them utilizing the PMP pipeline
@@ -299,45 +297,87 @@ my $command = "printStatus";
 my %PMPconf = ( 'DEFAULT' => { 'type' => "spawn",
                                'maxqueued' => 10000,
                                'granularity' => 1,
+                               'command' => undef,
                                'queue' => undef,
                                'hosts' => undef,
                                'opts' => undef },
                 'MNIBIC'  => { 'type' => "sge",
                                'maxqueued' => 1000,
                                'granularity' => 1,
+                               'command' => "qsub",
                                'queue' => "all.q",
                                'hosts' => undef,
                                'opts' => undef },
-                'CLUMEQ'  => { 'type' => "pbs",
+                'ZLAB'    => { 'type' => "sge",
                                'maxqueued' => 100,
                                'granularity' => 1,
+                               'command' => "qsub",
+                               'queue' => "all.q",
+                               'hosts' => undef,
+                               'opts' => undef },
+                'CLUMEQ'  => { 'type' => "pbs",     ## this was krylov
+                               'maxqueued' => 100,
+                               'granularity' => 1,
+                               'command' => "msub",
                                'queue' => "brain",
                                'hosts' => undef,
                                'opts' => "-l ncpus=1" },
               'GUILLIMIN' => { 'type' => "pbs",
                                'maxqueued' => 1000,
                                'granularity' => 1,
+                               'command' => "msub",
                                'queue' => undef,
                                'hosts' => undef,
-                               'opts' => "-l walltime=6:00:00 -l nodes=1:ppn=1" },
+                               'opts' => "-l walltime=8:00:00 -l nodes=1:ppn=1" },
                 'COLOSSE'  => { 'type' => "pbs",
                                'maxqueued' => 1000,
                                'granularity' => 1,
+                               'command' => "msub",
                                'queue' => "default",
                                'hosts' => undef,
                                'opts' => "-P eim-670-aa -l h_rt=6:00:00" },
                 'RQCHP'   => { 'type' => "pbs",
                                'maxqueued' => 800,
                                'granularity' => 1,
+                               'command' => "qsub",
                                'queue' => "qwork\@ms",
                                'hosts' => undef,
-                               'opts' => "-l walltime=6:00:00" },
+                               'opts' => "-l walltime=7:00:00" },
+                'KISTI'   => { 'type' => "pbs",
+                               'maxqueued' => 100,
+                               'granularity' => 1,
+                               'command' => "msub",   ## check
+                               'queue' => undef,      ## check
+                               'hosts' => undef,
+                               'opts' => undef },
                 'NIH'     => { 'type' => "pbs",
                                'maxqueued' => 1000,
                                'granularity' => 1,
+                               'command' => "qsub",
                                'queue' => "norm",
                                'hosts' => undef,
-                               'opts' => "-l nodes=1:p2800" } );
+                               'opts' => "-l nodes=1:p2800" },
+                'NUPPI'   => { 'type' => "sge",
+                               'maxqueued' => 1000,
+                               'granularity' => 1,
+                               'command' => "qsub",
+                               'queue' => undef,    ## check
+                               'hosts' => undef,
+                               'opts' => undef },
+                'JUDGE'   => { 'type' => "pbs",
+                               'maxqueued' => 1000,
+                               'granularity' => 1,
+                               'command' => "msub",
+                               'queue' => "common",
+                               'hosts' => undef,
+                               'opts' => "-l walltime=08:00:00" },
+                'JUROPA'  => { 'type' => "pbs",      # should never run on Juropa
+                               'maxqueued' => 1000,  # because ppn=16 not filled
+                               'granularity' => 1,
+                               'command' => "msub",
+                               'queue' => "common",
+                               'hosts' => undef,
+                               'opts' => "-l walltime=08:00:00 -l nodes=1:ppn=1 -v tpt=2" } );
 
 my $PMPtype = ( $ENV{'CIVET_JOB_SCHEDULER'} || "DEFAULT" );
 my $PMPmaxQueued = $PMPconf{$PMPtype}{maxqueued};
@@ -364,10 +404,13 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_asym_09a_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
                       'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
+                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
-                      'TagFile'          => "n/a",
+                      'TagFile'          => "ntags_1000_prob_90_nobg.tag",
+                      'bgTagFile'        => "ntags_1000_bg.tag",
                       'AnimalAtlas'      => undef,
                       'AnimalAtlasDir'   => undef,
                       'AnimalNLRegDir'   => undef,
@@ -384,10 +427,13 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_sym_09a_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
                       'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
+                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
-                      'TagFile'          => "n/a",
+                      'TagFile'          => "ntags_1000_prob_90_nobg.tag",
+                      'bgTagFile'        => "ntags_1000_bg.tag",
                       'AnimalAtlas'      => undef,
                       'AnimalAtlasDir'   => undef,
                       'AnimalNLRegDir'   => undef,
@@ -404,10 +450,13 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
                       'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
+                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
-                      'TagFile'          => "n/a",
+                      'TagFile'          => "ntags_1000_prob_90_nobg.tag",
+                      'bgTagFile'        => "ntags_1000_bg.tag",
                       'AnimalAtlas'      => undef,
                       'AnimalAtlasDir'   => undef,
                       'AnimalNLRegDir'   => undef,
@@ -424,15 +473,41 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_lin_symmetric_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
                       'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
+                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
-                      'TagFile'          => "n/a",
+                      'TagFile'          => "ntags_1000_prob_90_nobg.tag",
+                      'bgTagFile'        => "ntags_1000_bg.tag",
                       'AnimalAtlas'      => undef,
                       'AnimalAtlasDir'   => undef,
                       'AnimalNLRegDir'   => undef,
                       'AnimalNLRegModel' => undef
-                    }
+                    },
+                    'ADNInl' => {
+                      'RegLinDir'        => MNI::DataDir::dir("mni-models"),
+                      'RegLinModel'      => "mni_adni_t1w_tal_nlin_asym",
+                      'RegNLDir'         => MNI::DataDir::dir("mni-models"),
+                      'RegNLModel'       => "mni_adni_t1w_tal_nlin_asym",
+                      'TemplateDir'      => MNI::DataDir::dir("ICBM"),
+                      'TemplateModel'    => "icbm_template",
+                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
+                      'SurfaceMask'      => "mni_adni_t1w_tal_nlin_asym_mask.obj",
+                      'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
+                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
+                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
+                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask-ADNI.mnc",
+                      'TagFileDir'       => MNI::DataDir::dir("classify-ADNI"),
+                      'TagFile'          => "mni_adni_t1w_tal_nlin_asym_ntags_1000_nobg.tag",
+                      'bgTagFile'        => "mni_adni_t1w_tal_nlin_asym_ntags_1000_bg.tag",
+                      'AnimalAtlas'      => undef,
+                      'AnimalAtlasDir'   => undef,
+                      'AnimalNLRegDir'   => undef,
+                      'AnimalNLRegModel' => undef
+                    },
                   );
 
 ############# The status report filename:
@@ -445,7 +520,7 @@ my $inputType = "t1only";
 my $correctPVE = 0;
 my $maskType = "t1only";
 my $interpMethod = "trilinear";
-my $Tesla = "1.5-Tesla";
+my $headheight = 0;
 my $N3Distance = undef;
 my $N3Damping = "1.0e-07";
 my $lsqtype = "-lsq9";
@@ -456,6 +531,7 @@ my $VBM_fwhm = 8;
 my $VBM_symmetry = "noSymmetry";
 my $VBM_cerebellum = "Cerebellum";
 my $surface = "SURFACE";
+my $MaskBloodVessels = 0;
 my @thickness = ("tlink","20");
 my $ResampleSurfaces = 0;
 my $MeanCurvature = 0;
@@ -504,7 +580,9 @@ my @argTbl = (
            "\"icbm152nl_09s\" (MNI ICBM152 non-linear symmetric (2009)), " .
            "\"icbm152nl_09a\" (MNI ICBM152 non-linear asymmetric (2009)), " .
            "\"icbm152nl\" (MNI ICBM152 non-linear 6th generation), " .
-           "\"icbm152lin\" (MNI ICBM152 linear", "<model>"],
+           "\"icbm152lin\" (MNI ICBM152 linear), " .
+           "\"ADNInl\" (MNI ADNI non-linear) ",
+           "<model>"],
           ["-surface-atlas", "string", 2, \@SurfaceAtlas,
            "Define the atlas for surface parcellation ",
            "<atlas_left.txt> <atlas_right.txt>"],
@@ -514,12 +592,12 @@ my @argTbl = (
           ["-correct-pve|-no-correct-pve", "boolean", 1, \$correctPVE, 
            "Apply correction to the mean and variance of tissue types at pve iterations."],
           ["-spectral_mask", "const", "multispectral", \$maskType, 
-           "Use T1, T2 and PD native files for brain masking."],
+           "Use T1, T2 and PD stereotaxic files for brain masking."],
           ["-interp", "string", 1, \$interpMethod,
            "Interpolation method from native to stereotaxic space (\"trilinear\", \"tricubic\", \"sinc\"",
            "<method>"],
-          ["-3Tesla ", "const", "3-Tesla", \$Tesla, 
-           "Use appropriate parameters for 3-Tesla scanner."],
+          ["-headheight", "string", 1, \$headheight, 
+           "head height in mm for neck cropping (suggested value: 170; default 0=none).", "<dist>"],
           ["-N3-distance", "string", 1, \$N3Distance, 
            "N3 spline distance in mm (suggested values: 200 for 1.5T scan; 50 for 3T scan).", "<dist>"],
           ["-N3-damping", "string", 1, \$N3Damping, 
@@ -529,6 +607,8 @@ my @argTbl = (
           ["-lsq12", "const", "-lsq12", \$lsqtype,
            "use 12-parameter transformation for linear registration [default -lsq9]" ],
           ["-no-surfaces", "const", "noSURFACE", \$surface, "don\'t build surfaces"],
+          ["-mask-blood-vessels|-no-mask-blood-vessels", "boolean", 1, \$MaskBloodVessels,
+           "mask blood vessels prior to white surface extraction"],
           ["-thickness", "string", 2, \@thickness,
            "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
           ["-resample-surfaces|-no-resample-surfaces", "boolean", 1, \$ResampleSurfaces,
@@ -614,15 +694,6 @@ $target =~ s#/+$##;      # remove trailing / at end of directory name, if any
 $target = abs_path( $target );
 $sourceDir = abs_path( $sourceDir );
 
-############# N3 spline distance for 1.5 or 3.0 Tesla.
-if( !( defined $N3Distance ) ) {
-  if( $Tesla eq "3-Tesla" ) {
-    $N3Distance = 50.0;
-  } else {
-    $N3Distance = 200.0;
-  }
-}
-
 ############# Override default PMP options based on command line options
 $PMPconf{$PMPtype}{maxqueued} = $PMPmaxQueued;
 $PMPconf{$PMPtype}{granularity} = $PMPgranularity;
@@ -678,9 +749,11 @@ my $intermediate_model = undef;
 
 my $SurfRegModelDir = $CIVETmodels{$CIVETModel}{SurfRegModelDir};
 my $SurfRegModel = $CIVETmodels{$CIVETModel}{SurfRegModel};
+my $SurfRegDataTerm = $CIVETmodels{$CIVETModel}{SurfRegDataTerm};
 
 print "* Surface registration model directory is: \n  ${SurfRegModelDir} \n";
 print "* Surface registration model is:    \n   ${SurfRegModel} \n";
+print "* Surface registration dataterm is: \n   ${SurfRegDataTerm} \n";
 
 ############# Choose surface parcellation atlas if surfaces are to be resampled.
 
@@ -780,8 +853,6 @@ print "\n* Stage control commands are: " .
 
 print "\n\n\n* Data-set Subject ID(s) is/are: '@dsids'\n\n\n";
 
-my $second_model_dir = "$FindBin::Bin/models";
-
 system("mkdir -p ${target}") if (! -d ${target});
 
 
@@ -813,6 +884,8 @@ foreach my $dsid (@dsids) {
                                 $correctPVE,
                                 $maskType,
                                 $interpMethod,
+                                $headheight,
+                                $MaskBloodVessels,
                                 $N3Distance,
                                 $N3Damping,
                                 $lsqtype,
@@ -846,12 +919,14 @@ foreach my $dsid (@dsids) {
         $PMPgranularity = 0;
     } elsif ($PMPconf{$PMPtype}{type} eq "sge") {
         $pipeline = PMP::sge->new();
+        $pipeline->setCommand($PMPconf{$PMPtype}{command});
         $pipeline->setQueue($PMPconf{$PMPtype}{queue});
         $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
         $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
 	$pipeline->setPriorityScheme("later-stages");
     } elsif ($PMPconf{$PMPtype}{type} eq "pbs") {
         $pipeline = PMP::pbs->new();
+        $pipeline->setCommand($PMPconf{$PMPtype}{command});
         $pipeline->setQueue($PMPconf{$PMPtype}{queue});
         $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
         $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
@@ -872,8 +947,7 @@ foreach my $dsid (@dsids) {
                         \$image,
                         \$CIVETmodels{$CIVETModel},
                         $intermediate_model, 
-                        $Template,
-                        $second_model_dir
+                        $Template
                         );    
 
 ####################################################################################

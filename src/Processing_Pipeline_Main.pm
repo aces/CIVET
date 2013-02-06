@@ -15,7 +15,6 @@ use Clean_Scans;
 use Linear_Transforms;
 use Skull_Masking;
 use Classify;
-use Artefact;
 use Cortex_Mask;
 use Non_Linear_Transforms;
 use Segment;
@@ -36,7 +35,6 @@ sub create_pipeline{
     my $models = @_[2];
     my $Global_intermediate_model = @_[3];
     my $Global_Template = @_[4];
-    my $Global_second_model_dir = @_[5];
 
     my $Global_LinRegModel = "${$models}->{RegLinDir}/${$models}->{RegLinModel}";
     my $Global_NLRegModel = "${$models}->{RegNLDir}/${$models}->{RegNLModel}";
@@ -89,11 +87,13 @@ sub create_pipeline{
     );
     my $Clean_Scans_complete = $res[0];
 
+
+
     ##############################################
     ##### Skull masking in stereotaxic space #####
     ##############################################
 
-    @res = Skull_Masking::create_pipeline(
+    @res = Skull_Masking::stereotaxic_mask(
       $pipeline_ref,
       $Clean_Scans_complete,
       $image
@@ -118,7 +118,7 @@ sub create_pipeline{
 
     @res = Classify::pve(
       $pipeline_ref,
-      $Non_Linear_Transforms_complete,
+      [@{$Non_Linear_Transforms_complete},@{$Skull_Masking_complete}],
       $image
     );
     my $Classify_complete = $res[0];
@@ -148,17 +148,6 @@ sub create_pipeline{
       my $VBM_complete = $res[0];
     }
 
-    ##############################################################
-    ##### Susceptibility artefacts (could use skull mask???) #####
-    ##############################################################
-
-    @res = Artefact::create_pipeline(
-      $pipeline_ref,
-      $Cortex_Mask_complete,
-      $image
-    );
-    my $Artefact_complete = $res[0];
-
     ##############################
     ##### ANIMAL brain atlas #####
     ##############################
@@ -171,7 +160,7 @@ sub create_pipeline{
         [@{$Non_Linear_Transforms_complete},@{$Classify_complete}],
         $image,
         $Global_Template,
-        $Global_second_model_dir,
+        ${$models}->{SurfRegModelDir},
         ${$models}->{AnimalAtlas},
         ${$models}->{AnimalAtlasDir},
         $fullpath_animalregmodel
@@ -195,6 +184,11 @@ sub create_pipeline{
     my $LobeFeatures_complete = undef;
     my $GyrificationIndex_complete = undef;
     my $CerebralVolume_complete = undef;
+    my $Verify_CLASP_complete = undef;
+    my $Verify_Atlas_complete = undef;
+    my $Verify_Laplace_complete = undef;
+    my $Verify_Surfsurf_complete = undef;
+    my $Verify_image_complete = undef;
 
     unless (${$image}->{surface} eq "noSURFACE") {
 
@@ -207,7 +201,8 @@ sub create_pipeline{
         [@{$Cortex_Mask_complete},@{$Classify_complete}],
         $image,
         "smallOnly",
-        $Global_second_model_dir
+        ${$models}->{WhiteSurfMask},
+        ${$models}->{SurfRegModelDir},
       );
       $Surface_Fit_complete = $res[0];
 
@@ -221,6 +216,20 @@ sub create_pipeline{
         $image,
       );
       $Surface_QC_complete = $res[0];
+
+      @res = Verify::laplacian(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $Verify_Laplace_complete = $res[0];
+
+      @res = Verify::surfsurf(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $Verify_Surfsurf_complete = $res[0];
 
       ##########################################
       ##### Combine left+right hemispheres #####
@@ -260,11 +269,13 @@ sub create_pipeline{
       ################################
 
       my $Global_SurfRegModel = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
+      my $Global_SurfRegDataTerm = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
       @res = Surface_Register::create_pipeline(
         $pipeline_ref,
         $Surface_Fit_complete,
         $image,
-        $Global_SurfRegModel
+        $Global_SurfRegModel,
+        $Global_SurfRegDataTerm
       );
       $SurfReg_complete = $res[0];
 
@@ -280,6 +291,24 @@ sub create_pipeline{
         );
         $SurfResample_complete = $res[0];
 
+        @res = Verify::atlas(
+          $pipeline_ref,
+          $SurfResample_complete,
+          $image
+        );
+        $Verify_Atlas_complete = $res[0];
+
+        ######################################
+        ##### Asymmetry map for position #####
+        ######################################
+
+        @res = Cortical_Measurements::position(
+          $pipeline_ref,
+          [@{$SurfResample_complete},@{$Combine_Surface_complete}],
+          $image
+        );
+        $Position_complete = $res[0];
+
         my @resArea = Surface_Register::resampled_surface_areas(
           $pipeline_ref,
           $SurfResample_complete,
@@ -294,17 +323,6 @@ sub create_pipeline{
           $Global_SurfRegModel
         );
         $SurfResample_complete = [@{$resArea[0]},@{$res[0]}];
-
-        ######################################
-        ##### Asymmetry map for position #####
-        ######################################
-
-        @res = Cortical_Measurements::position(
-          $pipeline_ref,
-          [@{$SurfResample_complete},@{$Combine_Surface_complete}],
-          $image
-        );
-        $Position_complete = $res[0];
       }
 
       ##############################################
@@ -363,12 +381,8 @@ sub create_pipeline{
       $image
     );
 
-    my $Verify_image_complete = $res[0];
+    $Verify_image_complete = $res[0];
 
-    my $Verify_CLASP_complete = undef;
-    my $Verify_Atlas_complete = undef;
-    my $Verify_Laplace_complete = undef;
-    my $Verify_Surfsurf_complete = undef;
     unless (${$image}->{surface} eq "noSURFACE") {
       my $CLASPPrereqs = [ @{$Surface_Fit_complete} ];
       push @{$CLASPPrereqs}, @{$GyrificationIndex_complete};
@@ -380,28 +394,6 @@ sub create_pipeline{
       );
       $Verify_CLASP_complete = $res[0];
 
-      @res = Verify::laplacian(
-        $pipeline_ref,
-        [@{$Surface_Fit_complete}],
-        $image
-      );
-      $Verify_Laplace_complete = $res[0];
-
-      @res = Verify::surfsurf(
-        $pipeline_ref,
-        [@{$Surface_Fit_complete}],
-        $image
-      );
-      $Verify_Surfsurf_complete = $res[0];
-
-      if( ${$image}->{resamplesurfaces} ) {
-        @res = Verify::atlas(
-          $pipeline_ref,
-          $SurfResample_complete,
-          $image
-        );
-        $Verify_Atlas_complete = $res[0];
-      }
     }
 
 }

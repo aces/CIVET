@@ -22,34 +22,41 @@ use MNI::FileUtilities qw(check_output_dirs);
 # define input variables:
 
 my $cls=$ARGV[0];
-my $cortex=$ARGV[1];
-my $skull_mask=$ARGV[2];
-my $brain_mask=$ARGV[3];
+my $pve_csf=$ARGV[1];
+my $cortex=$ARGV[2];
+my $skull_mask=$ARGV[3];
+my $brain_mask=$ARGV[4];
+my $xfm=$ARGV[5];
 
 # Directory for temporary files.
 
 MNI::FileUtilities::check_output_dirs($TmpDir) or exit 1;
 
-# Application of cortical_surface to mask out any remaining non-cortical
-# tissue, if any, and the cerebellum. This step can help remove the eyes
-# as well.
+# Apply csf partial volumes to classified image.
+my $cls_tmp = "${TmpDir}/cls_tmp.mnc";
+my $cls_tmp_masked = "${TmpDir}/cls_tmp_masked.mnc";
+&run( "minccalc", "-clobber", "-expression", "if(A[1]<0.10){A[0]}else{1}",
+      $cls, $pve_csf, $cls_tmp );
+
+# Apply current full brain mask to classified image (should already be masked).
+&run( "mincmath", "-clobber", "-mult", $cls_tmp, $skull_mask, $cls_tmp_masked );
+unlink( $cls_tmp );
 
 # run defrag before the cortical surface mask to remove dangling pieces
 # of white and grey tissues. This will increase the accuracy of the
 # cortical surface by preventing the surface to be attracted to non-
-# desired tissues.
+# desired tissues. 
 
 my $cls_defrag = "${TmpDir}/cls_defrag.mnc";
-
-&run( "mincmath", "-clobber", "-mult", $cls, $skull_mask, $cls_defrag );
-
-&run( "mincdefrag", $cls_defrag, $cls_defrag, 3, 6 );
-
+&run( "mincdefrag", $cls_tmp_masked, $cls_defrag, 3, 6 );
 &run( "mincdefrag", $cls_defrag, $cls_defrag, 2, 6 );
+unlink( $cls_tmp_masked );
 
-# cortical surface to mask out cerebellum and other non-cortical tissues
+# Application of cortical_surface to mask out any remaining non-cortical
+# tissue, if any, and the cerebellum. This step can help remove the eyes
+# as well.
 
-&run( "cortical_surface", $cls_defrag, $cortex, 1.5 );
+&run( "cortical_surface", $cls_defrag, $cortex, 1.5, $xfm );
 
 # masking of brain with the cortical surface. No need to remove the boundary
 # lines (from scan_object_to_volume) since the mask is very very tight.

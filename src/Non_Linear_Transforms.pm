@@ -25,21 +25,20 @@ sub create_pipeline {
     my $skull_mask = ${$image}->{skull_mask_tal};
     my $t1_tal_nl_xfm = ${$image}->{t1_tal_nl_xfm};
 
-# Not pretty, but must add extension .mnc to model name (because stx_register uses
-# the same model, but without the .mnc extension).
+# Not pretty, but must add extension .mnc to model name (because 
+# stx_register uses the same model, but without the .mnc extension).
     my $Non_Linear_Target = "${nl_model}.mnc";
-    my $model_head_mask = "${nl_model}_mask.mnc";
+    my $model_mask = "${nl_model}_mask.mnc";
 
-    ${$pipeline_ref}->addStage(
-         { name => "nlfit",
+    ${$pipeline_ref}->addStage( {
+         name => "nlfit",
          label => "creation of nonlinear transform",
-         inputs => [$t1_tal_mnc],
+         inputs => [$t1_tal_mnc, $skull_mask],
          outputs => [$t1_tal_nl_xfm],
-         args => ["best1stepnlreg.pl", "-clobber", "-source_mask", $skull_mask,
-                  "-normalize", "-target_mask", $model_head_mask, $t1_tal_mnc,
-                  $Non_Linear_Target, $t1_tal_nl_xfm],
-         prereqs => $Non_Linear_Transforms_Prereqs }
-         );
+         args => ["best1stepnlreg.pl", "-clobber", "-source_mask", 
+                  $skull_mask, "-target_mask", $model_mask, 
+                  $t1_tal_mnc, $Non_Linear_Target, $t1_tal_nl_xfm],
+         prereqs => $Non_Linear_Transforms_Prereqs });
 
     my $Non_Linear_Transforms_complete = ["nlfit"]; 
 

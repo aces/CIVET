@@ -1,7 +1,8 @@
 #! /usr/bin/env perl
 #
-# non-linear fitting using parameters optimised by Steve Robbins,
-# using a brain mask for the source and the target.
+# non-linear fitting using parameters, inspired by Steve Robbins,
+# optimised by Claude Lepage, using a brain mask for the source and 
+# the target.
 #
 # Claude Lepage - claude@bic.mni.mcgill.ca
 # Andrew Janke - rotor@cmr.uq.edu.au
@@ -25,43 +26,66 @@ my @def_minctracc_args = (
 #   '-debug',
    '-clobber',
    '-nonlinear', 'corrcoeff',
-   '-weight', 1,
-   '-stiffness', 1,
-   '-similarity', 0.3,
-   '-sub_lattice', 6,
+   '-stiffness', 0.962962,  # = 26/27 in 3-D
    );
 
 my @conf = (
 
-   {'step'         => 32,
-    'blur_fwhm'    => 16,
+   {'step'         => 24,
+    'blur_fwhm'    => 12,   
     'iterations'   => 20,
+    'similarity'   => 0.50,
+    'weight'       => 1,
+    'lattice'      => 12,
     },
 
    {'step'         => 16,
     'blur_fwhm'    => 8,
     'iterations'   => 20,
+    'similarity'   => 0.45,
+    'weight'       => 1,
+    'lattice'      => 12,
     },
 
    {'step'         => 12,
     'blur_fwhm'    => 6,
-    'iterations'   => 20,
+    'iterations'   => 25,
+    'similarity'   => 0.40,
+    'weight'       => 1.0,
+    'lattice'      => 12,
     },
 
    {'step'         => 8,
     'blur_fwhm'    => 4,
-    'iterations'   => 20,
+    'iterations'   => 30,
+    'similarity'   => 0.35,
+    'weight'       => 1.0,
+    'lattice'      => 12,
     },
 
    {'step'         => 6,
     'blur_fwhm'    => 3,
     'iterations'   => 20,
+    'similarity'   => 0.30,
+    'weight'       => 1.0,
+    'lattice'      => 12,
     },
 
    {'step'         => 4,
     'blur_fwhm'    => 2,
-    'iterations'   => 10,
+    'iterations'   => 20,
+    'similarity'   => 0.25,
+    'weight'       => 1.0,
+    'lattice'      => 12,
     },
+
+   {'step'         => 2,     # gets expensive
+    'blur_fwhm'    => 2,
+    'iterations'   => 10,
+    'similarity'   => 0.20,
+    'weight'       => 0.75,
+    'lattice'      => 6,
+   }
 
    );
 
@@ -124,26 +148,6 @@ if(-e $outxfm && !$opt{clobber}){
    }
 if(defined($outfile) && -e $outfile && !$opt{clobber}){
    die "$me: $outfile exists, -clobber to overwrite\n\n";
-   }
-
-my $mask_warning = 0;
-if( !defined($opt{source_mask}) ) {
-  $mask_warning = 1;
-} else {
-  if( !-e $opt{source_mask} ) {
-    $mask_warning = 1;
-  }
-}
-if( !defined($opt{target_mask}) ) {
-  $mask_warning = 1;
-} else {
-  if( !-e $opt{target_mask} ) {
-    $mask_warning = 1;
-  }
-}
-if( $mask_warning == 1 ) {
-  print "Warning: For optimal results, you should use masking.\n";
-  print "$Usage";
 }
 
 # make tmpdir
@@ -170,24 +174,24 @@ if( $opt{normalize} ) {
   my $inorm_target = "$tmpdir/${t_base}_inorm.mnc";
   &do_cmd( "mincresample", "-clobber", "-like", $source, $target, $inorm_target );
   &do_cmd( 'inormalize', '-clobber', '-model', $inorm_target, $source, $inorm_source );
+  &do_cmd( 'rm', '-rf', $inorm_target );
   $source = $inorm_source;
 }
 
-# mask the images only once.
+# mask the images before fitting only if both masks exists.
 if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
   my $source_masked = "$tmpdir/${s_base}_masked.mnc";
   &do_cmd( 'minccalc', '-clobber',
-           '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
+           '-expression', 'if(A[1]>0.5){out=A[0];}else{0;}',
            $source, $opt{source_mask}, $source_masked );
   $source = $source_masked;
 
   my $target_masked = "$tmpdir/${t_base}_masked.mnc";
   &do_cmd( 'minccalc', '-clobber',
-           '-expression', 'if(A[1]>0.5){out=A[0];}else{out=A[1];}',
+           '-expression', 'if(A[1]>0.5){out=A[0];}else{0;}',
            $target, $opt{target_mask}, $target_masked );
   $target = $target_masked;
 }
-
 
 # a fitting we shall go...
 for ($i=0; $i<=$#conf; $i++){
@@ -207,6 +211,8 @@ for ($i=0; $i<=$#conf; $i++){
    
    print STDOUT "-+-[$i]\n".
                 " | step:           $conf[$i]{step}\n".
+                " | similarity:     $conf[$i]{similarity}\n".
+                " | weight:         $conf[$i]{weight}\n".
                 " | blur_fwhm:      $conf[$i]{blur_fwhm}\n".
                 " | iterations:     $conf[$i]{iterations}\n".
                 " | source:         $tmp_source\n".
@@ -215,19 +221,30 @@ for ($i=0; $i<=$#conf; $i++){
                 "\n";
    
    # blur the source and target files if required.
-   if(!-e "$tmp_source\_blur.mnc"){
-      &do_cmd('mincblur', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
-              $source, $tmp_source);
+   if( $conf[$i]{blur_fwhm} > 0 ) {
+     if(!-e "${tmp_source}_blur.mnc"){
+       &do_cmd('mincblur', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
+               $source, $tmp_source);
+     }
+   } else {
+     &do_cmd('cp', '-f', $source, "${tmp_source}_blur.mnc" );
    }
-   if(!-e "$tmp_target\_blur.mnc"){
-      &do_cmd('mincblur', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
-              $target, $tmp_target);
+   if( $conf[$i]{blur_fwhm} > 0 ) {
+     if(!-e "${tmp_target}_blur.mnc"){
+       &do_cmd('mincblur', '-no_apodize', '-fwhm', $conf[$i]{blur_fwhm},
+               $target, $tmp_target);
+     }
+   } else {
+     &do_cmd('cp', '-f', $target, "${tmp_target}_blur.mnc" );
    }
-   
+
    # set up registration
    @args = ('minctracc',  @def_minctracc_args,
             '-iterations', $conf[$i]{iterations},
             '-step', $conf[$i]{step}, $conf[$i]{step}, $conf[$i]{step},
+            '-similarity', $conf[$i]{similarity},
+            '-weight', $conf[$i]{weight},
+            '-sub_lattice', $conf[$i]{lattice},
             '-lattice_diam', $conf[$i]{step} * 3, 
                              $conf[$i]{step} * 3, 
                              $conf[$i]{step} * 3);
@@ -239,15 +256,22 @@ for ($i=0; $i<=$#conf; $i++){
       push(@args, '-transformation', $prev_xfm);
    }
 
-   # masks (even if the blurred image is masked, it's still preferable
-   # to use the mask in minctracc)
-   if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
+   # masking
+   if( defined($opt{source_mask}) && defined($opt{target_mask}) ) {
+     # if both masks are supplied, then apply masking on all stages.
      push(@args, '-source_mask', $opt{source_mask} );
      push(@args, '-model_mask', $opt{target_mask} );
+   } else {
+     if( defined($opt{source_mask}) ) {
+       push(@args, '-source_mask', $opt{source_mask} );
+     }
+     if( defined($opt{target_mask}) ) {
+       push(@args, '-model_mask', $opt{target_mask} );
+     }
    }
    
    # add files and run registration
-   push(@args, "$tmp_source\_blur.mnc", "$tmp_target\_blur.mnc", 
+   push(@args, "${tmp_source}_blur.mnc", "${tmp_target}_blur.mnc", 
         ($i == $#conf) ? $outxfm : $tmp_xfm);
    &do_cmd(@args);
   
@@ -268,7 +292,7 @@ for ($i=0; $i<=$#conf; $i++){
 # resample if required
 if(defined($outfile)){
    print STDOUT "-+- creating $outfile using $outxfm\n".
-   &do_cmd('mincresample', '-clobber', '-like', $target,
+   &do_cmd('mincresample', '-clobber', '-like', $target, '-trilinear',
            '-transformation', $outxfm, $original_source, $outfile);
 }
 
@@ -279,4 +303,4 @@ sub do_cmd {
       system(@_) == 0 or die;
    }
 }
-       
+

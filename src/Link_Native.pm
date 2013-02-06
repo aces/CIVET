@@ -3,9 +3,9 @@
 # Professor of Neurology
 # McGill University
 #
-# The Linking stage for simple t1, t2, pd pipeline.
-# We demand that image type be better that byte, otherwise the 
-# resolution will be too poor.
+# Stage for regularization of t1, t2, pd, mask. We remove
+# direction cosines and impose regular spacing and z,y,x
+# internal voxel ordering.
 
 package Link_Native;
 use strict;
@@ -18,56 +18,43 @@ sub create_pipeline {
     my $Prereqs = @_[1];
     my $image = @_[2];
 
-    my $inputType = ${$image}->{maskType};
-    my $maskType = ${$image}->{inputType};
+    my $multi = ( ${$image}->{inputType} eq "multispectral" ) ||
+                ( ${$image}->{maskType} eq "multispectral" );
     my $source_files = ${$image}->get_hash( "source" );
     my $native_files = ${$image}->get_hash( "native" );
 
-    # do the symbolic links on files of known types (t1, t2, pd right now).
+    my $input_t1 = $source_files->{t1};
+    my $output_t1 = $native_files->{t1};
 
-    # t1 image file must always exist.
-    if( -e $source_files->{t1} ) {
-      system( "ln -fs $source_files->{t1} $native_files->{t1}" );
-      check_input_image( $source_files->{t1} );
+    my $input_t2 = ($multi && -e $source_files->{t2}) ? $source_files->{t2} : "none";
+    my $output_t2 = ($multi && -e $source_files->{t2}) ? $native_files->{t2} : "none";
+    my $input_pd = ($multi && -e $source_files->{pd}) ? $source_files->{pd} : "none";
+    my $output_pd = ($multi && -e $source_files->{pd}) ? $native_files->{pd} : "none";
+    my $input_mask = (-e ${$image}->{user_mask}) ? ${$image}->{user_mask} : "none";
+    my $output_mask = (-e ${$image}->{user_mask}) ? ${$image}->{skull_mask_native} : "none";
+
+    my @outputs = ( $output_t1 );
+    push @outputs, $output_t2 if( $input_t2 ne "none" );
+    push @outputs, $output_pd if( $input_pd ne "none" );
+    push @outputs, $output_mask if( $input_mask ne "none" );
+
+    if( -e $input_t1 ) {
+      ${$pipeline_ref}->addStage( {
+           name => "clean_native_scan",
+           label => "regularization of native scans",
+           inputs => [],
+           outputs => \@outputs,
+           args => ["clean_native_scan", $input_t1, $input_t2, $input_pd,
+                    $input_mask, $output_t1, $output_t2, $output_pd, 
+                    $output_mask],
+           prereqs => $Prereqs } );
     } else {
-      die "Error: t1 image file $source_files->{t1} must exist for pipeline to continue.\n";
+      die "Error: t1 image file $input_t1 must exist for pipeline to continue.\n";
     }
 
-    # look for t2 and pd images if we need them later.
-    if( ( $maskType eq "multispectral" ) or ($inputType eq "multispectral") ) {
-      if( -e $source_files->{t2} ) {
-        system( "ln -fs $source_files->{t2} $native_files->{t2}" );
-        check_input_image( $source_files->{t2} );
-      }
-      if( -e $source_files->{pd} ) {
-        system( "ln -fs $source_files->{pd} $native_files->{pd}" );
-        check_input_image( $source_files->{pd} );
-      }
-    }
-
-    my $Link_Native_complete = [];
+    my $Link_Native_complete = ["clean_native_scan"];
 
     return( $Link_Native_complete );
-}
-
-sub check_input_image {
-
-  my $input = shift;
-
-  my $image_type = `mincinfo -vartype image $input`;
-  if( $image_type eq "byte" ) {
-    print "WARNING: Data type for image $input is byte.\n";
-    print "         This may result in loss of resolution.\n";
-  }
-
-  my $xspacing = `mincinfo -attvalue xspace:spacing $input`;
-  my $yspacing = `mincinfo -attvalue yspace:spacing $input`;
-  my $zspacing = `mincinfo -attvalue zspace:spacing $input`;
-  chomp($xspacing,$yspacing,$zspacing);
-  if( ($xspacing || $yspacing || $zspacing) =~ /irregular/ ) {
-    die "ERROR: image file $input has irregular slice spacing.\n";
-  }
-
 }
 
 1;

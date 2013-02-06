@@ -24,6 +24,7 @@ use Cwd qw( abs_path );
 use Env qw( PATH );
 use List::Util qw( min max );
 use File::Temp qw/ tempdir /;
+use File::Basename;
 
 # All modules that will be used in either case are declared here
 use Getopt::Tabular;
@@ -44,8 +45,8 @@ $SIG{'TERM'} = 'CLEANUP';
 # Create tmp dir.
 my $tmpdir = tempdir( CLEANUP => 1 );
 
-my $version = "1.1.10";
-my $versionDate= "December 1, 2009";
+my $version = "1.1.12";
+my $versionDate= "February, 2013";
 my $authors= "Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
@@ -158,16 +159,18 @@ my $inputType = "t1only";
 my $correctPVE = 0;
 my $maskType = "t1only";
 my $interpMethod = "trilinear";
+my $headheight = 0;
+my $MaskBloodVessels = 0;
 my $N3Distance = 200;
 my $N3Damping = "1.0e-06";
 my $lsqtype = "-lsq9";
 my $surface = "SURFACE";
-my @thickness = ("tlink","20");
+my @thickness = ("tlink","30");
 my $ResampleSurfaces = 1;
 my $MeanCurvature = 0;
 my $Area_fwhm = 40;
 my $Volume_fwhm = 40;
-my $CombineSurfaces = 1;
+my $CombineSurfaces = 0;
 my $VBM = "noVBM";
 my $VBM_fwhm = 8;
 my $VBM_symmetry = "noSymmetry";
@@ -186,6 +189,7 @@ my %CIVETmodels = ( 'icbm152nl' => {
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
                       'SurfRegModelDir'  => "$FindBin::Bin/models",
                       'SurfRegModel'     => "surf_reg_model_left.obj",
+                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
                       'SurfAtlas'        => "surface_atlas.txt",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "n/a",
@@ -216,17 +220,23 @@ $html .= "<tr bgcolor=\"\#cccccc\">" .
          "<th>x-step</th>" .
          "<th>y-step</th>" .
          "<th>z-step</th>" .
-         "<th>NatMaskErr</th>" .
          "<th>StxMaskErr</th>" .
          "<th>CSFcls</th>" .
          "<th>GMcls</th>" .
          "<th>WMcls</th>" .
+         "<th>GMCortical</th>" .
          "<th>WMsurf</th>" .
          "<th>GMsurf</th>" .
          "<th>SRLeft</th>" .
          "<th>SRRight</th>" .
          "<th>SSLeft</th>" .
          "<th>SSRight</th>" .
+         "<th>MeanCTLeft</th>" .
+         "<th>MeanCTRight</th>" .
+         "<th>MeanWM-T1</th>" .
+         "<th>StdDevWM-T1</th>" .
+         "<th>MeanGM-T1</th>" .
+         "<th>StdDevGM-T1</th>" .
          "<th>GIleft</th>" .
          "<th>GIright</th>" .
          "<th>GIfull</th>" .
@@ -235,9 +245,6 @@ $html .= "<tr> </tr>\n";
 
 my $info = "# CIVET QC pipeline\n";
 
-my $avg_native_mask_error = 0.0;
-my $stddev_native_mask_error = 0.0;
-my $count_native_mask_error = 0;
 my $avg_stx_mask_error = 0.0;
 my $stddev_stx_mask_error = 0.0;
 my $count_stx_mask_error = 0;
@@ -248,6 +255,9 @@ my $stddev_gm_cls = 0.0;
 my $avg_wm_cls = 0.0;
 my $stddev_wm_cls = 0.0;
 my $count_cls = 0.0;
+my $avg_gm_cortical = 0.0;
+my $stddev_gm_cortical = 0.0;
+my $count_gm_cortical = 0.0;
 my $avg_wm_surf = 0.0;
 my $stddev_wm_surf = 0.0;
 my $avg_gm_surf = 0.0;
@@ -265,6 +275,9 @@ my $count_surfsurf_left = 0.0;
 my $avg_surfsurf_right = 0.0;
 my $stddev_surfsurf_right = 0.0;
 my $count_surfsurf_right = 0.0;
+my $avg_meanct = 0.0;
+my $stddev_meanct = 0.0;
+my $count_meanct = 0.0;
 
 my $count = 0;
 foreach my $dsid (@dsids) {
@@ -294,6 +307,8 @@ foreach my $dsid (@dsids) {
                                 $correctPVE,
                                 $maskType,
                                 $interpMethod,
+                                $headheight,
+                                $MaskBloodVessels,
                                 $N3Distance,
                                 $N3Damping,
                                 $lsqtype,
@@ -355,35 +370,7 @@ foreach my $dsid (@dsids) {
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 5: Error in native brain mask.
-    my $brainmask_qc = $image->{brainmask_qc};
-    if( -e $brainmask_qc ) {
-      open (IDFILE, $brainmask_qc);
-      my $idline = <IDFILE>;
-      $idline =~ /native skull mask in stx space \((.*)\%\)/;
-      my $mask_error = $1;
-      $infoline .= "$mask_error ";
-      close (IDFILE);
-      if( $mask_error < 20.0 ) {   # exclude errors from avg and stddev
-        $avg_native_mask_error += $mask_error;
-        $stddev_native_mask_error += $mask_error*$mask_error;
-        $count_native_mask_error++;
-      }
-      if( $mask_error >= 20.0 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( $mask_error >= 10.0 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $mask_error . "</td> ";
-    } else {
-      $infoline .= " 100 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">100</td> "; 
-      $level = max($level,$incomplete_level);
-    }
-
-    # Column 6: Error in sterotaxic brain mask.
+    # Column 5: Error in stereotaxic brain mask.
     my $skull_mask = $image->{skull_mask_tal};
     if( -e $skull_mask ) {
 
@@ -425,7 +412,7 @@ foreach my $dsid (@dsids) {
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 7,8,9: percentages of CSF, GM, WM tissue in brain.
+    # Columns 6,7,8: percentages of CSF, GM, WM tissue in brain.
     my $classify_qc = $image->{classify_qc};
     if( -e $classify_qc ) {
       open (IDFILE, $classify_qc);
@@ -464,6 +451,28 @@ foreach my $dsid (@dsids) {
     } else {
       $infoline .= " 0   0   0 ";
       $htmlline .= "<td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> "; 
+      $level = max($level,$incomplete_level);
+    }
+
+    # Column 9: Volume of gray matter inside the gray surface (cortical gray
+    #           without sub-cortical).
+    my $cerebral_volume_qc = $image->{cerebral_volume};
+    if( -e $cerebral_volume_qc ) {
+      open (IDFILE, $cerebral_volume_qc);
+      my $idline = <IDFILE>;
+      my $idline = <IDFILE>;  # need second line for cortical gray
+      close (IDFILE);
+      $idline =~ s/^\s+//;
+      my ($lbl, $gm) = split(/\s+/, $idline); chomp( $gm );
+      $gm /= 1000.0;    # convert from mm^3 to cc
+      $infoline .= "$gm ";
+      $htmlline .= "<td>" . $gm . "</td>";
+      $count_gm_cortical++;
+      $avg_gm_cortical += $gm;
+      $stddev_gm_cortical += $gm*$gm;
+    } else {
+      $infoline .= "0 ";
+      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
       $level = max($level,$incomplete_level);
     }
 
@@ -509,8 +518,14 @@ foreach my $dsid (@dsids) {
     my $mid_rsl_left = $image->{mid_surface_rsl}{left};
     if( -e $mid_rsl_left ) {
       my @ret = `check_self_intersect $mid_rsl_left`;
-      $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
-      my $left_inter = $1;
+      my $left_inter = 0;
+      if( $ret[1] =~ m/self_intersecting/ ) {      # little legacy typo
+        $ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
+        $left_inter = $1;
+      } else {
+        $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
+        $left_inter = $1;
+      }
       $infoline .= "$left_inter ";
       if( $left_inter < 500 ) {
         $avg_surfreg_left += $left_inter;
@@ -535,8 +550,14 @@ foreach my $dsid (@dsids) {
     my $mid_rsl_right = $image->{mid_surface_rsl}{right};
     if( -e $mid_rsl_right ) {
       my @ret = `check_self_intersect $mid_rsl_right`;
-      $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
-      my $right_inter = $1;
+      my $right_inter = 0;
+      if( $ret[1] =~ m/self_intersecting/ ) {      # little legacy typo
+        $ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
+        $right_inter = $1;
+      } else {
+        $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
+        $right_inter = $1;
+      }
       $infoline .= "$right_inter ";
       if( $right_inter < 500 ) {
         $avg_surfreg_right += $right_inter;
@@ -557,61 +578,100 @@ foreach my $dsid (@dsids) {
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 14: number of white-gray surface-surface intersections on left hemisphere
-    my $white_left = $image->{cal_white}{left};
-    my $gray_left = $image->{gray}{left};
-    if( -e $white_left && -e $gray_left ) {
-      my @ret = `check_surf_surf_intersect $white_left $gray_left`;
-      $ret[2] =~ /Number of surface-surface intersections = (\d+)/;
-      my $left_inter = $1;
-      $infoline .= "$left_inter ";
-      if( $left_inter < 500 ) {
-        $avg_surfsurf_left += $left_inter;
-        $stddev_surfsurf_left += $left_inter*$left_inter;
-        $count_surfsurf_left++;
-      }
-      if( $left_inter >= 500 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( $left_inter >= 250 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+    # Columns 14,15: number of surface-surface intersections between left/right wm-gm surfaces
+    foreach my $side ("left","right") {
+      my $gm = $image->{gray}{$side};
+      my $wm = $image->{cal_white}{$side};
+      if( -e $gm && -e $wm ) {
+        my $tmpobj = "${tmpdir}/surfsurf_${side}.obj";
+        my $tmptxt = "${tmpdir}/surfsurf_${side}.txt";
+        `objconcat $wm $gm none none $tmpobj none`;
+        `check_self_intersect $tmpobj $tmptxt`;
+        my @ret = split( / /, `wc -l $tmptxt` );
+        my $npoints = $ret[0]; chomp( $npoints ); $npoints /= 2;
+        `head -${npoints} $tmptxt > $tmpobj`;
+        `mv -f $tmpobj $tmptxt`;
+        `vertstats_math -const2 -0.001 0.001 -seg -old_style_file $tmptxt $tmptxt`;
+        @ret = `vertstats_stats $tmptxt |grep Sum`;
+        unlink( $tmptxt );
+        $ret[0] =~ / Sum: (.*)/;
+        my $num_inter = $1;
+        $infoline .= "$num_inter ";
+        if( $num_inter < 500 ) {
+          if( $side eq "left" ) {
+            $avg_surfsurf_left += $num_inter;
+            $stddev_surfsurf_left += $num_inter*$num_inter;
+            $count_surfsurf_left++;
+          } else {
+            $avg_surfsurf_right += $num_inter;
+            $stddev_surfsurf_right += $num_inter*$num_inter;
+            $count_surfsurf_right++;
+          }
+        }
+        if( $num_inter >= 500 ) {
+          $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
+        } elsif( $num_inter >= 250 ) {
+          $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+        } else {
+          $htmlline .= "<td>";
+        }
+        $htmlline .= $num_inter . "</td> ";
       } else {
-        $htmlline .= "<td>";
+        $infoline .= " 0 ";
+        $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+        $level = max($level,$incomplete_level);
       }
-      $htmlline .= $left_inter . "</td> ";
+    }
+
+    # Colums 16,17: mean cortical thickness for left,right hemispheres
+    foreach my $side ("left","right") {
+      my $meanct_file = $image->{lobe_thickness}{$side};
+      if( -e $meanct_file ) {
+        my $idline = `grep Total $meanct_file`;
+        chomp( $idline );
+        $idline =~ / Total  (.*)/;
+        my $meanct = $1;
+        $infoline .= "$meanct ";
+        $htmlline .= "<td>" . $meanct . "</td> ";
+        $avg_meanct += $meanct;
+        $stddev_meanct += $meanct*$meanct;
+        $count_meanct++;
+      } else {
+        $infoline .= " 0 ";
+        $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
+        $level = max($level,$incomplete_level);
+      }
+    }
+
+    # Columns 18,19,20,21: T1 mean and stddev for WM and GM.
+    my $t1 = $image->{t1}{final};
+    # my $cls = $image->{cls_correct};
+    my $cls = "$image->{pve_prefix}\_disc.mnc";
+    my $mask = $image->{skull_mask_tal};
+    if( -e $t1 && -e $cls && -e $mask ) {
+      my $cls_masked = "${tmpdir}/cls_masked.mnc";
+      `minccalc -quiet -clobber -expression 'if(A[1]>0.5){A[0]}else{0}' $cls $mask $cls_masked`;
+      my $WMmean = `mincstats -quiet -mask $cls_masked -mask_binvalue 3 -mean $t1`;
+      my $WMsdev = `mincstats -quiet -mask $cls_masked -mask_binvalue 3 -stddev $t1`;
+      my $GMmean = `mincstats -quiet -mask $cls_masked -mask_binvalue 2 -mean $t1`;
+      my $GMsdev = `mincstats -quiet -mask $cls_masked -mask_binvalue 2 -stddev $t1`;
+      chomp( $WMmean );
+      chomp( $WMsdev );
+      chomp( $GMmean );
+      chomp( $GMsdev );
+      unlink( $cls_masked );
+      $infoline .= "$WMmean $WMsdev $GMmean $GMsdev ";
+      $htmlline .= "<td>" . $WMmean . "</td> ";
+      $htmlline .= "<td>" . $WMsdev . "</td> ";
+      $htmlline .= "<td>" . $GMmean . "</td> ";
+      $htmlline .= "<td>" . $GMsdev . "</td> ";
     } else {
-      $infoline .= " 0 ";
+      $infoline .= " 0 0 0 0 ";
       $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 15: number of white-gray surface-surface intersections on right hemisphere
-    my $white_right = $image->{cal_white}{right};
-    my $gray_right = $image->{gray}{right};
-    if( -e $white_right && -e $gray_right ) {
-      my @ret = `check_surf_surf_intersect $white_right $gray_right`;
-      $ret[2] =~ /Number of surface-surface intersections = (\d+)/;
-      my $right_inter = $1;
-      $infoline .= "$right_inter ";
-      if( $right_inter < 500 ) {
-        $avg_surfsurf_right += $right_inter;
-        $stddev_surfsurf_right += $right_inter*$right_inter;
-        $count_surfsurf_right++;
-      }
-      if( $right_inter >= 500 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( $right_inter >= 250 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $right_inter . "</td> ";
-    } else {
-      $infoline .= " 0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
-
-    # Columns 16: gyrification index for left hemisphere
+    # Columns 22: gyrification index for left hemisphere
     my $gi_left = $image->{gyrification_index}{left};
     if( -e $gi_left ) {
       open (IDFILE, $gi_left);
@@ -627,7 +687,7 @@ foreach my $dsid (@dsids) {
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 17: gyrification index for right hemisphere
+    # Columns 23: gyrification index for right hemisphere
     my $gi_right = $image->{gyrification_index}{right};
     if( -e $gi_right ) {
       open (IDFILE, $gi_right);
@@ -643,7 +703,7 @@ foreach my $dsid (@dsids) {
       $level = max($level,$incomplete_level);
     }
 
-    # Columns 18: gyrification index for left+right hemispheres combined
+    # Columns 24: gyrification index for left+right hemispheres combined
     my $gi_full = $image->{gyrification_index}{full};
     if( -e $gi_full ) {
       open (IDFILE, $gi_full);
@@ -658,6 +718,14 @@ foreach my $dsid (@dsids) {
       $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
       $level = max($level,$incomplete_level);
     }
+
+    $infoline .= $dsid . "/thickness/" . basename( $image->{rms_rsl}{left} ) . " ";
+    $infoline .= $dsid . "/thickness/" . basename( $image->{rms_rsl}{right} ) . " ";
+    $infoline .= $dsid . "/surfaces/" . basename( $image->{surface_area_rsl}{left} ) . " ";
+    $infoline .= $dsid . "/surfaces/" . basename( $image->{surface_area_rsl}{right} ) . " ";
+    $infoline .= $dsid . "/surfaces/" . basename( $image->{surface_volume_rsl}{left} ) . " ";
+    $infoline .= $dsid . "/surfaces/" . basename( $image->{surface_volume_rsl}{right} ) . " ";
+    $infoline .= $dsid . "/surfaces/" . basename( $image->{rms_rsl}{asym_hemi} ) . " ";
 
     $infoline .= "\n";
     $info .= $infoline;
@@ -686,8 +754,8 @@ foreach my $dsid (@dsids) {
     print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_verify.png\"></td></tr>\n";
     print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_clasp.png\"></td></tr>\n";
     print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_atlas.png\"></td></tr>\n";
-    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_laplace.png\"></td></tr>\n";
     print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_surfsurf.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_laplace.png\"></td></tr>\n";
     print FILE "</table>\n";
     close FILE;
 
@@ -695,101 +763,93 @@ foreach my $dsid (@dsids) {
 
 # Line of averages and stddev on some fields.
 
-$avg_native_mask_error /= $count_native_mask_error;
 $avg_stx_mask_error /= $count_stx_mask_error;
 $avg_csf_cls /= $count_cls;
 $avg_gm_cls /= $count_cls;
 $avg_wm_cls /= $count_cls;
+$avg_gm_cortical /= $count_gm_cortical;
 $avg_gm_surf /= $count_gm_wm_surf if( $count_gm_wm_surf );
 $avg_wm_surf /= $count_gm_wm_surf if( $count_gm_wm_surf );
 $avg_surfreg_left /= $count_surfreg_left if( $count_surfreg_left );
 $avg_surfreg_right /= $count_surfreg_right if( $count_surfreg_right );
 $avg_surfsurf_left /= $count_surfsurf_left if( $count_surfsurf_left );
 $avg_surfsurf_right /= $count_surfsurf_right if( $count_surfsurf_right );
+$avg_meanct /= $count_meanct if( $count_meanct );
 
 $html .= "<tr> </tr> ";
 $html .= "<tr bgcolor=\"#dddddd\">" .
          "<th>Mean</th> <td></td> <td></td> <td></td> <td></td> " .
-         "<td>" . sprintf( "%5.2f", $avg_native_mask_error ) . "</td> " .
          "<td>" . sprintf( "%8.3f", $avg_stx_mask_error ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $avg_csf_cls ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $avg_gm_cls ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $avg_wm_cls ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $avg_gm_cortical ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $avg_wm_surf ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $avg_gm_surf ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $avg_surfreg_left ) . "</td>" .
          "<td>" . sprintf( "%5.2f", $avg_surfreg_right ) . "</td>" .
          "<td>" . sprintf( "%5.2f", $avg_surfsurf_left ) . "</td>" .
          "<td>" . sprintf( "%5.2f", $avg_surfsurf_right ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $avg_meanct ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $avg_meanct ) . "</td>" .
+         "<td></td> <td></td> <td></td> <td></td> " .
          "<td></td> <td></td> <td></td>" .
          "</tr>\n";
 
-$stddev_native_mask_error = sqrt( $stddev_native_mask_error/$count_native_mask_error - 
-                                  $avg_native_mask_error*$avg_native_mask_error );
 $stddev_stx_mask_error = sqrt( $stddev_stx_mask_error/$count_stx_mask_error -
                                $avg_stx_mask_error*$avg_stx_mask_error );
 $stddev_csf_cls = sqrt( $stddev_csf_cls/$count_cls - $avg_csf_cls*$avg_csf_cls );
 $stddev_gm_cls = sqrt( $stddev_gm_cls/$count_cls - $avg_gm_cls*$avg_gm_cls );
 $stddev_wm_cls = sqrt( $stddev_wm_cls/$count_cls - $avg_wm_cls*$avg_wm_cls );
+$stddev_gm_cortical = sqrt( $stddev_gm_cortical/$count_gm_cortical - 
+                            $avg_gm_cortical * $avg_gm_cortical );
 $stddev_gm_surf = sqrt( $stddev_gm_surf/$count_gm_wm_surf - 
                         $avg_gm_surf*$avg_gm_surf ) if( $count_gm_wm_surf );
 $stddev_wm_surf = sqrt( $stddev_wm_surf/$count_gm_wm_surf - 
                         $avg_wm_surf*$avg_wm_surf ) if( $count_gm_wm_surf );
 $stddev_surfreg_left = sqrt( $stddev_surfreg_left/$count_surfreg_left -
-                              $avg_surfreg_left*$avg_surfreg_left ) if( $count_surfreg_left );
+                             $avg_surfreg_left*$avg_surfreg_left ) if( $count_surfreg_left );
 $stddev_surfreg_right = sqrt( $stddev_surfreg_right/$count_surfreg_right -
                               $avg_surfreg_right*$avg_surfreg_right ) if( $count_surfreg_right );
 $stddev_surfsurf_left = sqrt( $stddev_surfsurf_left/$count_surfsurf_left -
                               $avg_surfsurf_left*$avg_surfsurf_left ) if( $count_surfsurf_left );
 $stddev_surfsurf_right = sqrt( $stddev_surfsurf_right/$count_surfsurf_right -
-                              $avg_surfsurf_right*$avg_surfsurf_right ) if( $count_surfsurf_right );
+                               $avg_surfsurf_right*$avg_surfsurf_right ) if( $count_surfsurf_right );
+$stddev_meanct = sqrt( $stddev_meanct/$count_meanct -
+                       $avg_meanct*$avg_meanct ) if( $count_meanct );
 
 $html .= "<tr bgcolor=\"#dddddd\">" .
          "<th>StdDev</th> <td></td> <td></td> <td></td> <td></td> " .
-         "<td>" . sprintf( "%5.2f", $stddev_native_mask_error ) . "</td> " .
          "<td>" . sprintf( "%8.3f", $stddev_stx_mask_error ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $stddev_csf_cls ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $stddev_gm_cls ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $stddev_wm_cls ) . "</td> " .
+         "<td>" . sprintf( "%5.2f", $stddev_gm_cortical ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $stddev_wm_surf ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $stddev_gm_surf ) . "</td> " .
          "<td>" . sprintf( "%5.2f", $stddev_surfreg_left ) . "</td>" .
          "<td>" . sprintf( "%5.2f", $stddev_surfreg_right ) . "</td>" .
          "<td>" . sprintf( "%5.2f", $stddev_surfsurf_left ) . "</td>" .
          "<td>" . sprintf( "%5.2f", $stddev_surfsurf_right ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $stddev_meanct ) . "</td>" .
+         "<td>" . sprintf( "%5.2f", $stddev_meanct ) . "</td>" .
+         "<td></td> <td></td> <td></td> <td></td>" .
          "<td></td> <td></td> <td></td>" .
          "</tr>\n";
 $html .= "</table>";
 
 # Do some scatter plots of the various fields.
 
-open FILE, ">${qc_dir}/civet_${prefix}.dat";
+open FILE, ">${qc_dir}/civet_${prefix}.glm";
+$info =~ s/ +/ /g;
 print FILE $info;
 close FILE;
 
 # ----------------------------------------------------------------------------------------------
 open FILE, ">${qc_dir}/civet_${prefix}.gnu";
-print FILE "# Native space brain masking error\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Native space brain masking error\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"Error %\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/NatMaskErr.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 5 w po, $avg_native_mask_error w li 2, " .
-           sprintf("%f",$avg_native_mask_error-$stddev_native_mask_error) . " w li 3, " .
-           sprintf("%f",$avg_native_mask_error+$stddev_native_mask_error) . " w li 3\n";
+my $figure = 0;
 
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"NatMaskErr.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 1: </td> <td> Error between native brain mask transformed " .
-         "to stereotaxic space and the brain mask of the stereotaxic model. </td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Stereotaxic space brain masking error\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -799,18 +859,19 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"Error %\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/StxMaskErr.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 6 w po, $avg_stx_mask_error w li 2, " .
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 5 w po, $avg_stx_mask_error w li 2, " .
            sprintf("%f",$avg_stx_mask_error-$stddev_stx_mask_error) . " w li 3, " .
            sprintf("%f",$avg_stx_mask_error+$stddev_stx_mask_error) . " w li 3\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"StxMaskErr.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 2: </td> <td> Error between stereotaxic space brain mask " .
+         "<tr> <td> Figure $figure: </td> <td> Error between stereotaxic space brain mask " .
          "and the brain mask of the stereotaxic model. </td></tr>\n" .
          "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Percentage of the classified CSF in the brain (masked)\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -820,18 +881,19 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"CSF %\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/CSFclsPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 7 w po, $avg_csf_cls w li 2, " .
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 6 w po, $avg_csf_cls w li 2, " .
            sprintf("%f",$avg_csf_cls-$stddev_csf_cls) . " w li 3, " .
            sprintf("%f",$avg_csf_cls+$stddev_csf_cls) . " w li 3\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"CSFclsPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 3: </td> <td> Percentage of the classified CSF in the brain (masked)." .
+         "<tr> <td> Figure $figure: </td> <td> Percentage of the classified CSF in the brain (masked)." .
          "</td></tr>\n" .
          "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Percentage of the classified GM in the brain (masked)\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -841,18 +903,19 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"GM %\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/GMclsPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 8 w po, $avg_gm_cls w li 2, " .
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 7 w po, $avg_gm_cls w li 2, " .
            sprintf("%f",$avg_gm_cls-$stddev_gm_cls) . " w li 3, " .
            sprintf("%f",$avg_gm_cls+$stddev_gm_cls) . " w li 3\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"GMclsPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 4: </td> <td> Percentage of the classified GM in the brain (masked)." .
+         "<tr> <td> Figure $figure: </td> <td> Percentage of the classified GM in the brain (masked)." .
          "</td></tr>\n" .
          "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Percentage of the classified WM in the brain (masked)\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -862,18 +925,42 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"WM %\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/WMclsPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 9 w po, $avg_wm_cls w li 2, " .
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 8 w po, $avg_wm_cls w li 2, " .
            sprintf("%f",$avg_wm_cls-$stddev_wm_cls) . " w li 3, " .
            sprintf("%f",$avg_wm_cls+$stddev_wm_cls) . " w li 3\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"WMclsPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 5: </td> <td> Percentage of the classified WM in the brain (masked)." .
+         "<tr> <td> Figure $figure: </td> <td> Percentage of the classified WM in the brain (masked)." .
          "</td></tr>\n" .
          "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+
+$figure++;
+print FILE "# Volume of total cortical gray matter (without sub-cortical gray)\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Volume of total cortical gray matter (without sub-cortical gray)\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"GM cc\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/GMCortical.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 9 w po, $avg_gm_cortical w li 2, " .
+           sprintf("%f",$avg_gm_cortical-$stddev_gm_cortical) . " w li 3, " .
+           sprintf("%f",$avg_gm_cortical+$stddev_gm_cortical) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"GMCortical.png\"> </td></tr>\n" .
+         "<tr> <td> Figure $figure: </td> <td> Volume of total cortical gray matter (without sub-cortical gray)." .
+         "</td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Percentage error in the extraction of the white surface\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -883,18 +970,19 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"White surface error %\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/WMSurfPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 10 w po, $avg_wm_surf w li 2, " .
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 10 w po, $avg_wm_surf w li 2, " .
            sprintf("%f",$avg_wm_surf-$stddev_wm_surf) . " w li 3, " .
            sprintf("%f",$avg_wm_surf+$stddev_wm_surf) . " w li 3\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"WMSurfPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 6: </td> <td> Percentage of classified white voxels outside " .
+         "<tr> <td> Figure $figure: </td> <td> Percentage of classified white voxels outside " .
          "the white surface (large values mean underexpanded surface). </td></tr>\n" .
          "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Percentage error in the expansion of the gray surface\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -904,18 +992,19 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"Gray surface error %\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/GMSurfPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 11 w po, $avg_gm_surf w li 2, " .
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 11 w po, $avg_gm_surf w li 2, " .
            sprintf("%f",$avg_gm_surf-$stddev_gm_surf) . " w li 3, " .
            sprintf("%f",$avg_gm_surf+$stddev_gm_surf) . " w li 3\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"GMSurfPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 7: </td> <td> Percentage of classified gray voxels outside " .
+         "<tr> <td> Figure $figure: </td> <td> Percentage of classified gray voxels outside " .
          "the gray surface (large values mean underexpanded surface). </td></tr>\n" .
          "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Number of self-intersections in resampled mid surface\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -925,35 +1014,100 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"Number of self-intersections\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/SurfRegInter.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 12 t \"Left\" w po 1, " .
-           "\"${qc_dir}/civet_${prefix}.dat\" u 13 t \"Right\" w po 2\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 12 t \"Left\" w po 1, " .
+           "\"${qc_dir}/civet_${prefix}.glm\" u 13 t \"Right\" w po 2\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"SurfRegInter.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 8: </td> <td> Number of self-intersections in resampled " .
+         "<tr> <td> Figure $figure: </td> <td> Number of self-intersections in resampled " .
          "mid surface as a result of surface registration. </td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
-print FILE "# Number of white-gray surface-surface intersections\n";
+$figure++;
+print FILE "# Number of surface-surface intersections between wm-gm surfaces\n";
 print FILE "clear\n";
 print FILE "set grid\n";
 print FILE "set key\n";
-print FILE "set title \"Number of white-gray surface-surface intersections\"\n";
+print FILE "set title \"Number of surface-surface intersections between wm-gm surfaces\"\n";
 print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"Number of intersections\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/SurfSurfInter.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 14 t \"Left\" w po 1, " .
-           "\"${qc_dir}/civet_${prefix}.dat\" u 15 t \"Right\" w po 2\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 14 t \"Left\" w po 1, " .
+           "\"${qc_dir}/civet_${prefix}.glm\" u 15 t \"Right\" w po 2\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"SurfSurfInter.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 9: </td> <td> Number of white-gray surface-surface intersections. " .
+         "<tr> <td> Figure $figure: </td> <td> Number of surface-surface intersections between " .
+         "wm-gm surfaces. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+$figure++;
+print FILE "# Mean cortical thickness for left/right hemispheres\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "unset key\n";
+print FILE "set title \"Mean cortical thickness for left/right hemispheres\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"Mean CT%\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/MeanCT.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 16 t \"Left\" w po, " .
+           "\"${qc_dir}/civet_${prefix}.glm\" u 17 t \"Right\" w po," .
+           " $avg_meanct w li 2, " .
+           sprintf("%f",$avg_meanct-$stddev_meanct) . " w li 3, " .
+           sprintf("%f",$avg_meanct+$stddev_meanct) . " w li 3\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"MeanCT.png\"> </td></tr>\n" .
+         "<tr> <td> Figure $figure: </td> <td> Mean cortical thickness </td></tr>\n" .
+         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+$figure++;
+print FILE "# Mean T1 intensity for classified WM and GM\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "set key\n";
+print FILE "set title \"Mean T1 intensity for classified WM and GM\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"Mean T1\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/MeanT1WMGM.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 18 t \"WM\" w po, " .
+           "\"${qc_dir}/civet_${prefix}.glm\" u 20 t \"GM\" w po\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"MeanT1WMGM.png\"> </td></tr>\n" .
+         "<tr> <td> Figure $figure: </td> <td> Mean T1 intensity for classified WM and GM." .
          "</td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+$figure++;
+print FILE "# StdDev T1 intensity for classified WM and GM\n";
+print FILE "clear\n";
+print FILE "set grid\n";
+print FILE "set key\n";
+print FILE "set title \"StdDev T1 intensity for classified WM and GM\"\n";
+print FILE "set xlabel \"Subjects\"\n";
+print FILE "set ylabel \"StdDev T1\"\n";
+print FILE "set terminal png\n";
+print FILE "set output \"${qc_dir}/StdDevT1WMGM.png\"\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 19 t \"WM\" w po, " .
+           "\"${qc_dir}/civet_${prefix}.glm\" u 21 t \"GM\" w po\n";
+
+$html .= "<table>\n" .
+         "<tr> <td></td> <td> <img src=\"StdDevT1WMGM.png\"> </td></tr>\n" .
+         "<tr> <td> Figure $figure: </td> <td> StdDev T1 intensity for classified WM and GM." .
+         "</td></tr>\n" .
+         "</table>\n";
+
+# ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Gyrification index for the left hemisphere\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -963,15 +1117,16 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"GI\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/GILeft.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 16 w po\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 22 w po\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"GILeft.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 10: </td> <td> Gyrification index for the left hemisphere." .
+         "<tr> <td> Figure $figure: </td> <td> Gyrification index for the left hemisphere." .
          "</td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Gyrification index for the right hemisphere\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -981,15 +1136,16 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"GI\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/GIRight.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 17 w po\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 23 w po\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"GIRight.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 11: </td> <td> Gyrification index for the right hemisphere." .
+         "<tr> <td> Figure $figure: </td> <td> Gyrification index for the right hemisphere." .
          "</td></tr>\n" .
          "</table>\n";
 
 # ----------------------------------------------------------------------------------------------
+$figure++;
 print FILE "# Gyrification index for the full brain\n";
 print FILE "clear\n";
 print FILE "set grid\n";
@@ -999,11 +1155,11 @@ print FILE "set xlabel \"Subjects\"\n";
 print FILE "set ylabel \"GI\"\n";
 print FILE "set terminal png\n";
 print FILE "set output \"${qc_dir}/GIFull.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.dat\" u 18 w po\n";
+print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 24 w po\n";
 
 $html .= "<table>\n" .
          "<tr> <td></td> <td> <img src=\"GIFull.png\"> </td></tr>\n" .
-         "<tr> <td> Figure 12: </td> <td> Gyrification index for the full brain." .
+         "<tr> <td> Figure $figure: </td> <td> Gyrification index for the full brain." .
          "</td></tr>\n" .
          "</table>\n";
 

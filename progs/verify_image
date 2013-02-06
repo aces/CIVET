@@ -1,0 +1,186 @@
+#!/usr/bin/env perl
+
+# Create a table of images for the minc volumes, showing the mask,
+# the linear and non-linear registrations, the classification, and
+# the fit of the surfaces onto the classified image.
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+my $tmpdir = tempdir( CLEANUP => 1 );
+
+my $t1_native = shift;
+my $t2_native = shift;
+my $pd_native = shift;
+my $t1_stx = shift;
+my $t2_stx = shift;
+my $pd_stx = shift;
+my $skull_mask_stx = shift;
+my $stx_labels = shift;
+my $cls_correct = shift;
+my $white_surface_left = shift;
+my $white_surface_right = shift;
+my $gray_surface_left = shift;
+my $gray_surface_right = shift;
+my $t1_tal_xfm = shift;
+my $t1_nl_xfm = shift;
+my $lin_model = shift;
+my $nl_model = shift;
+my $surf_mask = shift;
+my $surface_info_file = shift;
+my $classify_info_file = shift;
+my $lsqtype = shift;
+my $output = shift;
+
+unless($output && (-e $t1_stx ) ) {
+  print "Usage: $0 t1_native.mnc t2_native.mnc pd_native.mnc t1_stx.mnc t2_stx.mnc pd_stx.mnc mask_native.mnc animal_labels.mnc classify.mnc white_left.obj white_right.obj gray_left.obj gray_right.obj t1_to_tal_lin.xfm t1_to_tal_nl.xfm stx_model_lin.mnc stx_model_nl.mnc model_mask.obj surface_info_file brainmask_info_file classify_info_file output\n";
+  print "Note that none of the inputs may be compressed!\n";
+  exit(1);
+}
+
+my @verifyRows;
+my $skull_mask_nat_stx = undef;
+my $t1_nl_final = undef;
+my $LO = 0.20;  # scale for plotting range
+my $HI = 0.80;
+
+my $rslmask = "${tmpdir}/" . &basename( $skull_mask_stx );
+&run( 'mincresample', '-clobber', '-byte', '-unsigned', '-like', $t1_stx,
+      "${lin_model}_mask.mnc", $rslmask );
+
+# Row 1a (b,c): registered t1 (t2,pd) images, nu-corrected, inormalized
+if( -e $t1_stx ) {
+  my $t1_base = &basename( $t1_stx );
+  my $dx = `mincinfo -attvalue xspace:step $t1_native`;
+  my $dy = `mincinfo -attvalue yspace:step $t1_native`;
+  my $dz = `mincinfo -attvalue zspace:step $t1_native`;
+  chomp( $dx );
+  chomp( $dy );
+  chomp( $dz );
+  my $clipval_lo = `mincstats -quiet -pctT 0.05 $t1_stx -mask $rslmask -mask_binvalue 1`;
+  my $clipval_hi = `mincstats -quiet -pctT 99.95 $t1_stx -mask $rslmask -mask_binvalue 1`;
+  chomp( $clipval_lo );
+  chomp( $clipval_hi );
+  my $gray_lo = ( $HI * $clipval_lo - $LO * $clipval_hi ) / ( $HI - $LO );
+  $gray_lo = 0.0 if( $gray_lo < 0.0 );
+  my $gray_hi = ( ($HI-1) * $clipval_lo - ($LO-1) * $clipval_hi ) / ( $HI - $LO );
+  push @verifyRows, ( "-row", "color:gray:$gray_lo:$gray_hi",
+                      sprintf( "title:t1 final image %s (native at %5.2f x %5.2f x %5.2f mm) (%s)",
+                               ${t1_base}, abs($dx), abs($dy), abs($dz), $lsqtype ),
+                      "overlay:${surf_mask}:red:1.0", $t1_stx );
+}
+
+if( -e $t2_stx ) {
+  my $t2_base = &basename( $t2_stx );
+  my $dx = `mincinfo -attvalue xspace:step $t2_native`;
+  my $dy = `mincinfo -attvalue yspace:step $t2_native`;
+  my $dz = `mincinfo -attvalue zspace:step $t2_native`;
+  chomp( $dx );
+  chomp( $dy );
+  chomp( $dz );
+  my $clipval_lo = `mincstats -quiet -pctT 0.05 $t2_stx -mask $rslmask -mask_binvalue 1`;
+  my $clipval_hi = `mincstats -quiet -pctT 99.95 $t2_stx -mask $rslmask -mask_binvalue 1`;
+  chomp( $clipval_lo );
+  chomp( $clipval_hi );
+  my $gray_lo = ( $HI * $clipval_lo - $LO * $clipval_hi ) / ( $HI - $LO );
+  $gray_lo = 0.0 if( $gray_lo < 0.0 );
+  my $gray_hi = ( ($HI-1) * $clipval_lo - ($LO-1) * $clipval_hi ) / ( $HI - $LO );
+  push @verifyRows, ( "-row", "color:gray:$gray_lo:$gray_hi",
+                      sprintf( "title:t2 final image %s (native at %5.2f x %5.2f x %5.2f mm) (%s)",
+                               ${t2_base}, abs($dx), abs($dy), abs($dz), $lsqtype ),
+                      "overlay:${surf_mask}:red:1.0", $t2_stx );
+}
+
+if( -e $pd_stx ) {
+  my $pd_base = &basename( $pd_stx );
+  my $dx = `mincinfo -attvalue xspace:step $pd_native`;
+  my $dy = `mincinfo -attvalue yspace:step $pd_native`;
+  my $dz = `mincinfo -attvalue zspace:step $pd_native`;
+  chomp( $dx );
+  chomp( $dy );
+  chomp( $dz );
+  my $clipval_lo = `mincstats -quiet -pctT 0.05 $pd_stx -mask $rslmask -mask_binvalue 1`;
+  my $clipval_hi = `mincstats -quiet -pctT 99.95 $pd_stx -mask $rslmask -mask_binvalue 1`;
+  chomp( $clipval_lo );
+  chomp( $clipval_hi );
+  my $gray_lo = ( $HI * $clipval_lo - $LO * $clipval_hi ) / ( $HI - $LO );
+  $gray_lo = 0.0 if( $gray_lo < 0.0 );
+  my $gray_hi = ( ($HI-1) * $clipval_lo - ($LO-1) * $clipval_hi ) / ( $HI - $LO );
+  push @verifyRows, ( "-row", "color:gray:$gray_lo:$gray_hi",
+                      sprintf( "title:pd final image %s (native at %5.2f x %5.2f x %5.2f mm) (%s)",
+                               ${pd_base}, abs($dx), abs($dy), abs($dz), $lsqtype ),
+                      "overlay:${surf_mask}:red:1.0", $pd_stx );
+}
+
+# Row 2: non-linear registration for t1 image.
+
+if( -e $t1_stx ) {
+  $t1_nl_final = "${tmpdir}/" . &basename( $t1_stx );
+  &run( 'mincresample', '-clobber', '-like', $t1_stx, '-nearest',
+        '-transform', $t1_nl_xfm, $t1_stx, $t1_nl_final );
+  my $clipval_lo = `mincstats -quiet -pctT 0.05 $t1_stx -mask $rslmask -mask_binvalue 1`;
+  my $clipval_hi = `mincstats -quiet -pctT 99.95 $t1_stx -mask $rslmask -mask_binvalue 1`;
+  chomp( $clipval_lo ); # use lin, not nl.
+  chomp( $clipval_hi ); # use lin, not nl.
+  my $gray_lo = ( $HI * $clipval_lo - $LO * $clipval_hi ) / ( $HI - $LO );
+  $gray_lo = 0.0 if( $gray_lo < 0.0 );
+  my $gray_hi = ( ($HI-1) * $clipval_lo - ($LO-1) * $clipval_hi ) / ( $HI - $LO );
+  my $nl_model_base = &basename( $nl_model );
+  push @verifyRows, ( "-row", "color:gray:$gray_lo:$gray_hi",
+                      "title:t1 non-linear registration to ${nl_model_base}",
+                      "overlay:${surf_mask}:red:1.0" );
+  push @verifyRows, ( "overlay:${lin_model}_vent.obj:green:0.5" ) if( -e "${lin_model}_vent.obj" );
+  push @verifyRows, ( $t1_nl_final );
+}
+unlink( $rslmask );
+
+# Row 3: Segmentation labels.
+if( -e $stx_labels ) {
+  push @verifyRows, ("-row", "color:label",
+                     "title:ANIMAL segmentation", $stx_labels );
+}
+
+# Row 4: Classified image.
+
+if( -e $cls_correct ) {
+  &run( 'classify_qc', $cls_correct, $skull_mask_stx, $classify_info_file );
+
+  push @verifyRows, ("-row", "color:gray",
+                     "title:\@${classify_info_file}", $cls_correct );
+
+  # Row 5: Cortical white and gray surfaces.
+
+  if( -e $white_surface_left && -e $gray_surface_left &&
+      -e $white_surface_right && -e $gray_surface_right ) {
+    push @verifyRows, ( "-row", "color:gray",
+                        "title:\@${surface_info_file}",
+                        "overlay:${white_surface_left}:blue:0.5",
+                        "overlay:${gray_surface_left}:red:0.5",
+                        "overlay:${white_surface_right}:blue:0.5",
+                        "overlay:${gray_surface_right}:red:0.5",
+                        $cls_correct );
+  }
+}
+
+&run( 'create_verify_image', '-clobber', $output, '-width', 1200,
+      @verifyRows );
+
+unlink( $t1_nl_final );
+unlink( $skull_mask_nat_stx );
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+
+

@@ -26,18 +26,18 @@ package Surface_Fit;
 use strict;
 use PMP::PMP;
 use MRI_Image;
-use FindBin;
-use lib "$FindBin::Bin";
 
 sub create_pipeline {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
     my $claspOption = @_[3];          # not yet used
-    my $Second_model_Dir = @_[4];
+    my $model_mask = @_[4];
+    my $Second_model_Dir = @_[5];
 
     my $pve_wm  = ${$image}->{pve_wm};
     my $pve_csf = ${$image}->{pve_csf};
+    my $pve_disc = ${$image}->{pve_disc};
 
     my $cls_correct    = ${$image}->{cls_correct};
     my $t1_tal_mnc     = ${$image}->{t1}{final};
@@ -48,7 +48,6 @@ sub create_pipeline {
     my $brain_mask     = ${$image}->{brain_mask};
     my $laplace_field  = ${$image}->{laplace};
 
-    my $model_mask      = "${Second_model_Dir}/Cerebellum_Ventricles_SubCortical_Mask.mnc";
     my $slide_left_xfm  = "${Second_model_Dir}/slide_left.xfm";
     my $slide_right_xfm = "${Second_model_Dir}/slide_right.xfm";
     my $flip_right_xfm  = "${Second_model_Dir}/flip_right.xfm";
@@ -77,14 +76,17 @@ sub create_pipeline {
 #          extraction.
 # ---------------------------------------------------------------------------
 
-    ${$pipeline_ref}->addStage(
-          { name => "surface_classify",
+    ${$pipeline_ref}->addStage( {
+          name => "surface_classify",
           label => "fix the classification for surface extraction",
-          inputs => [$cls_correct, $pve_wm, $pve_csf, $nl_transform ],
+          inputs => [$t1_tal_mnc, $cls_correct, $pve_wm, $pve_csf, 
+                     $pve_disc, $brain_mask, $nl_transform ],
           outputs => [$final_callosum, $final_classify, $skel_csf],
-          args => ["surface_fit_classify", $cls_correct, $pve_wm, $pve_csf, 
-                   $final_callosum, $final_classify, $skel_csf,
-                   $nl_transform, $Second_model_Dir ],
+          args => ["surface_fit_classify", $t1_tal_mnc, $cls_correct, 
+                   $pve_wm, $pve_csf, $pve_disc, $brain_mask, 
+                   $final_callosum, $final_classify, $skel_csf, 
+                   $nl_transform, $model_mask, 
+                   ${$image}->{removebloodvessels} ],
           prereqs => $Prereqs }
           );
 
@@ -92,34 +94,35 @@ sub create_pipeline {
 #  Step 2: Extraction of the white matter mask for the hemispheres.
 # ---------------------------------------------------------------------------
 
-    my $user_mask = ${$image}->{user_mask};  # not a PMP input
+    my @maskInput = ();
+    push @maskInput, (${$image}->{skull_mask_native}) if (-e ${$image}->{user_mask});
+    my $user_mask = (-e ${$image}->{user_mask}) ?
+                    ${$image}->{skull_mask_native} : "none";
     my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
 
-    ${$pipeline_ref}->addStage(
-          { name => "create_wm_hemispheres",
+    ${$pipeline_ref}->addStage( {
+          name => "create_wm_hemispheres",
           label => "create white matter hemispheric masks",
-          inputs => [$final_classify, $t1_tal_mnc, $brain_mask, $t1_tal_xfm],
+          inputs => [$final_classify, $t1_tal_mnc, @maskInput,
+                     $brain_mask, $t1_tal_xfm],
           outputs => [$wm_left_centered, $wm_right_centered],
           args=>["extract_wm_hemispheres", $final_classify, $t1_tal_mnc,
                  $brain_mask, $user_mask, $t1_tal_xfm,
                  $Second_model_Dir, $wm_left_centered, 
                  $wm_right_centered],
-          prereqs =>["surface_classify"] }
-          );
+          prereqs =>["surface_classify"] });
 
 # ---------------------------------------------------------------------------
 #  Step 3: Extraction of the white surfaces
 # ---------------------------------------------------------------------------
-
-    my $civet_dir = "$FindBin::Bin";
 
     ${$pipeline_ref}->addStage(
           { name => "extract_white_surface_left",
           label => "extract white left surface in Talairach",
           inputs => [$wm_left_centered], 
           outputs => [$white_surf_left_prelim],
-          args => ["marching_cubes.pl", $wm_left_centered,
-                  $white_surf_left_prelim, $civet_dir, '-subsample'],
+          args => ["extract_white_surface", $wm_left_centered,
+                  $white_surf_left_prelim, 0.5],
           prereqs => ["create_wm_hemispheres"] }
           );
 
@@ -128,8 +131,8 @@ sub create_pipeline {
           label => "extract white right surface in Talairach",
           inputs => [$wm_right_centered],
           outputs => [$white_surf_right_prelim],
-          args => ["marching_cubes.pl", $wm_right_centered,
-                  $white_surf_right_prelim, $civet_dir, '-subsample'],
+          args => ["extract_white_surface", $wm_right_centered,
+                  $white_surf_right_prelim, 0.5],
           prereqs => ["create_wm_hemispheres"] }
           );
 
@@ -280,6 +283,7 @@ sub surface_qc {
     my $white_surf_right_prelim = ${$image}->{white}{right_prelim};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
+    my $brain_mask = ${$image}->{skull_mask_tal};
 
     my $surface_qc = ${$image}->{surface_qc};
 
@@ -288,12 +292,12 @@ sub surface_qc {
           label => "surface fit error measurement",
           inputs => [$final_classify, $wm_left_centered, $wm_right_centered,
                      $white_surf_left_prelim, $white_surf_right_prelim, 
-                     $gray_surface_left, $gray_surface_right],
+                     $gray_surface_left, $gray_surface_right, $brain_mask],
           outputs => [$surface_qc],
           args => ["surface_qc", $final_classify, $wm_left_centered, 
                    $wm_right_centered, $white_surf_left_prelim, 
                    $white_surf_right_prelim, $gray_surface_left, 
-                   $gray_surface_right, $surface_qc ],
+                   $gray_surface_right, $brain_mask, $surface_qc ],
           prereqs => $Prereqs } );
 
     my @Surface_QC_complete = ( "surface_fit_error" );

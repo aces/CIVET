@@ -1,4 +1,31 @@
-        New in Release 1.2.0
+        New in Release 1.1.12
+* New verify figures for Laplacian fit and surface-surface
+  intersections
+* Improved linear registration (based on blurred image only,
+  no longer uses gradients of image, using mutual information,
+  with neck-cropping, target mask on last stage)
+* Improved non-linear registration (with 2mm steps, extra sampling
+  and reduced weight parameter)
+* Improved masking of white matter mask using cortical_surface
+  with a new model (on which the non-linear transform is applied)
+* Masking of bright blood vessels applied to white matter mask
+* Application of population model's head mask to reduce background
+  noise in image before mincbet (could do it before native N3 as well)
+* Generation of basic glim file as part of the CIVET QC
+* Now use smoothing from depth_potential instead of diffuse
+  for cortical thickness and surface registration (no more need
+  for BLAS and LAPACK). Note: 20mm with old code is like 30mm
+  with new code.
+* Improved filling of ventricles
+* Fixed WM/GM border by not allowing CSF/BG next to WM (under
+  brainstem, mostly)
+* Plug-in for ADNI population template
+* PMP option for msub (moab) instead of qsub
+NOTE: This release requires the package surface-extraction-2.4.0
+      and is based on the old N3-1.10.1 and ebtks-1.6.1 (requires 
+      gcc-4.1 or 4.2 at most).
+
+        New in Release 1.2.0 (experimental)
 * New model Cerebellum_Ventricles_SubCortical_Mask.mnc for
   masking regions
 * Marching-cubes algorithm for extraction of white surface

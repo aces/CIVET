@@ -1,0 +1,98 @@
+#!/usr/bin/env perl
+
+# Run checks on the native t1, t2, pd, mask images:
+# - make spacing regular
+# - make direction cosines regular
+# - resample in positive direction
+#
+# It is assumed that any user-supplied mask will be in the same
+# space as the native t1. t2 and pd will be registered to t1 and
+# the mask later.
+#
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+use File::Basename;
+use File::Temp qw/ tempdir /;
+
+# Directory for temporary files.
+my $me = &basename($0);
+my $tmpdir = &tempdir( "$me-XXXXXX", TMPDIR => 1, CLEANUP => 0 );
+
+my $input_t1 = $ARGV[0];
+my $input_t2 = $ARGV[1];
+my $input_pd = $ARGV[2];
+my $input_mask = $ARGV[3];
+my $output_t1 = $ARGV[4];
+my $output_t2 = $ARGV[5];
+my $output_pd = $ARGV[6];
+my $output_mask = $ARGV[7];
+
+# Regularize t1, t2, pd, mask.
+
+if( ( $input_t1 ne "none" ) and ( -e $input_t1 ) ) {
+  &make_regular( $input_t1, $output_t1 );
+}
+
+if( ( $input_t2 ne "none" ) and ( -e $input_t2 ) ) {
+  &make_regular( $input_t2, $output_t2 );
+}
+
+if( ( $input_pd ne "none" ) and ( -e $input_pd ) ) {
+  &make_regular( $input_pd, $output_pd );
+}
+
+if( ( $input_mask ne "none" ) and ( -e $input_mask ) ) {
+  &make_regular( $input_mask, $output_mask );
+
+  # Make sure any user-supplied mask is like the t1 image 
+
+  &run( 'mincresample', '-quiet', '-clobber', '-like', $output_t1,
+        '-nearest', $output_mask, "${tmpdir}/output_mask_tmp.mnc" );
+  &run( 'mv', '-f', "${tmpdir}/output_mask_tmp.mnc", $output_mask );
+}
+
+
+# Make the minc image regular.
+
+sub make_regular {
+
+  my $input = shift;
+  my $output = shift;
+
+  # bypass symbolic link, if any
+  &run( 'cp', '-f', $input, "${tmpdir}/regular.mnc" );
+  # convert to minc2 since minc_modify_header can crash on 
+  # minc1 files (don't know why).
+  my $ret = `file ${tmpdir}/regular.mnc`;
+  chomp( $ret ) ;
+  if( $ret =~ m/NetCDF/ ) {
+    &run( 'mincconvert', '-2', "${tmpdir}/regular.mnc", 
+          "${tmpdir}/regular_v2.mnc" );
+    &run( 'mv', '-f', "${tmpdir}/regular_v2.mnc", "${tmpdir}/regular.mnc" );
+  }
+
+  &run( 'minc_modify_header', '-sinsert', 'xspace:spacing=regular__',
+        '-sinsert', 'yspace:spacing=regular__', '-sinsert',
+        'zspace:spacing=regular__', "${tmpdir}/regular.mnc" );
+  &run( 'mincreshape', '-quiet', '-clobber', '+direction', '-dimorder', 
+        'zspace,yspace,xspace', '-dimsize', 'xspace=-1', '-dimsize', 'yspace=-1',
+        '-dimsize', 'zspace=-1', "${tmpdir}/regular.mnc", $output );
+  &run( 'minc_modify_header', '-dinsert', 'xspace:direction_cosines=1,0,0',
+        '-dinsert', 'yspace:direction_cosines=0,1,0', '-dinsert', 
+        'zspace:direction_cosines=0,0,1', $output );
+  unlink( "${tmpdir}/regular.mnc" );
+}
+
+# Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+
