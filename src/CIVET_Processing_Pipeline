@@ -962,7 +962,7 @@ foreach my $dsid (@dsids) {
     } else {
         # restart from a given stage;
         $pipeline->resetFromStage($resetFrom) if( $resetFrom );
-        ## $pipeline->resetAfterStage($resetAfter) if( $resetAfter );
+        $pipeline->resetAfterStage($resetAfter) if( $resetAfter );
         $pipeline->subsetToStage($resetTo) if( $resetTo );
       
         # Rerun any failures from a previous run of this subjects pipe
