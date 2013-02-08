@@ -153,9 +153,9 @@ sub new {
     $image->{cls_clean} = "${cls_dir}/${prefix}_${dsid}_cls_clean.mnc";
     $image->{cls_volumes} = "${cls_dir}/${prefix}_${dsid}_cls_volumes.dat";
     $image->{pve_prefix} = "${cls_dir}/${prefix}_${dsid}_pve";
-    $image->{pve_wm} = "$image->{pve_prefix}_wm.mnc";
-    $image->{pve_gm} = "$image->{pve_prefix}_gm.mnc";
-    $image->{pve_csf} = "$image->{pve_prefix}_csf.mnc";
+    $image->{pve_wm} = "$image->{pve_prefix}_exactwm.mnc";
+    $image->{pve_gm} = "$image->{pve_prefix}_exactgm.mnc";
+    $image->{pve_csf} = "$image->{pve_prefix}_exactcsf.mnc";
     $image->{pve_disc} = "$image->{pve_prefix}_disc.mnc";
     $image->{cls_correct} = "$image->{pve_prefix}_classify.mnc";
     $image->{curve_prefix} = "${tmp_dir}/${prefix}_${dsid}_curve";
