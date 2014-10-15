@@ -51,7 +51,7 @@ my $model = $ARGV[3];         # path+basename of model for the population averag
 my $mask = $ARGV[4];          # actual brain mask of the subject (or "none")
 my $headheight = $ARGV[5];    # distance from top of head for neck-cropping
 my $nuc_dist = $ARGV[6];
-my $nuc_damping = $ARGV[7];   # for future usage
+my $nuc_damping = $ARGV[7];
 my $nuc_cycles = $ARGV[8];
 my $nuc_iters = $ARGV[9];
 
@@ -59,81 +59,98 @@ my $nuc_iters = $ARGV[9];
 
 if ( -e $input ) {
 
-  my $tmp = "${tmpdir}/nuc.mnc";
+  if( $nuc_dist > 0 ) {
+    my $tmp = "${tmpdir}/nuc.mnc";
 
-  my $tmp_input = $input;
+    my $tmp_input = $input;
 
-  # In native space, do neck-cropping to help linear registration.
+    # In native space, do neck-cropping to help linear registration.
 
-  if( $space eq "native" and $headheight > 0 ) {
-    $tmp_input = "${tmpdir}/t1_cropped.mnc";
-    &cropneck( $input, $headheight, $tmp_input );
-  }
-
-  # Use a mask if one is given. Resample the mask to be like the input.
-  # This can happen if a model's mask is used which does not match the
-  # template used to resample the input. If no mask is given, try a 
-  # full head linear registration and use the mask from the template
-  # as a starting point.
-
-  my $initial_mask = undef;
-  if( $space eq "native" ) {
-    $initial_mask = "${tmpdir}/nuc_mask.mnc";
-    if( ( $mask ne "none" ) and ( -e $mask ) ) {
-      # user-supplied mask, simply resample it like image
-      &run( "mincresample", "-like", $tmp_input, "-nearest_neighbour",
-            $mask, $initial_mask );
-    } else {
-      # no mask: create one from the population model
-      &run( 'bestlinreg.pl', '-clobber', '-lsq12', '-nmi', $tmp_input, 
-            "${model}.mnc", "${tmpdir}/native2tal.xfm" );
-      &run( 'mincresample', '-clobber', '-quiet', '-like', $tmp_input, 
-            '-nearest', '-transform', "${tmpdir}/native2tal.xfm", '-invert', 
-            "${model}\_mask.mnc", $initial_mask );
-      unlink( "${tmpdir}/native2tal.xfm" );
-      &run( 'mincdefrag', $initial_mask, $initial_mask, 1, 6 );
-      &run( 'dilate_volume', $initial_mask, $initial_mask, 1, 6, 1 );
+    if( $space eq "native" and $headheight > 0 ) {
+      $tmp_input = "${tmpdir}/t1_cropped.mnc";
+      &cropneck( $input, $headheight, $tmp_input );
     }
+
+    # Use a mask if one is given. Resample the mask to be like the input.
+    # This can happen if a model's mask is used which does not match the
+    # template used to resample the input. If no mask is given, try a 
+    # full head linear registration and use the mask from the template
+    # as a starting point.
+
+    my $initial_mask = undef;
+    if( $space eq "native" ) {
+      $initial_mask = "${tmpdir}/nuc_mask.mnc";
+      if( ( $mask ne "none" ) and ( -e $mask ) ) {
+        # user-supplied mask, simply resample it like image
+        &run( "mincresample", '-quiet', '-like', $tmp_input, "-nearest_neighbour",
+              $mask, $initial_mask );
+      } else {
+        # no mask: create one from the population model
+        &run( 'bestlinreg.pl', '-clobber', '-lsq12', '-nmi', $tmp_input, 
+              "${model}.mnc", "${tmpdir}/native2tal.xfm" );
+        &run( 'mincresample', '-clobber', '-quiet', '-like', $tmp_input, 
+              '-nearest', '-transform', "${tmpdir}/native2tal.xfm", '-invert', 
+              "${model}\_mask.mnc", $initial_mask );
+        unlink( "${tmpdir}/native2tal.xfm" );
+        &run( 'mincdefrag', $initial_mask, $initial_mask, 1, 6 );
+        &run( 'dilate_volume', $initial_mask, $initial_mask, 1, 6, 1 );
+      }
+    } else {
+      # model's mask in stereotaxic space (assumes good registration).
+      # At this point, we don't have the non-linear transformation.
+      $initial_mask = "${tmpdir}/stx_mask.mnc";
+      &run( "mincresample", '-quiet', '-like', $tmp_input, "-nearest_neighbour",
+            "${model}\_mask.mnc", $initial_mask );
+    }
+
+    # Determine a suitable shrink factor based on the absolute size of
+    # the voxels. For example, shrink=4 means sampling steps of 4*steps,
+    # which are not uniform if the stx template changes from 1.0 to 0.5mm.
+    # Try to keep it at 4mm steps by adjusting the shrink factor. It can
+    # be a decimal number.
+
+    my $shrink = 4;
+    my $dx = `mincinfo -attvalue xspace:step $tmp_input`; chomp( $dx );
+    my $dy = `mincinfo -attvalue yspace:step $tmp_input`; chomp( $dy );
+    my $dz = `mincinfo -attvalue zspace:step $tmp_input`; chomp( $dz );
+    my $shrink_factor = $shrink / ( ( $dx + $dy + $dz ) / 3.0 );
+
+    # Important note: Because of the way nu_correct converges, it is better to
+    # do a few sets of 100 iterations rather than a total number of iterations
+    # at once. For example, nu_correct often thinks it has converged after 50-60
+    # iterations, so repeating the cycle will provide more iterations. Please
+    # leave as it is until nu_correct is fixed.
+
+    for( my $i = 0; $i < $nuc_cycles; $i++ ) {
+      &run( "nu_correct", "-clobber", "-iter", $nuc_iters, "-stop", 0.00001,
+            "-fwhm", 0.1, "-distance", $nuc_dist, '-lambda', $nuc_damping,
+            '-shrink', $shrink_factor, '-mask', $initial_mask, $tmp_input, $output );
+      &run( "mv", "-f", $output, $tmp );
+      $tmp_input = $tmp;
+      # Clear minc history to avoid a bug in netCDF-3.6.1 (see Claude)
+      &run( "minc_modify_header", "-sinsert", ":history=\"\"", $tmp );
+    }
+
+    # We remove the .imp file as it is relative to the previous
+    # cycle, thus meaningless globally.
+
+    my $imp_file = $output;
+    $imp_file =~ s/\.[^\.]*$/\.imp/;
+    &run( "rm", "-f", $imp_file );
+
+    # remove high extremum (low extremum - background - will be taken care of by the mask).
+    my $top;
+    my $upper = 99.950;
+    chomp($top = `mincstats -quiet -pctT $upper $tmp`);
+
+    my $clip_expr = "if(A[0]<0){out=0;}else{if(A[0]>${top}){out=${top};}else{out=A[0];}}";
+
+    &run( "minccalc", "-clobber", "-expression", $clip_expr, $tmp, $output );
+    # This is ugly! Clear minc history to avoid a bug in netCDF-3.6.1 (see Claude)
+    &run( "minc_modify_header", "-sinsert", ":history=\"\"", $output );
   } else {
-    # model's mask in stereotaxic space (assumes good registration).
-    # At this point, we don't have the non-linear transformation.
-    $initial_mask = "${model}\_mask.mnc";
+    &run( 'ln', '-sf', $input, $output );
   }
-
-  # Important note: Because of the way nu_correct converges, it is better to
-  # do a few sets of 100 iterations rather than a total number of iterations
-  # at once. For example, nu_correct often thinks it has converged after 50-60
-  # iterations, so repeating the cycle will provide more iterations. Please
-  # leave as it is until nu_correct is fixed.
-
-  for( my $i = 0; $i < $nuc_cycles; $i++ ) {
-    &run( "nu_correct", "-clobber", "-iter", $nuc_iters, "-stop", 0.00001,
-          "-fwhm", 0.1, "-distance", $nuc_dist, '-mask', $initial_mask,
-          $tmp_input, $output );
-    &run( "mv", "-f", $output, $tmp );
-    $tmp_input = $tmp;
-    # Clear minc history to avoid a bug in netCDF-3.6.1 (see Claude)
-    &run( "minc_modify_header", "-sinsert", ":history=\"\"", $tmp );
-  }
-
-  # We remove the .imp file as it is relative to the previous
-  # cycle, thus meaningless globally.
-
-  my $imp_file = $output;
-  $imp_file =~ s/\.[^\.]*$/\.imp/;
-  &run( "rm", "-f", $imp_file );
-
-  # remove high extremum (low extremum - background - will be taken care of by the mask).
-  my $top;
-  my $upper = 99.950;
-  chomp($top = `mincstats -quiet -pctT $upper $tmp`);
-
-  my $clip_expr = "if(A[0]<0){out=0;}else{if(A[0]>${top}){out=${top};}else{out=A[0];}}";
-
-  &run( "minccalc", "-clobber", "-expression", $clip_expr, $tmp, $output );
-  # This is ugly! Clear minc history to avoid a bug in netCDF-3.6.1 (see Claude)
-  &run( "minc_modify_header", "-sinsert", ":history=\"\"", $output );
-
 }
 
 # Determine how to crop the neck in native space, up to a given
@@ -145,6 +162,68 @@ sub cropneck {
   my $input = shift;
   my $headheight = shift;
   my $output = shift;
+
+  my $fwhm = 2.0;
+
+  my $input_blur;
+  if( $fwhm > 0 ) {
+    $input_blur = "${tmpdir}/t1_cropneck";   # prefix
+    &run( 'mincblur', '-clobber', '-fwhm', $fwhm, '-no_apodize',
+          $input, $input_blur );
+    $input_blur = "${tmpdir}/t1_cropneck_blur.mnc";
+  } else {
+    $input_blur = $input;
+  }
+
+  # Do the gradients this way since mincblur has a bug that
+  # causes severe wall effects.
+
+  open DILX, "> ${tmpdir}/gradx.kernel";
+  print DILX "MNI Morphology Kernel File\n";
+  print DILX "Kernel_Type = Normal_Kernel;\n";
+  print DILX "Kernel =\n";
+  print DILX "1.0 0.0  0.0  0.0  0.0  0.5\n";
+  print DILX "-1.0 0.0  0.0  0.0  0.0  -0.5;\n";
+  close DILX;
+
+  open DILY, "> ${tmpdir}/grady.kernel";
+  print DILY "MNI Morphology Kernel File\n";
+  print DILY "Kernel_Type = Normal_Kernel;\n";
+  print DILY "Kernel =\n";
+  print DILY "0.0 1.0  0.0  0.0  0.0  0.5\n";
+  print DILY "0.0 -1.0  0.0  0.0  0.0  -0.5;\n";
+  close DILY;
+
+  open DILZ, "> ${tmpdir}/gradz.kernel";
+  print DILZ "MNI Morphology Kernel File\n";
+  print DILZ "Kernel_Type = Normal_Kernel;\n";
+  print DILZ "Kernel =\n";
+  print DILZ "0.0 0.0  1.0  0.0  0.0  0.5\n";
+  print DILZ "0.0 0.0 -1.0  0.0  0.0  -0.5;\n";
+  close DILZ;
+
+  my $derivx = "${tmpdir}/t1_cropneck_dx.mnc";
+  my $derivy = "${tmpdir}/t1_cropneck_dy.mnc";
+  my $derivz = "${tmpdir}/t1_cropneck_dz.mnc";
+  &run( 'mincmorph', '-clobber', '-convolve', '-kernel', 
+        "${tmpdir}/gradx.kernel", $input_blur, $derivx );
+  &run( 'mincmorph', '-clobber', '-convolve', '-kernel',
+        "${tmpdir}/grady.kernel", $input_blur, $derivy );
+  &run( 'mincmorph', '-clobber', '-convolve', '-kernel',
+        "${tmpdir}/gradz.kernel", $input_blur, $derivz );
+
+  unlink( "${tmpdir}/gradx.kernel" );
+  unlink( "${tmpdir}/grady.kernel" );
+  unlink( "${tmpdir}/gradz.kernel" );
+  unlink( $input_blur ) if( $fwhm > 0 );
+
+  my $deriv_mag = "${tmpdir}/t1_cropneck_dmag.mnc";
+  &run( 'minccalc', '-quiet', '-clobber', '-expr',
+        'sqrt(A[0]*A[0]+A[1]*A[1]+A[2]*A[2])', $derivx, $derivy,
+        $derivz, $deriv_mag );
+  unlink( $derivx );
+  unlink( $derivy );
+  unlink( $derivz );
 
   my $nz = `mincinfo -dimlength zspace $input`; chomp( $nz );
   my $dz = `mincinfo -attvalue zspace:step $input`; chomp( $dz );
@@ -163,8 +242,9 @@ sub cropneck {
   my $maxstdev = 0;
   my $minstdev = undef;
 
-  for( my $j = 1; $j < $nz; $j+=2 ) {
-    `mincresample -clobber -quiet -znelements 1 -zstart $sz $input ${tmpdir}/slice.mnc`;
+  $sz += $dz;  # skip first row to avoid wall effects
+  for( my $j = 1; $j < $nz-1; $j+=2 ) {
+    `mincresample -clobber -quiet -znelements 1 -zstart $sz $deriv_mag ${tmpdir}/slice.mnc`;
     my $ret = `mincstats -quiet -mean ${tmpdir}/slice.mnc`; chomp( $ret );
     push @avg, $ret;
     $maxavg = $ret if( $ret > $maxavg );
@@ -178,20 +258,31 @@ sub cropneck {
     $sz += 2*$dz;
   }
   unlink( "${tmpdir}/slice.mnc" );
+  unlink( $deriv_mag );
 
   $maxavg = $minavg + 0.15 * ( $maxavg - $minavg );
   $maxstdev = $minstdev + 0.10 * ( $maxstdev - $minstdev );
-  for( my $j = 1; $j < $nz; $j+=2 ) {
+
+  my ( $avg_prev, $stdev_prev );
+  for( my $j = 1; $j < $nz-1; $j+=2 ) {
     $sz -= 2*$dz;
     my $ret = pop @avg;
     my $ret2 = pop @stdev;
-    last if( $ret > $maxavg || $ret2 > $maxstdev );
+    last if( $j > 2 && ( ( $ret > $maxavg && $ret > $avg_prev ) ||
+                         ( $ret2 > $maxstdev && $ret2 > $stdev_prev ) ) );
+    $avg_prev = $ret;
+    $stdev_prev = $ret2;
   }
+
+  # total net distance of 15mm above head
+  my $topcrop = $zstart + ( $nz - 1 ) * $dz - ( $sz + 15 );;
+  $topcrop = 0 if( $topcrop < 0 );
+
   $sz -= $headheight;
   my $wcrop = $sz - $zstart;   # this is the world coord at bottom of cerebellum
 
   if( $wcrop > 0 ) {
-    &run( 'autocrop', '-clobber', '-extend', '0,0', '0,0', "-$wcrop,0",
+    &run( 'autocrop', '-clobber', '-extend', '0,0', '0,0', "-$wcrop,-$topcrop",
           $input, $output );
   } else {
     &run( 'cp', '-f', $input, $output );

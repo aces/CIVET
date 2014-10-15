@@ -18,6 +18,7 @@
 use strict;
 use warnings "all";
 use Getopt::Tabular;
+use POSIX qw/floor/;
 use File::Basename;
 use File::Temp qw/ tempdir /;
 
@@ -284,6 +285,19 @@ for ($i=0; $i<=$#conf; $i++){
      unlink( $prev_xfm );
    }
 
+   # reduce current grid to minimal size.
+
+   if( $i > 0 ) {
+     my $current_grid = ($i == $#conf) ? $outxfm : $tmp_xfm;
+     $current_grid =~ s/\.xfm/_grid_0.mnc/;
+     shrink_grid( "${tmp_source}_blur.mnc", "${tmp_target}_blur.mnc",
+                  defined($opt{source_mask}) ? $opt{source_mask} : "none",
+                  defined($opt{target_mask}) ? $opt{target_mask} : "none",
+                  $conf[$i]{step}, $current_grid,
+                  "${tmpdir}/nl_rsl_grid_0.mnc" );
+     &do_cmd( 'mv', '-f', "${tmpdir}/nl_rsl_grid_0.mnc", $current_grid );
+   }
+
    # define starting xfm for next iteration. 
 
    $prev_xfm = ($i == $#conf) ? $outxfm : $tmp_xfm;
@@ -302,5 +316,76 @@ sub do_cmd {
    if(!$opt{fake}){
       system(@_) == 0 or die;
    }
+}
+
+sub shrink_grid {
+
+   my $source = shift;
+   my $target = shift;
+   my $source_mask = shift;
+   my $target_mask = shift;
+   my $step = shift;
+   my $ingrid = shift;
+   my $outgrid = shift;
+
+   my $tmpxfm = "${tmpdir}/fake_nlfit.xfm";
+   my $tmpgrid = "${tmpdir}/fake_nlfit_grid_0.mnc";
+
+   # masking
+   my @mask_args = ();
+   if( $source_mask ne "none" && -e $source_mask ) {
+     push(@mask_args, '-source_mask', $source_mask );
+   }
+   if( $target_mask ne "none" && -e $target_mask ) {
+     push(@mask_args, '-model_mask', $target_mask );
+   }
+   
+   # fake registration to obtain grid size
+   &do_cmd( 'minctracc',  @def_minctracc_args, @mask_args,
+            '-iterations', 0, '-step', $step, $step, $step,
+            '-similarity', 0.5, '-weight', 0.9, '-sub_lattice', 6,
+            '-lattice_diam', $step * 3, $step * 3, $step * 3,
+            $source, $target, $tmpxfm );
+
+   my $dx = `mincinfo -attvalue xspace:step $ingrid`; chomp($dx), $dx+=0;
+   my $dy = `mincinfo -attvalue yspace:step $ingrid`; chomp($dy), $dy+=0;
+   my $dz = `mincinfo -attvalue zspace:step $ingrid`; chomp($dz), $dz+=0;
+   my $nx = `mincinfo -attvalue xspace:length $ingrid`; chomp($nx), $nx+=0;
+   my $ny = `mincinfo -attvalue yspace:length $ingrid`; chomp($ny), $ny+=0;
+   my $nz = `mincinfo -attvalue zspace:length $ingrid`; chomp($nz), $nz+=0;
+   my $sx = `mincinfo -attvalue xspace:start $ingrid`; chomp($sx), $sx+=0;
+   my $sy = `mincinfo -attvalue yspace:start $ingrid`; chomp($sy), $sy+=0;
+   my $sz = `mincinfo -attvalue zspace:start $ingrid`; chomp($sz), $sz+=0;
+
+   my $tnx = `mincinfo -attvalue xspace:length $tmpgrid`; chomp($tnx), $tnx+=0;
+   my $tny = `mincinfo -attvalue yspace:length $tmpgrid`; chomp($tny), $tny+=0;
+   my $tnz = `mincinfo -attvalue zspace:length $tmpgrid`; chomp($tnz), $tnz+=0;
+   unlink( $tmpxfm );
+   unlink( $tmpgrid );
+
+   # assume that reduction will be symmetric (is this always safe?)
+   my $diffx = floor( ( $nx - $tnx - 4 ) / 2 );
+   if( $diffx > 0 ) {
+     $sx += $diffx * $dx;
+     $nx -= 2 * $diffx;
+   }
+
+   my $diffy = floor( ( $ny - $tny - 4 ) / 2 );
+   if( $diffy > 0 ) {
+     $sy += $diffy * $dy;
+     $ny -= 2 * $diffy;
+   }
+
+   my $diffz = floor( ( $nz - $tnz - 4 ) / 2 );
+   $diffz = 0 if( $diffz < 0 );
+   if( $diffz > 0 ) {
+     $sz += $diffz * $dz;
+     $nz -= 2 * $diffz;
+   }
+
+   &do_cmd( 'mincresample', '-clobber', '-quiet', '-nelements', 
+            $nx, $ny, $nz, '-start', $sx, $sy, $sz, '-nearest',
+            $ingrid, $outgrid );
+
 }
 

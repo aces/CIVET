@@ -49,7 +49,7 @@ sub stx_register {
     my $regModelName = basename( $regModel );
 
     # Preliminary nu_correct on the native images to improve the 
-    # results bestlinreg. Run only 100 iterations. No need to be 
+    # results of bestlinreg. Run only 100 iterations. No need to be 
     # too fancy at this stage.
 
     my $source_files = ${$image}->get_hash( "source" );

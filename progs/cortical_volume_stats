@@ -64,8 +64,12 @@ unlink( $white_native );
 unlink( $gray_native );
 
 # Smooth the volumes on the stereotaxic model.
-&run( "depth_potential", "-smooth", $fwhm, "${tmpdir}/rsl_native_volume.txt", 
-      $model, $volume_file );
+if( $fwhm > 0 ) {
+  &run( "depth_potential", "-smooth", $fwhm, "${tmpdir}/rsl_native_volume.txt", 
+        $model, $volume_file );
+} else {
+  &run( 'cp', '-f', "${tmpdir}/rsl_native_volume.txt", $volume_file );
+}
 
 unlink( "${tmpdir}/rsl_native_volume.txt" );
 

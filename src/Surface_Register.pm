@@ -22,67 +22,37 @@ sub create_pipeline {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-    my $surfreg_model = @_[3];
-    my $surfreg_dataterm = @_[4];
+    my $surfreg_model_left = @_[3];
+    my $surfreg_model_right = @_[4];
 
     my $left_mid_surface = ${$image}->{mid_surface}{left};
     my $right_mid_surface = ${$image}->{mid_surface}{right};
-    my $left_dataterm = ${$image}->{dataterm}{left};
-    my $right_dataterm = ${$image}->{dataterm}{right};
     my $left_surfmap = ${$image}->{surface_map}{left};
     my $right_surfmap = ${$image}->{surface_map}{right};
 
-# ---------------------------------------------------------------------------
-#  Step 1: Compute data term on mid surfaces using Maxime's depth potential.
-#          We must use alpha=0.05 to be consistent with Oliver's average
-#          surface model.
-# ---------------------------------------------------------------------------
-
-    ${$pipeline_ref}->addStage( {
-          name => "dataterm_left_surface",
-          label => "WM left surface depth potential",
-          inputs => [$left_mid_surface],
-          outputs => [$left_dataterm],
-          args => ["depth_potential", "-alpha", "0.05", "-depth_potential", 
-                   $left_mid_surface, $left_dataterm ],
-          prereqs => $Prereqs } );
-
-    ${$pipeline_ref}->addStage( {
-          name => "dataterm_right_surface",
-          label => "WM right surface depth potential",
-          inputs => [$right_mid_surface],
-          outputs => [$right_dataterm],
-          args => ["depth_potential", "-alpha", "0.05", "-depth_potential", 
-                   $right_mid_surface, $right_dataterm ],
-          prereqs => $Prereqs } );
-
-# ---------------------------------------------------------------------------
-#  Step 2: Surface registration to left+right hemispheric averaged model.
-# ---------------------------------------------------------------------------
+    my $surf_res = ( ${$image}->{surface} eq "hiResSURFACE" ) ? "327680" : "81920";
 
     ${$pipeline_ref}->addStage( {
           name => "surface_registration_left",
           label => "register left mid-surface nonlinearly",
-          inputs => [$left_mid_surface,$left_dataterm],
+          inputs => [$left_mid_surface],
           outputs => [$left_surfmap],
-          args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "80",
-                   "-max_control_mesh", "81920", "-blur_coef", "1.25", 
-                   "-neighbourhood_radius", "2.8", "-target_spacing", "1.9", 
-                   $surfreg_model, $surfreg_dataterm,
-                   $left_mid_surface, $left_dataterm, $left_surfmap ],
-          prereqs => ["dataterm_left_surface"] });
+          args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "5120",
+                   "-max_control_mesh", $surf_res, "-blur_coef", "1.5", 
+                   "-mode", "stiff", "-neighbourhood_radius", "2.8",
+                   $surfreg_model_left, $left_mid_surface, $left_surfmap ],
+          prereqs => $Prereqs } );
 
     ${$pipeline_ref}->addStage( {
           name => "surface_registration_right",
           label => "register right mid-surface nonlinearly",
-          inputs => [$right_mid_surface,$right_dataterm],
+          inputs => [$right_mid_surface],
           outputs => [$right_surfmap],
-          args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "80",
-                   "-max_control_mesh", "81920", "-blur_coef", "1.25",
-                   "-neighbourhood_radius", "2.8", "-target_spacing", "1.9",
-                   $surfreg_model, $surfreg_dataterm,
-                   $right_mid_surface, $right_dataterm, $right_surfmap ],
-          prereqs => ["dataterm_right_surface"] });
+          args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "5120",
+                   "-max_control_mesh", $surf_res, "-blur_coef", "1.5",
+                   "-mode", "stiff", "-neighbourhood_radius", "2.8",
+                   $surfreg_model_right, $right_mid_surface, $right_surfmap ],
+          prereqs => $Prereqs } );
 
     my $SurfReg_complete = [ "surface_registration_left",
                              "surface_registration_right" ];
@@ -99,8 +69,8 @@ sub resample_surfaces {
     my $Prereqs = @_[1];
     my $image = @_[2];
 
-    my $left_white_surface = ${$image}->{cal_white}{left};
-    my $right_white_surface = ${$image}->{cal_white}{right};
+    my $left_white_surface = ${$image}->{white}{left};
+    my $right_white_surface = ${$image}->{white}{right};
     my $left_mid_surface = ${$image}->{mid_surface}{left};
     my $right_mid_surface = ${$image}->{mid_surface}{right};
     my $left_gray_surface = ${$image}->{gray}{left};
@@ -109,8 +79,8 @@ sub resample_surfaces {
     my $left_surfmap = ${$image}->{surface_map}{left};
     my $right_surfmap = ${$image}->{surface_map}{right};
 
-    my $left_white_surface_rsl = ${$image}->{cal_white_rsl}{left};
-    my $right_white_surface_rsl = ${$image}->{cal_white_rsl}{right};
+    my $left_white_surface_rsl = ${$image}->{white_rsl}{left};
+    my $right_white_surface_rsl = ${$image}->{white_rsl}{right};
     my $left_mid_surface_rsl = ${$image}->{mid_surface_rsl}{left};
     my $right_mid_surface_rsl = ${$image}->{mid_surface_rsl}{right};
     my $left_gray_surface_rsl = ${$image}->{gray_rsl}{left};
@@ -188,39 +158,47 @@ sub resampled_surface_areas {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-    my $surfreg_model = @_[3];
+    my $surfreg_model_left = @_[3];
+    my $surfreg_model_right = @_[4];
 
-    my $fwhm = ${$image}->{rsl_area_fwhm};
     my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
     my $left_mid_surface_rsl = ${$image}->{mid_surface_rsl}{left};
     my $right_mid_surface_rsl = ${$image}->{mid_surface_rsl}{right};
-    my $left_surface_area_rsl = ${$image}->{surface_area_rsl}{left};
-    my $right_surface_area_rsl = ${$image}->{surface_area_rsl}{right};
 
-    ${$pipeline_ref}->addStage( {
-          name => "surface_area_rsl_${fwhm}mm_left_mid",
-          label => "surface area on resampled left mid surface",
-          inputs => [$left_mid_surface_rsl,$t1_tal_xfm],
-          outputs => [$left_surface_area_rsl],
-          args => [ "cortical_area_stats", $left_mid_surface_rsl,
-                    $surfreg_model, $t1_tal_xfm, $fwhm, 
-                    $left_surface_area_rsl],
-          prereqs => $Prereqs });
+    my @SurfaceAreas_complete = ();
+    my $count = 0;
+    foreach my $fwhm (@{${$image}->{rsl_area_fwhm}}) {
 
-    ${$pipeline_ref}->addStage( {
-          name => "surface_area_rsl_${fwhm}mm_right_mid",
-          label => "surface area on resampled right mid surface",
-          inputs => [$right_mid_surface_rsl,$t1_tal_xfm],
-          outputs => [$right_surface_area_rsl],
-          args => [ "cortical_area_stats", $right_mid_surface_rsl,
-                    $surfreg_model, $t1_tal_xfm, $fwhm, 
-                    $right_surface_area_rsl],
-          prereqs => $Prereqs });
+      my $left_surface_area_rsl = @{${$image}->{surface_area_rsl}{left}}[$count];
+      my $right_surface_area_rsl = @{${$image}->{surface_area_rsl}{right}}[$count];
 
-    my $SurfaceAreas_complete = [ "surface_area_rsl_${fwhm}mm_left_mid",
-                                  "surface_area_rsl_${fwhm}mm_right_mid" ];
+      ${$pipeline_ref}->addStage( {
+            name => "surface_area_rsl_${fwhm}mm_left_mid",
+            label => "surface area on resampled left mid surface",
+            inputs => [$left_mid_surface_rsl, $t1_tal_xfm],
+            outputs => [$left_surface_area_rsl],
+            args => [ "cortical_area_stats", $left_mid_surface_rsl,
+                      $surfreg_model_left, $t1_tal_xfm, $fwhm, 
+                      $left_surface_area_rsl],
+            prereqs => $Prereqs });
 
-    return( $SurfaceAreas_complete );
+      ${$pipeline_ref}->addStage( {
+            name => "surface_area_rsl_${fwhm}mm_right_mid",
+            label => "surface area on resampled right mid surface",
+            inputs => [$right_mid_surface_rsl,$t1_tal_xfm],
+            outputs => [$right_surface_area_rsl],
+            args => [ "cortical_area_stats", $right_mid_surface_rsl,
+                      $surfreg_model_right, $t1_tal_xfm, $fwhm, 
+                      $right_surface_area_rsl],
+            prereqs => $Prereqs });
+
+      push @SurfaceAreas_complete, "surface_area_rsl_${fwhm}mm_left_mid";
+      push @SurfaceAreas_complete, "surface_area_rsl_${fwhm}mm_right_mid";
+
+      $count++;
+    }
+
+    return( \@SurfaceAreas_complete );
 }
 
 
@@ -232,41 +210,48 @@ sub resampled_surface_volumes {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-    my $surfreg_model = @_[3];
+    my $surfreg_model_left = @_[3];
+    my $surfreg_model_right = @_[4];
 
-    my $fwhm = ${$image}->{rsl_volume_fwhm};
     my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
-    my $left_white_surface_rsl = ${$image}->{cal_white_rsl}{left};
-    my $right_white_surface_rsl = ${$image}->{cal_white_rsl}{right};
+    my $left_white_surface_rsl = ${$image}->{white_rsl}{left};
+    my $right_white_surface_rsl = ${$image}->{white_rsl}{right};
     my $left_gray_surface_rsl = ${$image}->{gray_rsl}{left};
     my $right_gray_surface_rsl = ${$image}->{gray_rsl}{right};
-    my $left_surface_volume_rsl = ${$image}->{surface_volume_rsl}{left};
-    my $right_surface_volume_rsl = ${$image}->{surface_volume_rsl}{right};
 
-    ${$pipeline_ref}->addStage( {
-          name => "surface_volume_rsl_${fwhm}mm_left",
-          label => "surface volumes on resampled left hemisphere",
-          inputs => [$t1_tal_xfm,$left_white_surface_rsl,$left_gray_surface_rsl],
-          outputs => [$left_surface_volume_rsl],
-          args => [ "cortical_volume_stats", $left_white_surface_rsl,
-                    $left_gray_surface_rsl, $surfreg_model, $t1_tal_xfm,
-                    $fwhm, $left_surface_volume_rsl],
-          prereqs => $Prereqs });
+    my @SurfaceVolumes_complete = ();
+    my $count = 0;
+    foreach my $fwhm (@{${$image}->{rsl_volume_fwhm}}) {
 
-    ${$pipeline_ref}->addStage( {
-          name => "surface_volume_rsl_${fwhm}mm_right",
-          label => "surface volumes on resampled right mid hemisphere",
-          inputs => [$t1_tal_xfm,$right_white_surface_rsl,$right_gray_surface_rsl],
-          outputs => [$right_surface_volume_rsl],
-          args => [ "cortical_volume_stats", $right_white_surface_rsl,
-                    $right_gray_surface_rsl, $surfreg_model, $t1_tal_xfm,
-                    $fwhm, $right_surface_volume_rsl],
-          prereqs => $Prereqs });
+      my $left_surface_volume_rsl = @{${$image}->{surface_volume_rsl}{left}}[$count];
+      my $right_surface_volume_rsl = @{${$image}->{surface_volume_rsl}{right}}[$count];
 
-    my $SurfaceVolumes_complete = [ "surface_volume_rsl_${fwhm}mm_left",
-                                    "surface_volume_rsl_${fwhm}mm_right" ];
+      ${$pipeline_ref}->addStage( {
+            name => "surface_volume_rsl_${fwhm}mm_left",
+            label => "surface volumes on resampled left hemisphere",
+            inputs => [$t1_tal_xfm,$left_white_surface_rsl,$left_gray_surface_rsl],
+            outputs => [$left_surface_volume_rsl],
+            args => [ "cortical_volume_stats", $left_white_surface_rsl,
+                      $left_gray_surface_rsl, $surfreg_model_left, $t1_tal_xfm,
+                      $fwhm, $left_surface_volume_rsl],
+            prereqs => $Prereqs });
 
-    return( $SurfaceVolumes_complete );
+      ${$pipeline_ref}->addStage( {
+            name => "surface_volume_rsl_${fwhm}mm_right",
+            label => "surface volumes on resampled right mid hemisphere",
+            inputs => [$t1_tal_xfm,$right_white_surface_rsl,$right_gray_surface_rsl],
+            outputs => [$right_surface_volume_rsl],
+            args => [ "cortical_volume_stats", $right_white_surface_rsl,
+                      $right_gray_surface_rsl, $surfreg_model_right, $t1_tal_xfm,
+                      $fwhm, $right_surface_volume_rsl],
+            prereqs => $Prereqs });
+
+      push @SurfaceVolumes_complete, "surface_volume_rsl_${fwhm}mm_left";
+      push @SurfaceVolumes_complete, "surface_volume_rsl_${fwhm}mm_right";
+
+      $count++;
+    }
+    return( \@SurfaceVolumes_complete );
 }
 
 

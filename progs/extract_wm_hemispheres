@@ -15,7 +15,7 @@ use warnings "all";
 use Getopt::Tabular;
 use File::Basename;
 use File::Temp qw/ tempdir /;
-
+use POSIX;
 
 my($Help, $Usage, $me);
 my(@opt_table, $tmpdir);
@@ -32,7 +32,7 @@ $Help = <<HELP;
 | Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
 HELP
 
-$Usage = "Usage: $me [options] classified.mnc t1.mnc brain_mask.mnc hemi_model_dir output_left_hemi.mnc output_right_hemi.mnc\n".
+$Usage = "Usage: $me [options] classified.mnc t1.mnc brain_mask.mnc output_left_hemi.mnc output_right_hemi.mnc\n".
          "       $me -help to list options\n\n";
 
 @opt_table = (
@@ -46,14 +46,13 @@ $Usage = "Usage: $me [options] classified.mnc t1.mnc brain_mask.mnc hemi_model_d
 &Getopt::Tabular::SetHelp($Help, $Usage);
 &GetOptions (\@opt_table, \@ARGV) || exit 1;
 
-die $Usage if(@ARGV != 8);
+die $Usage if(@ARGV != 7);
 
 my $classify = shift(@ARGV);
 my $t1 = shift(@ARGV);
 my $brain_mask = shift(@ARGV);
 my $user_mask = shift(@ARGV);
 my $t1_tal_xfm = shift(@ARGV);
-my $hemi_model_dir= shift(@ARGV);
 my $output_left_hemi = shift(@ARGV);
 my $output_right_hemi = shift(@ARGV);
 
@@ -68,12 +67,6 @@ my $wm_defrag_left  = "${tmpdir}/wm_defrag_left.mnc";
 my $wm_defrag_right  = "${tmpdir}/wm_defrag_right.mnc";
 my $wm_add_back_left  = "${tmpdir}/wm_add_back_left.mnc";
 my $wm_add_back_right    = "${tmpdir}/wm_add_back_right.mnc";
-my $slide_left_xfm =  "${hemi_model_dir}/slide_left.xfm";
-my $slide_right_xfm =  "${hemi_model_dir}/slide_right.xfm";
-
-# for flipping the right WM mask to look like a left
-my $wm_preflip_right = "${tmpdir}/wm_preflip_right.mnc";
-my $flip_right_xfm =  "${hemi_model_dir}/flip_right.xfm";
 
 # create a white matter mask from the current brain_mask
 my $wm_mask = "${tmpdir}/wm_mask.mnc";
@@ -145,23 +138,12 @@ $xlen = ( $xlen + 1 ) / 2;
 &do_cmd( "minccalc", "-clobber", "-byte", "-expr", "out=A[0]||(A[1]&&!A[2]);",
          $wm_defrag_right, $wm_crop_left, $wm_defrag_left, $wm_add_back_right );
 
-# center the masks.
-
-&do_cmd( "mincresample", "-clobber", "-like", $wm_add_back_left, "-transform",
-         $slide_right_xfm, $wm_add_back_left, $output_left_hemi );
-
-&do_cmd( "mincresample", "-clobber", "-like", $wm_add_back_right, "-transform",
-         $slide_left_xfm, $wm_add_back_right, $wm_preflip_right );
-
-# mirror the right mask to look like a left hemi.
-
-&do_cmd( "mincresample", "-clobber", "-like", $wm_preflip_right, "-transform",
-         $flip_right_xfm, $wm_preflip_right, $output_right_hemi );
+&do_cmd( "cp", '-f', $wm_add_back_left, $output_left_hemi );
+&do_cmd( "cp", '-f', $wm_add_back_right, $output_right_hemi );
 
 # final removal of disconnected bits of white matter in each hemisphere.
 
 &do_cmd( "mincdefrag", $output_left_hemi, $output_left_hemi, "1", "6", "100000" );
-
 &do_cmd( "mincdefrag", $output_right_hemi, $output_right_hemi, "1", "6", "100000" );
 
 
@@ -175,11 +157,15 @@ sub white_matter_mask {
   my $white_mask = shift;
   my $tmpdir = shift;
 
-  # consider only 5mm around the perimeter of current brain mask
-  # (well, that's 5 layers of voxels, not 5mm).
+  # consider only 5mm around the perimeter of current brain mask.
+  # (Assume isotropic voxels dx=dy=dz.)
+
+  my $dx = `mincinfo -attvalue xspace:step $brain_mask`; chomp( $dx );
+  $dx = abs( $dx );
+  my $nlayers = int( 5.0 / $dx );
 
   my $mask_eroded = "${tmpdir}/mask_eroded.mnc";
-  &do_cmd( "dilate_volume", $brain_mask, $mask_eroded, 0, 6, 5 );
+  &do_cmd( "dilate_volume", $brain_mask, $mask_eroded, 0, 6, $nlayers );
 
   # compute t1 mean and variance of classified white matter inside the
   # eroded brain mask (avoid high intensity voxels of skull).

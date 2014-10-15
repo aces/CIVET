@@ -33,8 +33,9 @@ sub create_pipeline{
     my $pipeline_ref = @_[0];  
     my $image = @_[1];
     my $models = @_[2];
-    my $Global_intermediate_model = @_[3];
-    my $Global_Template = @_[4];
+    my $surface_models = @_[3];
+    my $Global_intermediate_model = @_[4];
+    my $Global_Template = @_[5];
 
     my $Global_LinRegModel = "${$models}->{RegLinDir}/${$models}->{RegLinModel}";
     my $Global_NLRegModel = "${$models}->{RegNLDir}/${$models}->{RegNLModel}";
@@ -86,8 +87,6 @@ sub create_pipeline{
       $Global_LinRegModel
     );
     my $Clean_Scans_complete = $res[0];
-
-
 
     ##############################################
     ##### Skull masking in stereotaxic space #####
@@ -160,10 +159,8 @@ sub create_pipeline{
         [@{$Non_Linear_Transforms_complete},@{$Classify_complete}],
         $image,
         $Global_Template,
-        ${$models}->{SurfRegModelDir},
-        ${$models}->{AnimalAtlas},
-        ${$models}->{AnimalAtlasDir},
-        $fullpath_animalregmodel
+        ${$models}->{AnimalModel},
+        ${$models}->{AnimalRegNLModel},
       );
       $Segment_complete = $res[0];
     }
@@ -180,15 +177,18 @@ sub create_pipeline{
     my $Thickness_complete = undef;
     my $SingleSurface_complete = undef;
     my $Mean_Curvature_complete = undef;
-    my $Position_complete = undef;
     my $LobeFeatures_complete = undef;
+    my $Position_complete = undef;
     my $GyrificationIndex_complete = undef;
     my $CerebralVolume_complete = undef;
+    my $ClsVolumes_complete = undef;
+    my $LobeFeatures_complete = $res[0];
     my $Verify_CLASP_complete = undef;
     my $Verify_Atlas_complete = undef;
     my $Verify_Laplace_complete = undef;
     my $Verify_Surfsurf_complete = undef;
     my $Verify_image_complete = undef;
+    my $Verify_QC_complete = undef;
 
     unless (${$image}->{surface} eq "noSURFACE") {
 
@@ -200,9 +200,7 @@ sub create_pipeline{
         $pipeline_ref,
         [@{$Cortex_Mask_complete},@{$Classify_complete}],
         $image,
-        "smallOnly",
-        ${$models}->{WhiteSurfMask},
-        ${$models}->{SurfRegModelDir},
+        ${$models}->{SubcorticalMask},
       );
       $Surface_Fit_complete = $res[0];
 
@@ -264,18 +262,29 @@ sub create_pipeline{
       );
       $CerebralVolume_complete = $res[0];
 
+      ##############################
+      ##### Classified Volumes #####
+      ##############################
+
+      @res = Cortical_Measurements::cls_volumes(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $ClsVolumes_complete = $res[0];
+
       ################################
       ##### Surface registration #####
       ################################
 
-      my $Global_SurfRegModel = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegModel}";
-      my $Global_SurfRegDataTerm = "${$models}->{SurfRegModelDir}/${$models}->{SurfRegDataTerm}";
+      my $Global_SurfRegModelLeft = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{MidModelLeft}";
+      my $Global_SurfRegModelRight = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{MidModelRight}";
       @res = Surface_Register::create_pipeline(
         $pipeline_ref,
         $Surface_Fit_complete,
         $image,
-        $Global_SurfRegModel,
-        $Global_SurfRegDataTerm
+        $Global_SurfRegModelLeft,
+        $Global_SurfRegModelRight,
       );
       $SurfReg_complete = $res[0];
 
@@ -313,14 +322,16 @@ sub create_pipeline{
           $pipeline_ref,
           $SurfResample_complete,
           $image,
-          $Global_SurfRegModel
+          $Global_SurfRegModelLeft,
+          $Global_SurfRegModelRight
         );
 
         @res = Surface_Register::resampled_surface_volumes(
           $pipeline_ref,
           $SurfResample_complete,
           $image,
-          $Global_SurfRegModel
+          $Global_SurfRegModelLeft,
+          $Global_SurfRegModelRight
         );
         $SurfResample_complete = [@{$resArea[0]},@{$res[0]}];
       }
@@ -349,6 +360,10 @@ sub create_pipeline{
       ##### Lobe parcellation for cortex features #####
       #################################################
 
+      ## Note: Should split lobe_features into thickness, curvature, area, volume,
+      ##       because change in thickness fwhm doesn't affect other 3 metrics.
+      ##       Anyway, it's running nonetheless, but it's not optimal. CL.
+
       my $lobePrereqs = [@{$SurfReg_complete},@{$Thickness_complete}];
       push @{$lobePrereqs}, @{$Mean_Curvature_complete} if( ${$image}->{meancurvature} );
       push @{$lobePrereqs}, @{$SurfResample_complete} if( ${$image}->{resamplesurfaces} );
@@ -358,14 +373,14 @@ sub create_pipeline{
         $lobePrereqs,
         $image,
       );
-      my $LobeFeatures_complete = $res[0];
+      $LobeFeatures_complete = $res[0];
     }
 
     ##############################
     ##### Quality assessment #####
     ##############################
 
-    my $imagePrereqs = [ @{$Classify_complete}, @{$Non_Linear_Transforms_complete} ];
+    my $imagePrereqs = [ @{$Classify_complete} ];
 
     unless (${$image}->{surface} eq "noSURFACE") {
       push @{$imagePrereqs}, @{$Surface_Fit_complete};
@@ -395,5 +410,25 @@ sub create_pipeline{
       $Verify_CLASP_complete = $res[0];
 
     }
+
+    my $QCPrereqs = [ @{$Classify_complete} ];
+    unless (${$image}->{surface} eq "noSURFACE") {
+      push @{$QCPrereqs}, @{$Surface_QC_complete};
+      push @{$QCPrereqs}, @{$GyrificationIndex_complete};
+      push @{$QCPrereqs}, @{$CerebralVolume_complete};
+      push @{$QCPrereqs}, @{$ClsVolumes_complete};
+      push @{$QCPrereqs}, @{$LobeFeatures_complete};
+      push @{$QCPrereqs}, @{$SurfResample_complete} if( ${$image}->{resamplesurfaces} );
+    }
+    if (${$image}->{animal} eq "ANIMAL") {
+      push @{$QCPrereqs}, @{$Segment_complete};
+    }
+
+    @res = Verify::QC( 
+        $pipeline_ref,
+        $QCPrereqs,
+        $image
+      );
+    $Verify_QC_complete = $res[0];
 
 }

@@ -6,7 +6,7 @@
 ### quality control.
 ###                                       
 ###   Authors: Claude Lepage
-###            August, 2009
+###            September, 2014
 ###
 ###         Copyright Alan C. Evans
 ###         Professor of Neurology
@@ -45,16 +45,23 @@ $SIG{'TERM'} = 'CLEANUP';
 # Create tmp dir.
 my $tmpdir = tempdir( CLEANUP => 1 );
 
-my $version = "1.1.12";
-my $versionDate= "February, 2013";
+my $version = "2.0.0";
+my $versionDate= "September, 2014";
 my $authors= "Claude Lepage";
-my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
+my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile>\n 
 ALTERNATIVE USAGE:\n
-$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile> &\n\n";
+$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile>\n\n";
 
 my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
+
+    1 - Re-organization of the QC info to make it independent of CIVET versions
+        going onwards. The info is parsed from one global file produced by CIVET.
+        The parsing is very fast and can be done interactively.
+
+    *************************************************************************
+    New in Nov-2010 quarantine, version 1.1.11
 
     1 - Initial implementation
 
@@ -75,9 +82,6 @@ HELP
 Getopt::Tabular::SetHelp($help, $usage);
 
 
-############# The status report filename:
-my $statusReportFile = "CIVET_status_report.csv";
-
 ############# Some directories that the user will need to specify
 my $sourceDir = undef;
 my $target = undef;
@@ -95,11 +99,6 @@ my @argTbl = (
           ["-id-subdir", "const", "IdSubDir", \$sourceSubDir, 
            "Indicate that the source directory contains sub-directories for each id"],
           ["-id-file", "string", 1, \$idTextFile, "A text file that contains all the subject id\'s (separated by space, tab, return or comma) that CIVET will run on.", "<file>"],
-
-#         ["CIVET options", "section"],  
-#         ["-thickness", "string", 2, \@thickness,
-#          "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
-
           );
 
 GetOptions(\@argTbl, \@ARGV, \@leftOverArgs) or die "\n";
@@ -107,20 +106,24 @@ GetOptions(\@argTbl, \@ARGV, \@leftOverArgs) or die "\n";
 
 ############# Basic usage
 my @dsids;
+my @long_dsids;
 
 if ($idTextFile) {
     open (IDTEXTFILE, "$idTextFile") or die ("Cannot open '$idTextFile': $!");
     # read the whole text file into one string
     my $idstext = "";
     while (my $idline = <IDTEXTFILE>) {
-    $idstext .= $idline;
+      $idstext .= $idline;
     }
     close (IDTEXTFILE) or die ("Cannot close '$idTextFile': $!");
     # split the string on whitespace (\s) or comma
-    @dsids = split(/[\s,]+/, $idstext);
-} 
-else {
-    @dsids = @leftOverArgs or die $usage;
+    @long_dsids = split(/[\s,]+/, $idstext);
+} else {
+    @long_dsids = @leftOverArgs or die $usage;
+}
+
+for my $id (@long_dsids) {
+  push @dsids, split( /:/, $id );
 }
 
 unless ($prefix && $target && $sourceDir) {
@@ -153,600 +156,858 @@ print "\n\n\n* Data-set Subject ID(s) is/are: '@dsids'\n\n\n";
 my $qc_dir = "${target}/QC";
 system("mkdir -p $qc_dir") if (! -d $qc_dir );
 
-# Default parameters to create image object using MRI_Image
+#########################################################
+# Define the tags of interest for the QC.
+#########################################################
 
-my $inputType = "t1only";
-my $correctPVE = 0;
-my $maskType = "t1only";
-my $interpMethod = "trilinear";
-my $headheight = 0;
-my $MaskBloodVessels = 0;
-my $N3Distance = 200;
-my $N3Damping = "1.0e-06";
-my $lsqtype = "-lsq9";
-my $surface = "SURFACE";
-my @thickness = ("tlink","30");
-my $ResampleSurfaces = 1;
-my $MeanCurvature = 0;
-my $Area_fwhm = 40;
-my $Volume_fwhm = 40;
-my $CombineSurfaces = 0;
-my $VBM = "noVBM";
-my $VBM_fwhm = 8;
-my $VBM_symmetry = "noSymmetry";
-my $VBM_cerebellum = "Cerebellum";
-my $animal = "noANIMAL";
-my $Template = MNI::DataDir::dir("ICBM") . "icbm_template_1.00mm.mnc";
+my $Qc_good = 0;
+my $Qc_warning = 1;
+my $Qc_danger = 2;
+my $Qc_incomplete = 3;
+my $Qc_local = 4;
+my @QcColours = ( "lightgreen", "orange", "red", "yellow", "pink" );
+my @QcFactor = ( 0, 1, 2, 5, 1 );
 
-my %CIVETmodels = ( 'icbm152nl' => {
-                      'RegLinDir'        => MNI::DataDir::dir("mni-models"),
-                      'RegLinModel'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI",
-                      'RegNLDir'         => MNI::DataDir::dir("mni-models"),
-                      'RegNLModel'       => "icbm_avg_152_t1_tal_nlin_symmetric_VI",
-                      'TemplateDir'      => MNI::DataDir::dir("ICBM"),
-                      'TemplateModel'    => "icbm_template",
-                      'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
-                      'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
-                      'SurfRegModelDir'  => "$FindBin::Bin/models",
-                      'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlas'        => "surface_atlas.txt",
-                      'TagFileDir'       => MNI::DataDir::dir("classify"),
-                      'TagFile'          => "n/a",
-                      'AnimalAtlas'      => undef,
-                      'AnimalAtlasDir'   => undef,
-                      'AnimalNLRegDir'   => undef,
-                      'AnimalNLRegModel' => undef
-                    }
-                  ); 
+my @fields = ( { 'name' => 'XSTEP',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_voxel_size,
+                 'title' => "x-voxel size in native space (mm)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "x-size (mm)",
+                 'format' => "%5.2f",
+                 'caption' => "x-voxel size in native space." },
+               { 'name' => 'YSTEP',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_voxel_size,
+                 'title' => "y-voxel size in native space (mm)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "y-size (mm)",
+                 'format' => "%5.2f",
+                 'caption' => "y-voxel size in native space." },
+               { 'name' => 'ZSTEP',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_voxel_size,
+                 'title' => "z-voxel size in native space (mm)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "z-size (mm)",
+                 'format' => "%5.2f",
+                 'caption' => "z-voxel size in native space." },
+               { 'name' => 'MASK_ERROR',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_above,
+                 'title' => "Stereotaxic brain mask error (%)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Error %",
+                 'format' => "%5.2f",
+                 'caption' => "Brain mask error in stereotaxic space." },
+               { 'name' => 'WM_PERCENT',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Percentage of the classified WM in the brain (masked)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "WM %",
+                 'format' => "%5.2f",
+                 'caption' => "Percentage of the classified WM in the brain (masked)." },
+               { 'name' => 'GM_PERCENT',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Percentage of the classified GM in the brain (masked)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "GM %",
+                 'format' => "%5.2f",
+                 'caption' => "Percentage of the classified GM in the brain (masked)." },
+               { 'name' => 'CSF_PERCENT',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Percentage of the classified CSF in the brain (masked)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "CSF %",
+                 'format' => "%5.2f",
+                 'caption' => "Percentage of the classified CSF in the brain (masked)." },
+               { 'name' => 'BRAIN_VOL',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Total brain volume (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%6.2f",
+                 'caption' => "Total brain volume including cerebrum, cerebellum and brainstem." },
+               { 'name' => 'CEREBRUM_VOL',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Cerebrum volume (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%6.2f",
+                 'caption' => "Volume of the cerebrum only (should equal CORTICAL_GM + WHITE_VOL + SUBGM_VOL + CSF_VENT_VOL)." },
+               { 'name' => 'CORTICAL_GM',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Volume of Cortical GM (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%6.2f",
+                 'caption' => "Volume of the cortical GM only." },
+               { 'name' => 'WHITE_VOL',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Volume of classified WM (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%6.2f",
+                 'caption' => "Volume of the WM inside the cerebrum." },
+               { 'name' => 'SUBGM_VOL',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Volume of sub-cortical GM (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%6.2f",
+                 'caption' => "Volume of the sub-cortical GM inside the cerebrum." },
+               { 'name' => 'CSF_VENT_VOL',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Volume of the ventricles (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%6.2f",
+                 'caption' => "Volume of the ventricles (CSF) inside the cerebrum." },
+               { 'name' => 'GI_LEFT',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => undef,
+                 'title' => "Gyrification index for left pial surface",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "GI",
+                 'format' => "%5.3f",
+                 'caption' => "Gyrification index for left pial surface." },
+               { 'name' => 'GI_RIGHT',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => undef,
+                 'title' => "Gyrification index for right pial surface",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "GI",
+                 'format' => "%5.3f",
+                 'caption' => "Gyrification index for right pial surface." },
+               { 'name' => 'LEFT_INTER',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_intersections,,
+                 'title' => "Number of self-intersections in resampled left mid surface",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Number of self-intersections",
+                 'format' => "%4d",
+                 'caption' => "Number of self-intersections in resampled left mid surface as a result of surface registration." },
+               { 'name' => 'RIGHT_INTER',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_intersections,,
+                 'title' => "Number of self-intersections in resampled right mid surface",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Number of self-intersections",
+                 'format' => "%4d",
+                 'caption' => "Number of self-intersections in resampled right mid surface as a result of surface registration." },
+               { 'name' => 'LEFT_SURF_SURF',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_intersections,,
+                 'title' => "Number of surface-surface intersections between left wm-gm surfaces",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Number of intersections",
+                 'format' => "%4d",
+                 'caption' => "Number of surface-surface intersections between left wm-gm surfaces." },
+               { 'name' => 'RIGHT_SURF_SURF',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_intersections,,
+                 'title' => "Number of surface-surface intersections between right wm-gm surfaces",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Number of intersections",
+                 'format' => "%4d",
+                 'caption' => "Number of surface-surface intersections between right wm-gm surfaces." },
+               { 'name' => 'LAPLACIAN_MIN',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_laplacian_min,
+                 'title' => "Minimum Laplacian value in gray surface convergence",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Laplacian value",
+                 'format' => "%5.3f",
+                 'caption' => "Minimum Laplacian value in gray surface convergence (should be close to 10)." },
+               { 'name' => 'LAPLACIAN_MAX',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_laplacian_max,
+                 'title' => "Maximum Laplacian value in gray surface convergence",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Laplacian value",
+                 'format' => "%5.3f",
+                 'caption' => "Maximum Laplacian value in gray surface convergence (should be close to 10)." },
+               { 'name' => 'LAPLACIAN_MEAN',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_laplacian_mean,
+                 'title' => "Mean Laplacian value in gray surface convergence",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Laplacian value",
+                 'format' => "%5.3f",
+                 'caption' => "Mean Laplacian value in gray surface convergence (should be close to 10)." },
+               ## ANIMAL Lobar Segmentation
+               { 'name' => 'ANIMAL_2',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "GM parietal (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of GM parietal (right)." },
+               { 'name' => 'ANIMAL_6',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "GM parietal (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of GM parietal (left)." },
+               { 'name' => 'ANIMAL_105',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "WM parietal (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of WM parietal (right)." },
+               { 'name' => 'ANIMAL_57',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "WM parietal (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of WM parietal (left)." },
+               { 'name' => 'ANIMAL_219',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "GM temporal (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of GM temporal (right)." },
+               { 'name' => 'ANIMAL_218',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "GM temporal (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of GM temporal (left)." },
+               { 'name' => 'ANIMAL_59',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "WM temporal (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of WM temporal (right)." },
+               { 'name' => 'ANIMAL_83',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "WM temporal (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of WM temporal (left)." },
+               { 'name' => 'ANIMAL_211',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "GM frontal (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of GM frontal (right)." },
+               { 'name' => 'ANIMAL_210',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "GM frontal (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of GM frontal (left)." },
+               { 'name' => 'ANIMAL_17',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "WM frontal (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of WM frontal (right)." },
+               { 'name' => 'ANIMAL_30',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "WM frontal (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of WM frontal (left)." },
+               { 'name' => 'ANIMAL_4',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "GM occipital (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of GM occipital (right)." },
+               { 'name' => 'ANIMAL_8',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "GM occipital (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of GM occipital (left)." },
+               { 'name' => 'ANIMAL_45',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "WM occipital (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of WM occipital (right)." },
+               { 'name' => 'ANIMAL_73',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "WM occipital (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of WM occipital (left)." },
+               { 'name' => 'ANIMAL_76',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Cerebellum (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of cerebellum (right)." },
+               { 'name' => 'ANIMAL_67',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Cerebellum (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of cerebellum (left)." },
+               { 'name' => 'ANIMAL_20',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Brainstem (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of brainstem." },
+               { 'name' => 'ANIMAL_53',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Caudate (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of caudate (right)." },
+               { 'name' => 'ANIMAL_39',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Caudate (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of caudate (left)." },
+               { 'name' => 'ANIMAL_16',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Putamen (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of putamen (right)." },
+               { 'name' => 'ANIMAL_14',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Putamen (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of putamen (left)." },
+               { 'name' => 'ANIMAL_203',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Thalamus (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of thalamus (right)." },
+               { 'name' => 'ANIMAL_102',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Thalamus (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of thalamus (left)." },
+               { 'name' => 'ANIMAL_23',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Subthalamic nucleus (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of subthalamic nucleus (right)." },
+               { 'name' => 'ANIMAL_33',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Subthalamic nucleus (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of subthalamic nucleus (left)." },
+               { 'name' => 'ANIMAL_11',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Globus pallidus (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of globus pallidus (right)." },
+               { 'name' => 'ANIMAL_12',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Globus pallidus (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of globus pallidus (left)." },
+               { 'name' => 'ANIMAL_254',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Fornix (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of fornix (right)." },
+               { 'name' => 'ANIMAL_29',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Fornix (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of fornix (left)." },
+               { 'name' => 'ANIMAL_9',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Lateral ventricle (right) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of lateral ventricle (right)." },
+               { 'name' => 'ANIMAL_3',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Lateral ventricle (left) (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of lateral ventricle (left)." },
+               { 'name' => 'ANIMAL_232',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "3rd ventricle (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of 3rd ventricle." },
+               { 'name' => 'ANIMAL_233',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "4th ventricle (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of 4th ventricle." },
+               { 'name' => 'ANIMAL_255',
+                 'mean' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Extracerebral CSF (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%5.2f",
+                 'caption' => "Volume (cc) of extracerebral CSF." },
+               );
+
+#########################################################
+# Header line for html document.
+#########################################################
+
+my $html = "<h1> CIVET PIPELINE QUALITY CONTROL</h1>\n";
+$html .= "<table cellspacing=\"2\" bgcolor=\"white\">\n";
+$html .= "<tr bgcolor=\"\#cccccc\">" .
+         "<th>No.</th>" .
+         "<th>ID</th>";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  $html .= "<th>$fields[$j]{name}</th>";
+}
+$html .= "</tr>\n";
+
+#########################################################
+# Header line for csv file.
+#########################################################
+
+my $csv = "ID,";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  $csv .= "$fields[$j]{name}";
+  $csv .= "," if( $j < $#fields );
+}
+$csv .= "\n";
 
 #########################################################
 # Collect data for each subject.
 #########################################################
 
-my $good = "lightgreen";
-my $warning = "orange";
-my $danger = "red";
-my $incomplete = "yellow";
-my $good_level = 0;
-my $warning_level = 1;
-my $danger_level = 5;
-my $incomplete_level = 3;
+# On the first pass, compute the mean and stdev only in order to use
+# these values in the auto-QC.
 
-my $html = "<table cellspacing=\"2\" bgcolor=\"white\">\n";
-$html .= "<tr bgcolor=\"\#cccccc\">" .
-         "<th>No.</th>" .
-         "<th>ID</th>" .
-         "<th>x-step</th>" .
-         "<th>y-step</th>" .
-         "<th>z-step</th>" .
-         "<th>StxMaskErr</th>" .
-         "<th>CSFcls</th>" .
-         "<th>GMcls</th>" .
-         "<th>WMcls</th>" .
-         "<th>GMCortical</th>" .
-         "<th>WMsurf</th>" .
-         "<th>GMsurf</th>" .
-         "<th>SRLeft</th>" .
-         "<th>SRRight</th>" .
-         "<th>SSLeft</th>" .
-         "<th>SSRight</th>" .
-         "<th>MeanCTLeft</th>" .
-         "<th>MeanCTRight</th>" .
-         "<th>MeanWM-T1</th>" .
-         "<th>StdDevWM-T1</th>" .
-         "<th>MeanGM-T1</th>" .
-         "<th>StdDevGM-T1</th>" .
-         "<th>GIleft</th>" .
-         "<th>GIright</th>" .
-         "<th>GIfull</th>" .
-         "</tr>\n";
-$html .= "<tr> </tr>\n";
+print "Computing mean and stdev for all fields...\n";
 
-my $info = "# CIVET QC pipeline\n";
+foreach my $id (@long_dsids) {
 
-my $avg_stx_mask_error = 0.0;
-my $stddev_stx_mask_error = 0.0;
-my $count_stx_mask_error = 0;
-my $avg_csf_cls = 0.0;
-my $stddev_csf_cls = 0.0;
-my $avg_gm_cls = 0.0;
-my $stddev_gm_cls = 0.0;
-my $avg_wm_cls = 0.0;
-my $stddev_wm_cls = 0.0;
-my $count_cls = 0.0;
-my $avg_gm_cortical = 0.0;
-my $stddev_gm_cortical = 0.0;
-my $count_gm_cortical = 0.0;
-my $avg_wm_surf = 0.0;
-my $stddev_wm_surf = 0.0;
-my $avg_gm_surf = 0.0;
-my $stddev_gm_surf = 0.0;
-my $count_gm_wm_surf = 0.0;
-my $avg_surfreg_left = 0.0;
-my $stddev_surfreg_left = 0.0;
-my $count_surfreg_left = 0.0;
-my $avg_surfreg_right = 0.0;
-my $stddev_surfreg_right = 0.0;
-my $count_surfreg_right = 0.0;
-my $avg_surfsurf_left = 0.0;
-my $stddev_surfsurf_left = 0.0;
-my $count_surfsurf_left = 0.0;
-my $avg_surfsurf_right = 0.0;
-my $stddev_surfsurf_right = 0.0;
-my $count_surfsurf_right = 0.0;
-my $avg_meanct = 0.0;
-my $stddev_meanct = 0.0;
-my $count_meanct = 0.0;
+  my @local_dsids = split( /:/, $id );
+
+  my @subject_count = ();
+  my @subject_sum = ();
+  for( my $j = 0; $j <= $#fields; $j++ ) {
+    $subject_count[$j] = 0;
+    $subject_sum[$j] = 0;
+  }
+
+  foreach my $dsid (@local_dsids) {
+
+    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}_${dsid}_civet_qc.txt";
+    if( -e $civet_qc_file ) {
+      my %list = &parse_qc_file( $civet_qc_file );
+
+      for( my $j = 0; $j <= $#fields; $j++ ) {
+        my $key = $fields[$j]{name};
+        if( defined( $list{$key} ) ) {
+          # Contribution to the mean and stdev for this field.
+          $subject_count[$j]++;
+          $subject_sum[$j] += $list{$key};
+          $fields[$j]{count}++;
+          $fields[$j]{mean} += $list{$key};
+          $fields[$j]{stdev} += $list{$key} * $list{$key};
+        }
+      }
+    }
+  }
+  for( my $j = 0; $j <= $#fields; $j++ ) {
+    if( $subject_count[$j] > 0 ) {
+      $fields[$j]{stdev_long} += $subject_sum[$j] * $subject_sum[$j] / $subject_count[$j];
+    }
+  }
+}
+
+#########################################################
+# Compute the global mean and stdev for each field 
+# (normalization step).
+#########################################################
+
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  if( $fields[$j]{count} > 0 ) {
+    $fields[$j]{stdev_long} = sqrt( ( $fields[$j]{stdev} - $fields[$j]{stdev_long} ) /
+                                    $fields[$j]{count} );
+    $fields[$j]{mean} /= $fields[$j]{count};
+    $fields[$j]{stdev} = sqrt( $fields[$j]{stdev} / $fields[$j]{count} -
+                               $fields[$j]{mean} * $fields[$j]{mean} );
+
+  }
+}
+
+#########################################################
+# Create html and csv tables.
+#########################################################
+
+print "Creating html table for all data...\n";
+
+my @colours = ( "#aabbbb", "#eeeedd", "#cccccc", "#aabbaa", "#dddddd" );
+my $ncolours = 5;
 
 my $count = 0;
-foreach my $dsid (@dsids) {
+my $group = -1;
+foreach my $id (@long_dsids) {
+
+  $group++;
+  my @local_dsids = split( /:/, $id );
+
+  # Recompute the local means for this longitudinal group of visits.
+
+  my @subject_count = ();
+  my @subject_mean = ();
+  for( my $j = 0; $j <= $#fields; $j++ ) {
+    $subject_count[$j] = 0;
+    $subject_mean[$j] = 0;
+  }
+  foreach my $dsid (@local_dsids) {
+    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}_${dsid}_civet_qc.txt";
+    my %list = ( -e $civet_qc_file ) ? &parse_qc_file( $civet_qc_file ) : undef;
+    for( my $j = 0; $j <= $#fields; $j++ ) {
+      my $key = $fields[$j]{name};
+      if( defined( $list{$key} ) ) {
+        # Contribution to the local mean for this field.
+        $subject_count[$j]++;
+        $subject_mean[$j] += $list{$key};
+      }
+    }
+  }
+  for( my $j = 0; $j <= $#fields; $j++ ) {
+    if( $subject_count[$j] > 0 ) {
+      $subject_mean[$j] /= $subject_count[$j];
+    }
+  }
+
+  # Now fill in the html and csv tables.
+
+  foreach my $dsid (@local_dsids) {
 
     $count++;
-    my $level = 0;
 
-    print "Processing subject $dsid...\n";
+    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}_${dsid}_civet_qc.txt";
+    my %list = ( -e $civet_qc_file ) ? &parse_qc_file( $civet_qc_file ) : undef;
 
-    ##### Create image object. #####
-
-    # depending on the two options your files can be in on target
-    # or there can be subdirs for every subject
-    my $Source_Base;
-    if ($sourceSubDir eq "noIdSubDir") {
-      $Source_Base = "${sourceDir}/";
-    } else {
-      $Source_Base = "${sourceDir}/${dsid}/";
-    }
-
-    my $image = MRI_Image->new( $version,
-                                $Source_Base,
-                                $target,
-                                $prefix,
-                                $dsid,
-                                $inputType,
-                                $correctPVE,
-                                $maskType,
-                                $interpMethod,
-                                $headheight,
-                                $MaskBloodVessels,
-                                $N3Distance,
-                                $N3Damping,
-                                $lsqtype,
-                                $surface,
-                                \@thickness,
-                                $ResampleSurfaces,
-                                $MeanCurvature,
-                                $Area_fwhm,
-                                $Volume_fwhm,
-                                $CombineSurfaces,
-                                $VBM,
-                                $VBM_fwhm,
-                                $VBM_symmetry,
-                                $VBM_cerebellum,
-                                $animal,
-                                $Template,
-                                \$CIVETmodels{icbm152nl} );
-
-    # Column 1: subject id.
-    my $infoline = "$dsid ";
+    my $csvline = "${dsid},";
     my $htmlline = "";
 
-    # Columns 2,3,4 : voxel sizes in native space
-    if( -e $image->{t1}{native} ) {
-      my $dx = `mincinfo -attvalue xspace:step $image->{t1}{native}`;
-      my $dy = `mincinfo -attvalue yspace:step $image->{t1}{native}`;
-      my $dz = `mincinfo -attvalue zspace:step $image->{t1}{native}`;
-      chomp( $dx ); chomp( $dy ); chomp( $dz );
-      $dx = abs($dx); $dy = abs($dy); $dz = abs($dz);
-      $infoline .= sprintf( "%5.2f %5.2f %5.2f ", abs($dx), abs($dy), abs($dz) );
-      
-      if( abs($dx) >= 2.5 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( abs($dx) >= 1.75 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= sprintf( "%5.2f", abs($dx) ) . "</td>";
-      if( abs($dy) >= 2.5 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( abs($dy) >= 1.75 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= sprintf( "%5.2f", abs($dy) ) . "</td>";
-      if( abs($dz) >= 2.5 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( abs($dx) >= 1.75 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= sprintf( "%5.2f", abs($dz) ) . "</td> ";
-    } else {
-      $infoline .= "  0  0  0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
+    my $qc_code = 0;
 
-    # Column 5: Error in stereotaxic brain mask.
-    my $skull_mask = $image->{skull_mask_tal};
-    if( -e $skull_mask ) {
-
-      my $model_mask = "$CIVETmodels{icbm152nl}{RegLinDir}/$CIVETmodels{icbm152nl}{RegLinModel}_mask.mnc";
-
-      my $skull_mask_rsl = "${tmpdir}/skull_mask_rsl.mnc";
-      `mincresample -clobber -quiet -like $model_mask -nearest_neighbour $skull_mask $skull_mask_rsl`;
-
-      my $diff = "${tmpdir}/diff_mask_stx.mnc";
-      `minccalc -clobber -quiet -expression 'A[1]!=A[0]' $model_mask $skull_mask_rsl $diff`;
-
-      my $diff_volume;
-      chomp( $diff_volume = `mincstats -quiet -sum $diff` );
-      my $mask2_volume;
-      chomp( $mask2_volume = `mincstats -quiet -sum $model_mask` );
-      my $error = 100.0 * $diff_volume / $mask2_volume;
-
-      unlink( $skull_mask_rsl );
-      unlink( $diff );
-
-      if( $error < 20.0 ) {   # exclude errors from avg and stddev
-        $avg_stx_mask_error += $error;
-        $stddev_stx_mask_error += $error*$error;
-        $count_stx_mask_error++; 
-      }
-      $error = sprintf( "%5.2f", $error );
-      $infoline .= "$error ";
-      if( $error >= 20.0 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( $error >= 10.0 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $error . "</td> ";
-    } else {
-      $infoline .= " 0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
-
-    # Columns 6,7,8: percentages of CSF, GM, WM tissue in brain.
-    my $classify_qc = $image->{classify_qc};
-    if( -e $classify_qc ) {
-      open (IDFILE, $classify_qc);
-      my $idline = <IDFILE>;
-      $idline =~ /classified image CSF (.*)\%  GM (.*)\%  WM (.*)\%/;
-      my $csf = $1;
-      my $gm = $2;
-      my $wm = $3;
-      $infoline .= "$csf $gm $wm ";
-      close (IDFILE);
-      $avg_csf_cls += $csf;
-      $stddev_csf_cls += $csf*$csf;
-      $avg_gm_cls += $gm;
-      $stddev_gm_cls += $gm*$gm;
-      $avg_wm_cls += $wm;
-      $stddev_wm_cls += $wm*$wm;
-      $count_cls++;
-      if( $csf >= 50.0 || $csf <= 5.0 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $csf . "</td> ";
-      if( $gm >= 80.0 || $gm <= 15.0 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $gm . "</td> ";
-      if( $wm >= 80.0 || $wm <= 15.0 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $wm . "</td> ";
-    } else {
-      $infoline .= " 0   0   0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> <td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
-
-    # Column 9: Volume of gray matter inside the gray surface (cortical gray
-    #           without sub-cortical).
-    my $cerebral_volume_qc = $image->{cerebral_volume};
-    if( -e $cerebral_volume_qc ) {
-      open (IDFILE, $cerebral_volume_qc);
-      my $idline = <IDFILE>;
-      my $idline = <IDFILE>;  # need second line for cortical gray
-      close (IDFILE);
-      $idline =~ s/^\s+//;
-      my ($lbl, $gm) = split(/\s+/, $idline); chomp( $gm );
-      $gm /= 1000.0;    # convert from mm^3 to cc
-      $infoline .= "$gm ";
-      $htmlline .= "<td>" . $gm . "</td>";
-      $count_gm_cortical++;
-      $avg_gm_cortical += $gm;
-      $stddev_gm_cortical += $gm*$gm;
-    } else {
-      $infoline .= "0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
-
-    # Columns 10,11: Error in wm surface and gm surface.
-    my $surface_qc = $image->{surface_qc};
-    if( -e $surface_qc ) {
-      open (IDFILE, $surface_qc);
-      my $idline = <IDFILE>;
-      $idline =~ /white surface \((.*)\%\), gray surface \((.*)\%\)/;
-      my $wm = $1;
-      my $gm = $2;
-      $infoline .= "$wm $gm ";
-      close (IDFILE);
-      $avg_gm_surf += $gm;
-      $stddev_gm_surf += $gm*$gm;
-      $avg_wm_surf += $wm;
-      $stddev_wm_surf += $wm*$wm;
-      $count_gm_wm_surf++;
-      if( $wm >= 20.0 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( $wm >= 10.0 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td> ";
-      }
-      $htmlline .= $wm . "</td>";
-      if( $gm >= 20.0 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( $gm >= 10.0 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $gm . "</td> ";
-
-    } else {
-      $infoline .= " 100 100 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">100</td> <td bgcolor=\"$incomplete\">100</td> "; 
-      $level = max($level,$incomplete_level);
-    }
-
-    # Columns 12: number of self-intersections on resampled left mid surface
-    my $mid_rsl_left = $image->{mid_surface_rsl}{left};
-    if( -e $mid_rsl_left ) {
-      my @ret = `check_self_intersect $mid_rsl_left`;
-      my $left_inter = 0;
-      if( $ret[1] =~ m/self_intersecting/ ) {      # little legacy typo
-        $ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
-        $left_inter = $1;
-      } else {
-        $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
-        $left_inter = $1;
-      }
-      $infoline .= "$left_inter ";
-      if( $left_inter < 500 ) {
-        $avg_surfreg_left += $left_inter;
-        $stddev_surfreg_left += $left_inter*$left_inter;
-        $count_surfreg_left++;
-      }
-      if( $left_inter >= 500 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( $left_inter >= 250 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $left_inter . "</td> ";
-    } else {
-      $infoline .= " 0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
-
-    # Columns 13: number of self-intersections on resampled right mid surface
-    my $mid_rsl_right = $image->{mid_surface_rsl}{right};
-    if( -e $mid_rsl_right ) {
-      my @ret = `check_self_intersect $mid_rsl_right`;
-      my $right_inter = 0;
-      if( $ret[1] =~ m/self_intersecting/ ) {      # little legacy typo
-        $ret[1] =~ /Number of self_intersecting triangles = (\d+)/;
-        $right_inter = $1;
-      } else {
-        $ret[1] =~ /Number of self-intersecting triangles = (\d+)/;
-        $right_inter = $1;
-      }
-      $infoline .= "$right_inter ";
-      if( $right_inter < 500 ) {
-        $avg_surfreg_right += $right_inter;
-        $stddev_surfreg_right += $right_inter*$right_inter;
-        $count_surfreg_right++;
-      }
-      if( $right_inter >= 500 ) {
-        $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-      } elsif( $right_inter >= 250 ) {
-        $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
-      } else {
-        $htmlline .= "<td>";
-      }
-      $htmlline .= $right_inter . "</td> ";
-    } else {
-      $infoline .= " 0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
-
-    # Columns 14,15: number of surface-surface intersections between left/right wm-gm surfaces
-    foreach my $side ("left","right") {
-      my $gm = $image->{gray}{$side};
-      my $wm = $image->{cal_white}{$side};
-      if( -e $gm && -e $wm ) {
-        my $tmpobj = "${tmpdir}/surfsurf_${side}.obj";
-        my $tmptxt = "${tmpdir}/surfsurf_${side}.txt";
-        `objconcat $wm $gm none none $tmpobj none`;
-        `check_self_intersect $tmpobj $tmptxt`;
-        my @ret = split( / /, `wc -l $tmptxt` );
-        my $npoints = $ret[0]; chomp( $npoints ); $npoints /= 2;
-        `head -${npoints} $tmptxt > $tmpobj`;
-        `mv -f $tmpobj $tmptxt`;
-        `vertstats_math -const2 -0.001 0.001 -seg -old_style_file $tmptxt $tmptxt`;
-        @ret = `vertstats_stats $tmptxt |grep Sum`;
-        unlink( $tmptxt );
-        $ret[0] =~ / Sum: (.*)/;
-        my $num_inter = $1;
-        $infoline .= "$num_inter ";
-        if( $num_inter < 500 ) {
-          if( $side eq "left" ) {
-            $avg_surfsurf_left += $num_inter;
-            $stddev_surfsurf_left += $num_inter*$num_inter;
-            $count_surfsurf_left++;
-          } else {
-            $avg_surfsurf_right += $num_inter;
-            $stddev_surfsurf_right += $num_inter*$num_inter;
-            $count_surfsurf_right++;
-          }
+    for( my $j = 0; $j <= $#fields; $j++ ) {
+      my $key = $fields[$j]{name};
+      if( defined( $list{$key} ) ) {
+        my $str = sprintf( $fields[$j]{format}, $list{$key} );
+        $csvline .= "${str},";
+        my $code = ( defined( $fields[$j]{function} ) ) ? 
+                   $fields[$j]{function}->( $list{$key}, $fields[$j]{mean}, $fields[$j]{stdev} ) : 
+                   $Qc_good;
+        if( !$code ) {
+          $code = ( defined( $fields[$j]{function} ) ) ? 
+                    $fields[$j]{function}->( $list{$key}, $subject_mean[$j], 
+                                             $fields[$j]{stdev_long} ) : 
+                    $Qc_good;
+          $code = $Qc_local if( $code );
         }
-        if( $num_inter >= 500 ) {
-          $htmlline .= "<td bgcolor=\"$danger\">"; $level = max($level,$danger_level);
-        } elsif( $num_inter >= 250 ) {
-          $htmlline .= "<td bgcolor=\"$warning\">"; $level = max($level,$warning_level);
+        if( $code ) {
+          $qc_code += $QcFactor[$code];
+          $htmlline .= "<td bgcolor=\"$QcColours[$code]\">" . $str . "</td> ";
         } else {
-          $htmlline .= "<td>";
+          $htmlline .= "<td>" . $str . "</td> ";
         }
-        $htmlline .= $num_inter . "</td> ";
+
       } else {
-        $infoline .= " 0 ";
-        $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-        $level = max($level,$incomplete_level);
+        $csvline .= ",";
+        $htmlline .= "<td></td> ";
       }
     }
 
-    # Colums 16,17: mean cortical thickness for left,right hemispheres
-    foreach my $side ("left","right") {
-      my $meanct_file = $image->{lobe_thickness}{$side};
-      if( -e $meanct_file ) {
-        my $idline = `grep Total $meanct_file`;
-        chomp( $idline );
-        $idline =~ / Total  (.*)/;
-        my $meanct = $1;
-        $infoline .= "$meanct ";
-        $htmlline .= "<td>" . $meanct . "</td> ";
-        $avg_meanct += $meanct;
-        $stddev_meanct += $meanct*$meanct;
-        $count_meanct++;
-      } else {
-        $infoline .= " 0 ";
-        $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-        $level = max($level,$incomplete_level);
-      }
-    }
-
-    # Columns 18,19,20,21: T1 mean and stddev for WM and GM.
-    my $t1 = $image->{t1}{final};
-    # my $cls = $image->{cls_correct};
-    my $cls = "$image->{pve_prefix}\_disc.mnc";
-    my $mask = $image->{skull_mask_tal};
-    if( -e $t1 && -e $cls && -e $mask ) {
-      my $cls_masked = "${tmpdir}/cls_masked.mnc";
-      `minccalc -quiet -clobber -expression 'if(A[1]>0.5){A[0]}else{0}' $cls $mask $cls_masked`;
-      my $WMmean = `mincstats -quiet -mask $cls_masked -mask_binvalue 3 -mean $t1`;
-      my $WMsdev = `mincstats -quiet -mask $cls_masked -mask_binvalue 3 -stddev $t1`;
-      my $GMmean = `mincstats -quiet -mask $cls_masked -mask_binvalue 2 -mean $t1`;
-      my $GMsdev = `mincstats -quiet -mask $cls_masked -mask_binvalue 2 -stddev $t1`;
-      chomp( $WMmean );
-      chomp( $WMsdev );
-      chomp( $GMmean );
-      chomp( $GMsdev );
-      unlink( $cls_masked );
-      $infoline .= "$WMmean $WMsdev $GMmean $GMsdev ";
-      $htmlline .= "<td>" . $WMmean . "</td> ";
-      $htmlline .= "<td>" . $WMsdev . "</td> ";
-      $htmlline .= "<td>" . $GMmean . "</td> ";
-      $htmlline .= "<td>" . $GMsdev . "</td> ";
+    if( !(-e $civet_qc_file ) ) {
+      $qc_code = $Qc_incomplete;
     } else {
-      $infoline .= " 0 0 0 0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
+      $qc_code = ( $qc_code > 1 ) ? ( $qc_code > 5 ? $Qc_danger : $Qc_warning ) : $Qc_good;
     }
+    $htmlline = "<th bgcolor=\"$QcColours[$qc_code]\">" .
+                "<a target=\"_blank\" href=\"${dsid}.html\">$dsid</a></th>" .
+                $htmlline;
 
-    # Columns 22: gyrification index for left hemisphere
-    my $gi_left = $image->{gyrification_index}{left};
-    if( -e $gi_left ) {
-      open (IDFILE, $gi_left);
-      my $idline = <IDFILE>;
-      $idline =~ /gyrification index gray: (.*)/;
-      my $gi = $1;
-      $infoline .= "$gi ";
-      close (IDFILE);
-      $htmlline .= "<td>" . $gi . "</td> ";
-    } else {
-      $infoline .= " 0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
+    ## This assumes that all results are the same for all subjects.
 
-    # Columns 23: gyrification index for right hemisphere
-    my $gi_right = $image->{gyrification_index}{right};
-    if( -e $gi_right ) {
-      open (IDFILE, $gi_right);
-      my $idline = <IDFILE>;
-      $idline =~ /gyrification index gray: (.*)/;
-      my $gi = $1;
-      $infoline .= "$gi ";
-      close (IDFILE);
-      $htmlline .= "<td>" . $gi . "</td> ";
-    } else {
-      $infoline .= " 0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
+    my $options_file = "${target}/${dsid}/logs/${dsid}.options";
+    die "Cannot file options file $options_file." if( !( -e $options_file ) );
+    my ($thickness_options,$area_options,$volume_options) = parse_civet_options( $options_file, $version );
 
-    # Columns 24: gyrification index for left+right hemispheres combined
-    my $gi_full = $image->{gyrification_index}{full};
-    if( -e $gi_full ) {
-      open (IDFILE, $gi_full);
-      my $idline = <IDFILE>;
-      $idline =~ /gyrification index gray: (.*)/;
-      my $gi = $1;
-      $infoline .= "$gi ";
-      close (IDFILE);
-      $htmlline .= "<td>" . $gi . "</td> ";
-    } else {
-      $infoline .= " 0 ";
-      $htmlline .= "<td bgcolor=\"$incomplete\">0</td> "; 
-      $level = max($level,$incomplete_level);
-    }
+    $csvline .= "${dsid}/thickness/${prefix}_${dsid}_native_rms_rsl_@${thickness_options[0]}\_left.txt" .",";
+    $csvline .= "${dsid}/thickness/${prefix}_${dsid}_native_rms_rsl_@${thickness_options[0]}\_right.txt" .",";
+    $csvline .= "${dsid}/surfaces/${prefix}_${dsid}_mid_surface_rsl_left_native_area_@${area_options[0]}.txt" .",";
+    $csvline .= "${dsid}/surfaces/${prefix}_${dsid}_mid_surface_rsl_right_native_area_@${area_options[0]}.txt" .",";
+    $csvline .= "${dsid}/surfaces/${prefix}_${dsid}_surface_rsl_left_native_volume_@${volume_options[0]}.txt" .",";
+    $csvline .= "${dsid}/surfaces/${prefix}_${dsid}_surface_rsl_right_native_volume_@${volume_options[0]}.txt" .",";
+    $csvline .= "${dsid}/thickness/${prefix}_${dsid}_native_rms_rsl_@${thickness_options[0]}\_asym_hemi.txt";  # last line without a trailing comma
 
-    $infoline .= $dsid . "/thickness/" . basename( $image->{rms_rsl}{left} ) . " ";
-    $infoline .= $dsid . "/thickness/" . basename( $image->{rms_rsl}{right} ) . " ";
-    $infoline .= $dsid . "/surfaces/" . basename( $image->{surface_area_rsl}{left} ) . " ";
-    $infoline .= $dsid . "/surfaces/" . basename( $image->{surface_area_rsl}{right} ) . " ";
-    $infoline .= $dsid . "/surfaces/" . basename( $image->{surface_volume_rsl}{left} ) . " ";
-    $infoline .= $dsid . "/surfaces/" . basename( $image->{surface_volume_rsl}{right} ) . " ";
-    $infoline .= $dsid . "/surfaces/" . basename( $image->{rms_rsl}{asym_hemi} ) . " ";
+    $csvline .= "\n";
+    $csv .= $csvline;
 
-    $infoline .= "\n";
-    $info .= $infoline;
-
-    # Complete html line for global error good.
-
-    my $idcolourcode;
-    if( $level == $warning_level ) {
-      $idcolourcode = $warning;
-    } elsif( $level == $danger_level ) {
-      $idcolourcode = $danger;
-    } elsif( $level == $incomplete_level ) {
-      $idcolourcode = $incomplete;
-    } else {
-      $idcolourcode = $good;
-    }
-
-    $htmlline = "<th bgcolor=\"${idcolourcode}\">" . 
-                "<a target=\"_blank\" href=\"${dsid}.html\">$dsid</a></th>" . $htmlline;
-    $htmlline = "<tr bgcolor=\"#dddddd\">" . "<td>" . sprintf( "%4d", $count ) . "</td>" .
-                $htmlline . "</tr>\n";
+    $htmlline = "<tr bgcolor=\"$colours[$group%$ncolours]\">" . "<td>" . sprintf( "%4d", $count ) . 
+                "</td>" .  $htmlline . "</tr>\n";
     $html .= $htmlline;
 
     open FILE, ">${qc_dir}/${dsid}.html";
@@ -758,429 +1019,361 @@ foreach my $dsid (@dsids) {
     print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_laplace.png\"></td></tr>\n";
     print FILE "</table>\n";
     close FILE;
-
+  }
+  ### $csv .= "\n";  ### blank line between longitudinal groups of scans???? 
 }
 
-# Line of averages and stddev on some fields.
+#########################################################
+# Save the table of data in csv format.
+#########################################################
 
-$avg_stx_mask_error /= $count_stx_mask_error;
-$avg_csf_cls /= $count_cls;
-$avg_gm_cls /= $count_cls;
-$avg_wm_cls /= $count_cls;
-$avg_gm_cortical /= $count_gm_cortical;
-$avg_gm_surf /= $count_gm_wm_surf if( $count_gm_wm_surf );
-$avg_wm_surf /= $count_gm_wm_surf if( $count_gm_wm_surf );
-$avg_surfreg_left /= $count_surfreg_left if( $count_surfreg_left );
-$avg_surfreg_right /= $count_surfreg_right if( $count_surfreg_right );
-$avg_surfsurf_left /= $count_surfsurf_left if( $count_surfsurf_left );
-$avg_surfsurf_right /= $count_surfsurf_right if( $count_surfsurf_right );
-$avg_meanct /= $count_meanct if( $count_meanct );
+open FILE, ">${qc_dir}/civet_${prefix}.csv";
+$csv =~ s/ +/ /g;
+print FILE $csv;
+close FILE;
+
+#########################################################
+# Footer line for mean and stdev of html document.
+#########################################################
 
 $html .= "<tr> </tr> ";
 $html .= "<tr bgcolor=\"#dddddd\">" .
-         "<th>Mean</th> <td></td> <td></td> <td></td> <td></td> " .
-         "<td>" . sprintf( "%8.3f", $avg_stx_mask_error ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $avg_csf_cls ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $avg_gm_cls ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $avg_wm_cls ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $avg_gm_cortical ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $avg_wm_surf ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $avg_gm_surf ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $avg_surfreg_left ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $avg_surfreg_right ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $avg_surfsurf_left ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $avg_surfsurf_right ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $avg_meanct ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $avg_meanct ) . "</td>" .
-         "<td></td> <td></td> <td></td> <td></td> " .
-         "<td></td> <td></td> <td></td>" .
-         "</tr>\n";
+         "<th></th>" .
+         "<th>N</th> ";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  my $str = sprintf( "%d", $fields[$j]{count} );
+  $html .= "<th>$str</th>";
+}
+$html .= "</tr>\n";
 
-$stddev_stx_mask_error = sqrt( $stddev_stx_mask_error/$count_stx_mask_error -
-                               $avg_stx_mask_error*$avg_stx_mask_error );
-$stddev_csf_cls = sqrt( $stddev_csf_cls/$count_cls - $avg_csf_cls*$avg_csf_cls );
-$stddev_gm_cls = sqrt( $stddev_gm_cls/$count_cls - $avg_gm_cls*$avg_gm_cls );
-$stddev_wm_cls = sqrt( $stddev_wm_cls/$count_cls - $avg_wm_cls*$avg_wm_cls );
-$stddev_gm_cortical = sqrt( $stddev_gm_cortical/$count_gm_cortical - 
-                            $avg_gm_cortical * $avg_gm_cortical );
-$stddev_gm_surf = sqrt( $stddev_gm_surf/$count_gm_wm_surf - 
-                        $avg_gm_surf*$avg_gm_surf ) if( $count_gm_wm_surf );
-$stddev_wm_surf = sqrt( $stddev_wm_surf/$count_gm_wm_surf - 
-                        $avg_wm_surf*$avg_wm_surf ) if( $count_gm_wm_surf );
-$stddev_surfreg_left = sqrt( $stddev_surfreg_left/$count_surfreg_left -
-                             $avg_surfreg_left*$avg_surfreg_left ) if( $count_surfreg_left );
-$stddev_surfreg_right = sqrt( $stddev_surfreg_right/$count_surfreg_right -
-                              $avg_surfreg_right*$avg_surfreg_right ) if( $count_surfreg_right );
-$stddev_surfsurf_left = sqrt( $stddev_surfsurf_left/$count_surfsurf_left -
-                              $avg_surfsurf_left*$avg_surfsurf_left ) if( $count_surfsurf_left );
-$stddev_surfsurf_right = sqrt( $stddev_surfsurf_right/$count_surfsurf_right -
-                               $avg_surfsurf_right*$avg_surfsurf_right ) if( $count_surfsurf_right );
-$stddev_meanct = sqrt( $stddev_meanct/$count_meanct -
-                       $avg_meanct*$avg_meanct ) if( $count_meanct );
-
+$html .= "<tr> </tr> ";
 $html .= "<tr bgcolor=\"#dddddd\">" .
-         "<th>StdDev</th> <td></td> <td></td> <td></td> <td></td> " .
-         "<td>" . sprintf( "%8.3f", $stddev_stx_mask_error ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $stddev_csf_cls ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $stddev_gm_cls ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $stddev_wm_cls ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $stddev_gm_cortical ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $stddev_wm_surf ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $stddev_gm_surf ) . "</td> " .
-         "<td>" . sprintf( "%5.2f", $stddev_surfreg_left ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $stddev_surfreg_right ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $stddev_surfsurf_left ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $stddev_surfsurf_right ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $stddev_meanct ) . "</td>" .
-         "<td>" . sprintf( "%5.2f", $stddev_meanct ) . "</td>" .
-         "<td></td> <td></td> <td></td> <td></td>" .
-         "<td></td> <td></td> <td></td>" .
-         "</tr>\n";
+         "<th></th>" .
+         "<th>Inter Mean</th> ";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  my $str = sprintf( $fields[$j]{format}, $fields[$j]{mean} );
+  $html .= "<th>$str</th>";
+}
+$html .= "</tr>\n";
+
+$html .= "<tr> </tr> ";
+$html .= "<tr bgcolor=\"#dddddd\">" .
+         "<th></th>" .
+         "<th>Inter StdDev</th> ";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  my $str = sprintf( $fields[$j]{format}, $fields[$j]{stdev} );
+  $html .= "<th>$str</th>";
+}
+$html .= "</tr>\n";
+
+$html .= "<tr> </tr> ";
+$html .= "<tr bgcolor=\"#dddddd\">" .
+         "<th></th>" .
+         "<th>Intra StdDev</th> ";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  my $str = sprintf( $fields[$j]{format}, $fields[$j]{stdev_long} );
+  $html .= "<th>$str</th>";
+}
+$html .= "</tr>\n";
+
 $html .= "</table>";
 
+#########################################################
+# Print a legend for the symbols used.
+#########################################################
+
+$html .= "<h2> Legend of symbols</h2>\n";
+$html .= "<table>\n";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  my $key = $fields[$j]{name};
+  $html .= "<tr> <td> $fields[$j]{name} </td> <td> $fields[$j]{title} </td></tr>\n";
+}
+$html .= "</table>\n";
+
+$html .= "<table>\n";
+$html .= "<h2> Legend of colour codes</h2>\n";
+$html .= "<tr><td bgcolor=\"$QcColours[$Qc_good]\"> Good </td></tr>\n";
+$html .= "<tr><td bgcolor=\"$QcColours[$Qc_warning]\"> Warning (inter subject)</td></tr>\n";
+$html .= "<tr><td bgcolor=\"$QcColours[$Qc_danger]\"> Severe warning, likely a processing error (inter subject)</td></tr>\n";
+$html .= "<tr><td bgcolor=\"$QcColours[$Qc_local]\"> Warning on longitudinal QC (intra subject)</td></tr>\n";
+$html .= "<tr><td bgcolor=\"$QcColours[$Qc_incomplete]\"> Incomplete result </td></tr>\n";
+$html .= "</table>\n";
+
+#########################################################
 # Do some scatter plots of the various fields.
+#########################################################
 
-open FILE, ">${qc_dir}/civet_${prefix}.glm";
-$info =~ s/ +/ /g;
-print FILE $info;
-close FILE;
-
-# ----------------------------------------------------------------------------------------------
+$html .= "<h2>Scatter plots of QC fields </h2>\n";
 open FILE, ">${qc_dir}/civet_${prefix}.gnu";
-my $figure = 0;
+print FILE "set datafile separator \",\"\n";
 
-$figure++;
-print FILE "# Stereotaxic space brain masking error\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Stereotaxic space brain mask error\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"Error %\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/StxMaskErr.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 5 w po, $avg_stx_mask_error w li 2, " .
-           sprintf("%f",$avg_stx_mask_error-$stddev_stx_mask_error) . " w li 3, " .
-           sprintf("%f",$avg_stx_mask_error+$stddev_stx_mask_error) . " w li 3\n";
+my $column = 1;   # skip dsid in .csv file
 
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"StxMaskErr.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Error between stereotaxic space brain mask " .
-         "and the brain mask of the stereotaxic model. </td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
+for( my $i = 0; $i <= $#fields; $i++ ) {
+  my $key = $fields[$i]{name};
+  print "Processing field $key...\n";
 
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Percentage of the classified CSF in the brain (masked)\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Percentage of the classified CSF in the brain (masked)\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"CSF %\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/CSFclsPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 6 w po, $avg_csf_cls w li 2, " .
-           sprintf("%f",$avg_csf_cls-$stddev_csf_cls) . " w li 3, " .
-           sprintf("%f",$avg_csf_cls+$stddev_csf_cls) . " w li 3\n";
+  $column++;
 
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"CSFclsPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Percentage of the classified CSF in the brain (masked)." .
-         "</td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
+  # Make the gnuplot graph for this field.
 
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Percentage of the classified GM in the brain (masked)\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Percentage of the classified GM in the brain (masked)\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"GM %\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/GMclsPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 7 w po, $avg_gm_cls w li 2, " .
-           sprintf("%f",$avg_gm_cls-$stddev_gm_cls) . " w li 3, " .
-           sprintf("%f",$avg_gm_cls+$stddev_gm_cls) . " w li 3\n";
+  print FILE "# $key\n";
+  print FILE "clear\n";
+  print FILE "set grid\n";
+  print FILE "unset key\n";
+  print FILE "set title \"$fields[$i]{title}\"\n";
+  print FILE "set xlabel \"$fields[$i]{xlabel}\"\n";
+  print FILE "set ylabel \"$fields[$i]{ylabel}\"\n";
+  print FILE "set terminal png\n";
+  print FILE "set output \"${qc_dir}/$key.png\"\n";
+  print FILE "plot \"${qc_dir}/civet_${prefix}.csv\" u $column w lp, $fields[$i]{mean} w li 2, " .
+             sprintf("%f",$fields[$i]{mean}-$fields[$i]{stdev}) . " w li 3, " .
+             sprintf("%f",$fields[$i]{mean}+$fields[$i]{stdev}) . " w li 3\n";
 
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"GMclsPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Percentage of the classified GM in the brain (masked)." .
-         "</td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
+  my $figure = $column - 1;
+  $html .= "<table>\n" .
+           "<tr> <td></td> <td> <img src=\"$key.png\"> </td></tr>\n" .
+           "<tr> <td> Figure $figure: </td> <td> $fields[$i]{caption} </td></tr>\n" .
+           "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>";
+           "</table>\n";
 
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Percentage of the classified WM in the brain (masked)\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Percentage of the classified WM in the brain (masked)\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"WM %\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/WMclsPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 8 w po, $avg_wm_cls w li 2, " .
-           sprintf("%f",$avg_wm_cls-$stddev_wm_cls) . " w li 3, " .
-           sprintf("%f",$avg_wm_cls+$stddev_wm_cls) . " w li 3\n";
+}
 
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"WMclsPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Percentage of the classified WM in the brain (masked)." .
-         "</td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-
-$figure++;
-print FILE "# Volume of total cortical gray matter (without sub-cortical gray)\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Volume of total cortical gray matter (without sub-cortical gray)\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"GM cc\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/GMCortical.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 9 w po, $avg_gm_cortical w li 2, " .
-           sprintf("%f",$avg_gm_cortical-$stddev_gm_cortical) . " w li 3, " .
-           sprintf("%f",$avg_gm_cortical+$stddev_gm_cortical) . " w li 3\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"GMCortical.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Volume of total cortical gray matter (without sub-cortical gray)." .
-         "</td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Percentage error in the extraction of the white surface\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Percentage error in extraction of white surface\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"White surface error %\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/WMSurfPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 10 w po, $avg_wm_surf w li 2, " .
-           sprintf("%f",$avg_wm_surf-$stddev_wm_surf) . " w li 3, " .
-           sprintf("%f",$avg_wm_surf+$stddev_wm_surf) . " w li 3\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"WMSurfPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Percentage of classified white voxels outside " .
-         "the white surface (large values mean underexpanded surface). </td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Percentage error in the expansion of the gray surface\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Percentage error in expansion of gray surface\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"Gray surface error %\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/GMSurfPct.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 11 w po, $avg_gm_surf w li 2, " .
-           sprintf("%f",$avg_gm_surf-$stddev_gm_surf) . " w li 3, " .
-           sprintf("%f",$avg_gm_surf+$stddev_gm_surf) . " w li 3\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"GMSurfPct.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Percentage of classified gray voxels outside " .
-         "the gray surface (large values mean underexpanded surface). </td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Number of self-intersections in resampled mid surface\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "set key\n";
-print FILE "set title \"Number of self-intersections in resampled mid surface\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"Number of self-intersections\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/SurfRegInter.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 12 t \"Left\" w po 1, " .
-           "\"${qc_dir}/civet_${prefix}.glm\" u 13 t \"Right\" w po 2\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"SurfRegInter.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Number of self-intersections in resampled " .
-         "mid surface as a result of surface registration. </td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Number of surface-surface intersections between wm-gm surfaces\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "set key\n";
-print FILE "set title \"Number of surface-surface intersections between wm-gm surfaces\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"Number of intersections\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/SurfSurfInter.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 14 t \"Left\" w po 1, " .
-           "\"${qc_dir}/civet_${prefix}.glm\" u 15 t \"Right\" w po 2\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"SurfSurfInter.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Number of surface-surface intersections between " .
-         "wm-gm surfaces. </td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Mean cortical thickness for left/right hemispheres\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Mean cortical thickness for left/right hemispheres\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"Mean CT%\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/MeanCT.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 16 t \"Left\" w po, " .
-           "\"${qc_dir}/civet_${prefix}.glm\" u 17 t \"Right\" w po," .
-           " $avg_meanct w li 2, " .
-           sprintf("%f",$avg_meanct-$stddev_meanct) . " w li 3, " .
-           sprintf("%f",$avg_meanct+$stddev_meanct) . " w li 3\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"MeanCT.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Mean cortical thickness </td></tr>\n" .
-         "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Mean T1 intensity for classified WM and GM\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "set key\n";
-print FILE "set title \"Mean T1 intensity for classified WM and GM\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"Mean T1\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/MeanT1WMGM.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 18 t \"WM\" w po, " .
-           "\"${qc_dir}/civet_${prefix}.glm\" u 20 t \"GM\" w po\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"MeanT1WMGM.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Mean T1 intensity for classified WM and GM." .
-         "</td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# StdDev T1 intensity for classified WM and GM\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "set key\n";
-print FILE "set title \"StdDev T1 intensity for classified WM and GM\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"StdDev T1\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/StdDevT1WMGM.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 19 t \"WM\" w po, " .
-           "\"${qc_dir}/civet_${prefix}.glm\" u 21 t \"GM\" w po\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"StdDevT1WMGM.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> StdDev T1 intensity for classified WM and GM." .
-         "</td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Gyrification index for the left hemisphere\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Gyrification index for left hemisphere\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"GI\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/GILeft.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 22 w po\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"GILeft.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Gyrification index for the left hemisphere." .
-         "</td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Gyrification index for the right hemisphere\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Gyrification index for right hemisphere\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"GI\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/GIRight.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 23 w po\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"GIRight.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Gyrification index for the right hemisphere." .
-         "</td></tr>\n" .
-         "</table>\n";
-
-# ----------------------------------------------------------------------------------------------
-$figure++;
-print FILE "# Gyrification index for the full brain\n";
-print FILE "clear\n";
-print FILE "set grid\n";
-print FILE "unset key\n";
-print FILE "set title \"Gyrification index for full brain\"\n";
-print FILE "set xlabel \"Subjects\"\n";
-print FILE "set ylabel \"GI\"\n";
-print FILE "set terminal png\n";
-print FILE "set output \"${qc_dir}/GIFull.png\"\n";
-print FILE "plot \"${qc_dir}/civet_${prefix}.glm\" u 24 w po\n";
-
-$html .= "<table>\n" .
-         "<tr> <td></td> <td> <img src=\"GIFull.png\"> </td></tr>\n" .
-         "<tr> <td> Figure $figure: </td> <td> Gyrification index for the full brain." .
-         "</td></tr>\n" .
-         "</table>\n";
-
-close FILE;
-
+close( FILE );
 `gnuplot \< "${qc_dir}/civet_${prefix}.gnu"`;
-
-
-##
-## <img src="toto.png">
-## 
 
 open FILE, ">${qc_dir}/civet_${prefix}.html";
 print FILE $html;
 close FILE;
 
-############# Voila!! #############
+## All done!!
+
+# Read a civet_qc file into a hash table.
+
+sub parse_qc_file {
+
+  my $input = shift;
+  my %table = ();
+
+  open( QC, $input );
+  while( my $line = <QC> ) {
+    chomp( $line );
+    my ($key,$val) = split( '=', $line );
+    $table{$key} = $val;
+  }
+  close( QC );
+  return( %table );
+}
+
+# Read the civet options file to obtain processing information.
+
+sub parse_civet_options {
+
+  my $input = shift;
+  my $version = shift;
+
+  my @thickness_info = ();
+  my @area_info = ();
+  my @volume_info = ();
+  
+  open( OPTIONS, $input );
+
+  while( my $line = <OPTIONS> ) {
+    chomp( $line );
+    if( $line =~ m/Options for/ ) {
+      $line =~ /Options for CIVET-(.*):/;
+      if( $1 ne $version ) {
+        die "Incompatible CIVET QC Pipeline $version for CIVET-$1.";
+      }
+    }
+    if( $line =~ m/Cortical thickness using/ ) {
+      $line =~ /Cortical thickness using (.*), blurred at (.*)/;
+      push @thickness_info, ( "$1\_$2" );
+    }
+    if( $line =~ m/Surface area blurred/ ) {
+      $line =~ /Surface area blurred at (.*)/;
+      push @area_info, ( $1 );
+    }
+    if( $line =~ m/Surface volume blurred/ ) {
+      $line =~ /Surface volume blurred at (.*)/;
+      push @volume_info, ( $1 );
+    }
+  }
+
+  close( OPTIONS );
+  return( \@thickness_info, \@area_info, \@volume_info );
+}
+
+# QC function to validate voxel size. For good performance, the
+# voxel size should be small enough.
+
+sub check_voxel_size {
+
+  my $val = shift;
+  my $mean = shift;
+  my $stdev = shift;
+
+  if( defined( $val ) ) {
+    if( $val > 2.5 ) {
+      return( $Qc_danger );
+    } else {
+      if( $val > 1.5 ) {
+        return( $Qc_warning );
+      } else {
+        return( $Qc_good );
+      }
+    }
+  } else {
+    return( $Qc_incomplete );
+  }
+}
+
+# QC function to validate a metric. For good performance, the
+# value should be less than two standard deviations above its mean.
+
+sub check_stdev_above {
+
+  my $val = shift;
+  my $mean = shift;
+  my $stdev = shift;
+
+  if( defined( $val ) ) {
+    if( $val > $mean+3*$stdev ) {
+      return( $Qc_danger );
+    } else {
+      if( $val > $mean+2*$stdev ) {
+        return( $Qc_warning );
+      } else {
+        return( $Qc_good );
+      }
+    }
+  } else {
+    return( $Qc_incomplete );
+  }
+}
+
+# QC function to validate a metric. For good performance, the
+# value should be within two standard deviations of its mean.
+
+sub check_stdev_centered {
+
+  my $val = shift;
+  my $mean = shift;
+  my $stdev = shift;
+
+  if( defined( $val ) ) {
+    if( abs($val-$mean) > 3*$stdev ) {
+      return( $Qc_danger );
+    } else {
+      if( abs($val-$mean) > 2*$stdev ) {
+        return( $Qc_warning );
+      } else {
+        return( $Qc_good );
+      }
+    }
+  } else {
+    return( $Qc_incomplete );
+  }
+}
+
+
+# QC function to validate self and surf-surf intersections. For good 
+# performance, the number of intersections on the resampled surfaces 
+# should be small.
+
+sub check_intersections {
+
+  my $val = shift;
+  my $mean = shift;
+  my $stdev = shift;
+
+  if( defined( $val ) ) {
+    if( $val > 100 ) {
+      return( $Qc_danger );
+    } else {
+      if( $val > 50 ) {
+        return( $Qc_warning );
+      } else {
+        return( $Qc_good );
+      }
+    }
+  } else {
+    return( $Qc_incomplete );
+  }
+}
+
+# QC function to validate gray surface expansion. For good 
+# performance, the minimum value of the Laplacian field on
+# the gray surface should be close to 10.
+
+sub check_laplacian_min {
+
+  my $val = shift;
+  my $mean = shift;
+  my $stdev = shift;
+
+  if( defined( $val ) ) {
+    if( $val < 7.5 || $val > 10.0 ) {
+      return( $Qc_warning );
+    } else {
+      return( $Qc_good );
+    }
+  } else {
+    return( $Qc_incomplete );
+  }
+}
+
+# QC function to validate gray surface expansion. For good 
+# performance, the mean value of the Laplacian field on
+# the gray surface should be close to 10.
+
+sub check_laplacian_mean {
+
+  my $val = shift;
+  my $mean = shift;
+  my $stdev = shift;
+
+  if( defined( $val ) ) {
+    if( $val < 9.9 || $val > 10.1 ) {
+      if( $val < 9.0 ) {
+        return( $Qc_danger );
+      } else {
+        return( $Qc_warning );
+      }
+    } else {
+      return( $Qc_good );
+    }
+  } else {
+    return( $Qc_incomplete );
+  }
+}
+
+# QC function to validate gray surface expansion. For good 
+# performance, the maximum value of the Laplacian field on
+# the gray surface should be close to 10.
+
+sub check_laplacian_max {
+
+  my $val = shift;
+  my $mean = shift;
+  my $stdev = shift;
+
+  if( defined( $val ) ) {
+    if( $val < 9.95 || $val > 10.5 ) {
+      return( $Qc_warning );
+    } else {
+      return( $Qc_good );
+    }
+  } else {
+    return( $Qc_incomplete );
+  }
+}
+
 
 # Set interrupt handler (for cleaning of lock files)
 
 sub CLEANUP {
   exit(1);
 }
+
 

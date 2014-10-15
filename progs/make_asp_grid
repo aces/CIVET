@@ -15,6 +15,7 @@
 #
 
 use strict;
+use POSIX;
 use MNI::Startup;
 use Getopt::Tabular;
 use MNI::Spawn;
@@ -23,132 +24,140 @@ use MNI::FileUtilities qw(check_output_dirs);
 
 # ===== Global Variables =====
 my ($usage, $help);
-my ($skelCSF, $cls, $wmSurfaceLeft,$wmSurfaceRight, $grid, $laplace, $output);
+my ($t1, $skelCSF, $cls, $pve_wm, $wmSurfaceLeft, $wmSurfaceRight, 
+    $grid, $laplace, $output);
 my ($expression);
-my ($objMask, $unmasked, $minc_model);
+my ($minc_model);
 my ($callosal_mask,$clsMasked, $wmLineLeft,$wmLineRight,$wmLine, $wmMask,$wmMaskLeft, $wmMaskRight,  $wmMask2, $filledImage, $rslCSF);
 my ($in_chamfer, $out_chamfer);
 
-# ===== Defaults =====
-$unmasked = 0;
-
 # ===== Argument Processing =====
 
-$usage = "$ProgramName [options] skeletonized_csf.mnc wm_left_surface.obj wm_right_surface.obj classified.mnc callosal_mask.mnc output.mnc\n";
+$usage = "$ProgramName [options] skeletonized_csf.mnc wm_left_surface.obj wm_right_surface.obj classified.mnc pve_wm.mnc callosal_mask.mnc output.mnc\n";
 $help = "Help still to be written";
 
 my @leftOverArgs;
 my @argTbl = 
     (
      @DefaultArgs,
-     ["Masking options", "section"],
-     ["-obj_mask", "string", 1, \$objMask,
-      "Mask to be used to mask the classified file with. By default the ".
-      "classified file is already masked."],
-     ["-unmasked", "boolean", undef, \$unmasked,
-      "Create a mask and apply it to the classified image. By default the " .
-      "classified file is already masked."],
      ["-like", "string", 1, \$minc_model,
       "Reference file for resolution of a Laplacian field"],
      );
 GetOptions(\@argTbl, \@ARGV, \@leftOverArgs) or die "\n";
 
+$t1 = shift @leftOverArgs or die $usage;
 $skelCSF = shift @leftOverArgs or die $usage;
 $wmSurfaceLeft = shift @leftOverArgs or die $usage;
 $wmSurfaceRight = shift @leftOverArgs or die $usage;
 $cls = shift @leftOverArgs or die $usage;
+$pve_wm = shift @leftOverArgs or die $usage;
 $callosal_mask = shift @leftOverArgs or die $usage;
 $output = shift @leftOverArgs or die $usage;
 
 # register the programs
-RegisterPrograms(["minccalc", "mincresample", "mincinfo", "scan_object_to_volume",
-                  "surface_mask2", "cortical_surface", "laplacian_thickness",
-                  "mincmath", "mincdefrag", "mv", "mincchamfer"]);
+RegisterPrograms(["minccalc", "mincresample", "mincinfo", 
+                  "scan_object_to_volume", "surface_mask2", 
+                  "laplacian_thickness", "mincdefrag", "dilate_volume", 
+                  "mv", "rm", "mincchamfer", "mincblur", "mincmorph", 
+                  "make_curvature_volume"]);
 
 if ($Clobber) {
     AddDefaultArgs("minccalc", ["-clobber"]);
 }
+AddDefaultArgs("minccalc", ["-quiet"]);
+AddDefaultArgs("mincblur", ["-quiet"]);
+AddDefaultArgs("mincresample", ["-quiet"]);
 
 # create necessary tmp directory
 check_output_dirs($TmpDir);
 
 # ===== Main program execution =====
-if ($unmasked) {
-    # compute a mask
-    $objMask = "${TmpDir}/cortex.obj";
-    Spawn(["cortical_surface", $cls, $objMask, 1.5]);
-}
-if ($objMask) {
-    # apply the mask
-    $clsMasked = "${TmpDir}/masked_cls.mnc";
-    Spawn(["surface_mask2", $cls, $objMask, $clsMasked]);
-}
-else {
-    # the default assumption that the input classified file is already masked
-    $clsMasked = $cls;
-}
 if (! defined($minc_model)){
-    $minc_model = $clsMasked;
+    $minc_model = $cls;
+} else {
+    Spawn(["mincresample", "-nearest", "-like", $minc_model, $cls, 
+           "${TmpDir}/cls_resampled.mnc"]);
+    $cls = "${TmpDir}/cls_resampled.mnc";
+    Spawn(["mincresample", "-like", $minc_model, $pve_wm, 
+           "${TmpDir}/pve_wm_resampled.mnc"]);
+    $pve_wm = "${TmpDir}/pve_wm_resampled.mnc";
 }
-else {
-    Spawn(["mincresample", "-like", $minc_model, $clsMasked, "${TmpDir}/cls_resampled.mnc"]);
-    $clsMasked = "${TmpDir}/cls_resampled.mnc";
-}
+my $voxel_scale = `mincinfo -attvalue xspace:step $minc_model`;
+chomp( $voxel_scale );
 
-# compute the WM lines
-# first, create a filled image
-$filledImage = "${TmpDir}/filled.mnc";
-Spawn(["minccalc", "-expression", 'out = 0;', $minc_model, $filledImage]);
-
-
-# now add the lines to the filled image
-$wmLineLeft = "${TmpDir}/wm_lines_left.mnc";
-$wmLineRight = "${TmpDir}/wm_lines_right.mnc";
-$wmLine = "${TmpDir}/wm_lines.mnc";
-Spawn(["scan_object_to_volume", $filledImage, $wmSurfaceLeft, $wmLineLeft]);
-Spawn(["scan_object_to_volume", $filledImage, $wmSurfaceRight, $wmLineRight]);
-Spawn(["minccalc","-clobber","-expr",'out=A[0]||A[1];',$wmLineLeft,$wmLineRight,$wmLine]);
-unlink( $filledImage );
-unlink( $wmLineLeft );
-unlink( $wmLineRight );
-
-# create a binary white matter mask
+# create a binary white matter mask from the white surfaces
 $wmMask = "${TmpDir}/wm_mask.mnc";
 $wmMask2 = "${TmpDir}/wm_mask2.mnc";
 $wmMaskLeft = "${TmpDir}/wm_mask_left.mnc";
 $wmMaskRight = "${TmpDir}/wm_maskright.mnc";
 
-Spawn(["surface_mask2", "-binary_mask", $clsMasked, $wmSurfaceLeft, $wmMaskLeft]);
-Spawn(["surface_mask2", "-binary_mask", $clsMasked, $wmSurfaceRight, $wmMaskRight]);
-Spawn(["minccalc","-clobber","-expr",'out=A[0]||A[1];',$wmMaskLeft,$wmMaskRight,$wmMask2]);
-Spawn(["mincresample", "-like",$clsMasked, $wmMask2, $wmMask]);
+Spawn(["surface_mask2", "-binary_mask", $minc_model, $wmSurfaceLeft, 
+       $wmMaskLeft]);
+Spawn(["surface_mask2", "-binary_mask", $minc_model, $wmSurfaceRight, 
+       $wmMaskRight]);
+Spawn(["minccalc", "-clobber", "-expr", 'out=A[0]||A[1];', 
+       $wmMaskLeft, $wmMaskRight, $wmMask] );
 
 unlink( $wmMaskLeft );
 unlink( $wmMaskRight );
 unlink( $wmMask2 );
 
+my $dilate_scale = ceil( 3.0 / $voxel_scale );
+Spawn(["dilate_volume", $wmMask, $wmMask2, 1, 6, $dilate_scale]);
+
 # resample the CSF skel map to be like the classified map
 $rslCSF = "${TmpDir}/csf_rsl.mnc";
 Spawn(["mincresample", "-nearest_neighbour", "-like", 
-       $clsMasked, $skelCSF, $rslCSF]);
+       $minc_model, $skelCSF, $rslCSF]);
 
 # create the grid itself
-$expression = 'if(abs(A[4]-1)<0.45){out=10;}else{if(abs(A[4]-2)<0.45){out=5;}else{if(A[2]>0 && abs(A[3])<0.5){out=0;}else if(A[0]>0 && abs(A[3])<0.5){out=10;}else if(A[1]<=1.1){out=10;}else if(A[1]>2.5 && abs(A[2])<0.5){out=10;}else{out=5;}}}';
+$expression = 'if(abs(A[3]-1)<0.45){out=10;}else{if(abs(A[3]-2)<0.45){out=5;}else{if(A[2]>0.5){out=0;}else if(A[0]>0.5){out=10;}else if(A[1]<=1.1){out=10;}else if(A[1]>2.5 && A[5]>0.65 && abs(A[4])<0.5){out=10;}else{out=5;}}}';
+
 $grid = "${TmpDir}/grid.mnc";
-Spawn(["minccalc", "-expression", $expression, $rslCSF, $clsMasked,
-       $wmMask, $wmLine, $callosal_mask,$grid]);
+Spawn(["minccalc", "-expression", $expression, $rslCSF, $cls,
+       $wmMask, $callosal_mask, $wmMask2, $pve_wm, $grid]);
 
-unlink( $rslCSF );
-unlink( $wmLine );
 unlink( $wmMask );
+unlink( $wmMask2 );
 
-# remove dangling voxels
+# remove dangling voxels: defrag_size should be scaled along one dimension
+# only, not 3. Why? Because the defrag is effectively on the CSF skeleton,
+# which could be 1-D thin strings of CSF (or 2-D thin sheets of CSF). 20
+# is a small threshold for the number of connected CSF voxels that were
+# ignored when processing images at 1mm resolution. CL.
+
+my $defrag_size = floor( 20.0 / $voxel_scale );
+$defrag_size = 1 if( $defrag_size < 1 );
+
 Spawn(["mincdefrag", $grid, $grid, "5", "6"]);
-Spawn(["mincdefrag", $grid, $grid, "10", "27", "20" ]);
+Spawn(["mincdefrag", $grid, $grid, "10", "27", $defrag_size ]);
+
+# Restore csf skeleton after defrag in regions where k1 curvature is
+# negative (inside sulci).
+
+my $t1_blur = "${TmpDir}/t1_4mm";
+Spawn([ "mincblur", "-clobber", "-fwhm", 4, $t1, $t1_blur ]);
+$t1_blur .= "_blur.mnc";
+my $t1_curv = "${TmpDir}/t1_curve_4mm";
+Spawn([ "make_curvature_volume", $t1_blur, $t1_curv ]);
+$t1_curv .= "_k1.mnc";
+unlink( $t1_blur );
+my $tmp_grid = "${TmpDir}/tmp_grid.mnc";
+$expression = "if((A[1]/$voxel_scale<-1.0)&&(A[0]>0.5)&&(A[2]>0.5)){10}else{A[0]}";
+Spawn([ "minccalc", "-clobber", "-expression", $expression,
+        $grid, $t1_curv, $rslCSF, $tmp_grid ]);
+Spawn(["mv", "-f", $tmp_grid, $grid]);
+
+unlink( $t1_curv );
+unlink( "${TmpDir}/t1_curve_4mm" . "_k2.mnc" );
+unlink( $rslCSF );
 
 # create the laplacian field
+
 $laplace = "${TmpDir}/laplace.mnc";
-Spawn(["laplacian_thickness", "-like", $minc_model, "-potential_only", "-volume-double", "-from_grid", $grid, "-convergence", "1e-8", "-max_iterations", "500", $laplace]);
+Spawn(["laplacian_thickness", "-like", $minc_model, "-potential_only", 
+       "-volume-double", "-from_grid", $grid, "-convergence", "1e-8", 
+       "-max_iterations", "500", $laplace]);
 
 # Output from laplacian_thickness is saved as x, y, z; so resample in the
 # same way as the incoming data (-like $minc_model).
@@ -163,7 +172,8 @@ unlink( $laplace );
 
 # chamfer map in WM area
 $in_chamfer="${TmpDir}/in_chamfer.mnc";
-Spawn(["minccalc", "-expression", 'if(abs(A[0])<0.5){out=0;}else{out=10;}', $grid, $in_chamfer]);
+Spawn(["minccalc", "-expression", 'if(abs(A[0])<0.5){out=0;}else{out=10;}', 
+       $grid, $in_chamfer]);
 Spawn(["mincchamfer", "-max_dist", "10", $in_chamfer, "${TmpDir}/chamfer.mnc"]);
 
 $expression = "if(A[0]>=10){out=A[0];}else{out=A[0]-A[1];}";
@@ -172,21 +182,100 @@ Spawn(["minccalc", "-clobber", "-expression", $expression, $output,
 Spawn(["mv", "-f", $in_chamfer, $output]);
 unlink( "${TmpDir}/chamfer.mnc" );
 
+# `cp $grid grid.mnc`;
+# `cp $output laplace.mnc`;
+# exit(1);
+
 # chamfer map in CSF and background area
 $out_chamfer="${TmpDir}/out_chamfer.mnc";
-Spawn(["minccalc", "-expression", 'if(abs(A[0]-10)<0.5){out=0;}else{out=11;}', $grid, $out_chamfer]);
-Spawn(["mincchamfer", "-max_dist", "11", $out_chamfer, "${TmpDir}/chamfer.mnc"]);
+Spawn(["minccalc", "-expression", 'if(abs(A[0]-10)<0.5){out=0;}else{out=11;}',
+       $grid, $out_chamfer]);
+Spawn(["mincchamfer", "-max_dist", "10", $out_chamfer, "${TmpDir}/chamfer.mnc"]);
+Spawn(["mv", "-f", "${TmpDir}/chamfer.mnc", $out_chamfer]);
 
+# Correct the Laplacian field for the pial surface at 10, to be
+# placed at the voxel border, not the voxel centroid.
+
+my $grid1 =  "${TmpDir}/grid_mask.mnc";
+my $grid_dil = "${TmpDir}/grid_mask_dil.mnc";
+my $grid_ring = "${TmpDir}/grid_ring.mnc";
+Spawn([ "minccalc", "-clob", "-expression",
+       'if(A[0]<6.0){0}else{1}', $grid, $grid1 ] );
+Spawn( ["dilate_volume", $grid1, $grid_dil, 1, 6, 1 ] );
+Spawn([ "minccalc", "-clob", "-expression",
+        'if(A[0]<0.5&&A[1]>0.5){1}else{0}', $grid1, $grid_dil, $grid_ring ]);
 unlink( $grid );
 
-# combine laplacian field with chamfer maps
-my $step = `mincinfo -attvalue xspace:step $output`;
-chomp( $step );
-$step = 0.5 * $step;
-$expression = "if(A[0]>=10){out=A[0]+A[1]-$step;}else{out=A[0];}";
+my $kernel = "${TmpDir}/avg6.kernel";
+open KRNL, "> ${kernel}";
+print KRNL "MNI Morphology Kernel File\n";
+print KRNL "Kernel_Type = Normal_Kernel;\n";
+print KRNL "Kernel =\n";
+print KRNL "-1.0  0.0  0.0  0.0  0.0  1.0\n";
+print KRNL " 1.0  0.0  0.0  0.0  0.0  1.0\n";
+print KRNL " 0.0 -1.0  0.0  0.0  0.0  1.0\n";
+print KRNL " 0.0  1.0  0.0  0.0  0.0  1.0\n";
+print KRNL " 0.0  0.0 -1.0  0.0  0.0  1.0\n";
+print KRNL " 0.0  0.0  1.0  0.0  0.0  1.0;\n";
+close KRNL;
 
-Spawn(["minccalc", "-clobber", "-expression", $expression, $output,
-       "${TmpDir}/chamfer.mnc", $out_chamfer]);
-Spawn(["mv", "-f", $out_chamfer, $output]);
-unlink( "${TmpDir}/chamfer.mnc" );
+my $sum_ngh = "${TmpDir}/sum_ngh.mnc";
+my $sum_laplace = "${TmpDir}/sum_laplace.mnc";
+Spawn([ "mincmorph", "-clob", "-unsigned", "-byte", "-kernel", $kernel,
+        "-convolve", $grid1, $sum_ngh ] );
+unlink( $grid1 );
+Spawn([ "mincmorph", "-clob", "-unsigned", "-short", "-kernel", $kernel,
+        "-convolve", $out_chamfer, $sum_laplace ] );
+unlink( $kernel );
+
+Spawn([ "minccalc", "-clob", "-expression", 
+        'if(A[1]>0.5&&A[3]>0.5){10.0-A[2]/A[3]}else{if(A[0]>=10.0){10.0+A[4]}else{A[0]}}',
+        $output, $grid_ring, $sum_laplace, $sum_ngh, $out_chamfer,
+        "${TmpDir}/output_tmp.mnc" ] );
+Spawn([ "mv", "-f", "${TmpDir}/output_tmp.mnc", $output ] );
+
+unlink( $sum_ngh );
+unlink( $sum_laplace );
+unlink( $grid_ring );
+unlink( $kernel );
+unlink( $out_chamfer );
+
+# Restore the medial cut to avoid surf-surf intersections between
+# white-gray surfaces.
+
+Spawn( [ "minccalc", "-clob", "-expr", 
+         'if(abs(A[1]-2)<0.5){9.5}else{if(abs(A[1]-3)<0.5){5}else{A[0]}}',
+         $output, $callosal_mask, "${TmpDir}/output_tmp.mnc" ] );
+Spawn( [ "mv", "-f", "${TmpDir}/output_tmp.mnc", $output ] );
+
+# Blend the laplacian field outside the mask with the first
+# layer around the cortex to obtain a smooth field.
+
+$kernel = "${TmpDir}/ezblur.kernel";
+open KRNL, "> ${kernel}";
+print KRNL "MNI Morphology Kernel File\n";
+print KRNL "Kernel_Type = Normal_Kernel;\n";
+print KRNL "Kernel =\n";
+print KRNL " 0.0  0.0  0.0  0.0  0.0  0.25\n";
+print KRNL "-1.0  0.0  0.0  0.0  0.0  0.125\n";
+print KRNL " 1.0  0.0  0.0  0.0  0.0  0.125\n";
+print KRNL " 0.0 -1.0  0.0  0.0  0.0  0.125\n";
+print KRNL " 0.0  1.0  0.0  0.0  0.0  0.125\n";
+print KRNL " 0.0  0.0 -1.0  0.0  0.0  0.125\n";
+print KRNL " 0.0  0.0  1.0  0.0  0.0  0.125;\n";
+close KRNL;
+
+for( my $iter = 1; $iter <= 10; $iter++ ) {
+  Spawn( [ "mincmorph", "-clob", "-unsigned", "-short", "-kernel",
+           $kernel, "-convolve", $output, "${TmpDir}/output_blur.mnc" ] );
+  Spawn( [ "minccalc", "-clob", "-expr", 
+           'if(A[2]>0.5){A[0]}else{A[1]}', $output,
+           "${TmpDir}/output_blur.mnc", $grid_dil, 
+           "${TmpDir}/output_tmp.mnc" ] );
+  Spawn( [ "mv", "-f", "${TmpDir}/output_tmp.mnc", $output ] );
+  Spawn( [ "rm", "-f", "${TmpDir}/output_blur.mnc" ] );
+}
+unlink( $kernel );
+unlink( $grid_dil );
+
 

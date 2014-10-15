@@ -46,7 +46,6 @@ unless($output && (-e $t1_stx ) ) {
 }
 
 my @verifyRows;
-my $skull_mask_nat_stx = undef;
 my $t1_nl_final = undef;
 my $LO = 0.20;  # scale for plotting range
 my $HI = 0.80;
@@ -122,9 +121,21 @@ if( -e $pd_stx ) {
 # Row 2: non-linear registration for t1 image.
 
 if( -e $t1_stx ) {
+
+  # Make a quick template for resampling the non-linear image 
+  # (2mm voxels are enough). Use autocrop (despite the shift
+  # in start values). It's only a template.
+
+  my $iso = 2.0;
+  my $template = "${tmpdir}/verify_template_${iso}.mnc";
+
+  my @params = split( ' ', `autocrop -noresample -params -isostep $iso $t1_stx` );
+  &run( 'mincresample', '-clob', '-nearest', @params, $t1_stx, $template );
+
   $t1_nl_final = "${tmpdir}/" . &basename( $t1_stx );
-  &run( 'mincresample', '-clobber', '-like', $t1_stx, '-nearest',
+  &run( 'mincresample', '-clobber', '-like', $template, '-trilinear',
         '-transform', $t1_nl_xfm, $t1_stx, $t1_nl_final );
+  unlink( $template );
   my $clipval_lo = `mincstats -quiet -pctT 0.05 $t1_stx -mask $rslmask -mask_binvalue 1`;
   my $clipval_hi = `mincstats -quiet -pctT 99.95 $t1_stx -mask $rslmask -mask_binvalue 1`;
   chomp( $clipval_lo ); # use lin, not nl.
@@ -143,7 +154,8 @@ unlink( $rslmask );
 
 # Row 3: Segmentation labels.
 if( -e $stx_labels ) {
-  push @verifyRows, ("-row", "color:label",
+  ## push @verifyRows, ("-row", "color:label",   ## :label defined in bin/create_verify_image
+  push @verifyRows, ("-row", "color:spectral",
                      "title:ANIMAL segmentation", $stx_labels );
 }
 
@@ -152,14 +164,14 @@ if( -e $stx_labels ) {
 if( -e $cls_correct ) {
   &run( 'classify_qc', $cls_correct, $skull_mask_stx, $classify_info_file );
 
-  push @verifyRows, ("-row", "color:gray",
+  push @verifyRows, ("-row", "color:gray:0:3",
                      "title:\@${classify_info_file}", $cls_correct );
 
   # Row 5: Cortical white and gray surfaces.
 
   if( -e $white_surface_left && -e $gray_surface_left &&
       -e $white_surface_right && -e $gray_surface_right ) {
-    push @verifyRows, ( "-row", "color:gray",
+    push @verifyRows, ( "-row", "color:gray:0:3",
                         "title:\@${surface_info_file}",
                         "overlay:${white_surface_left}:blue:0.5",
                         "overlay:${gray_surface_left}:red:0.5",
@@ -169,11 +181,10 @@ if( -e $cls_correct ) {
   }
 }
 
-&run( 'create_verify_image', '-clobber', $output, '-width', 1200,
+&run( 'create_verify_image', '-clobber', $output, '-width', 1500,
       @verifyRows );
 
 unlink( $t1_nl_final );
-unlink( $skull_mask_nat_stx );
 
 
 #Execute a system call.

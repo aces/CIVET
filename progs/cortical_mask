@@ -23,10 +23,9 @@ use MNI::FileUtilities qw(check_output_dirs);
 
 my $cls=$ARGV[0];
 my $pve_csf=$ARGV[1];
-my $cortex=$ARGV[2];
-my $skull_mask=$ARGV[3];
-my $brain_mask=$ARGV[4];
-my $xfm=$ARGV[5];
+my $skull_mask=$ARGV[2];
+my $brain_mask=$ARGV[3];
+my $xfm=$ARGV[4];
 
 # Directory for temporary files.
 
@@ -56,6 +55,7 @@ unlink( $cls_tmp_masked );
 # tissue, if any, and the cerebellum. This step can help remove the eyes
 # as well.
 
+my $cortex = "${TmpDir}/cortex_mask.mnc";
 &run( "cortical_surface", $cls_defrag, $cortex, 1.5, $xfm );
 
 # masking of brain with the cortical surface. No need to remove the boundary
@@ -63,6 +63,8 @@ unlink( $cls_tmp_masked );
 
 &run( "surface_mask2", "-binary_mask", $cls, $cortex, $cls_defrag );
 &run( "mincmath", "-clobber", "-mult", $cls_defrag, $skull_mask, $brain_mask );
+
+unlink( $cortex );
 
 #Execute a system call.
 

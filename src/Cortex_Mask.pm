@@ -20,7 +20,6 @@ sub create_pipeline {
     my $cls = ${$image}->{cls_correct};
     my $pve_csf = ${$image}->{pve_csf};
     my $skull_mask = ${$image}->{skull_mask_tal};
-    my $cortex = ${$image}->{cortex};
     my $brain_mask = ${$image}->{brain_mask};
 
     ##############################################
@@ -31,8 +30,8 @@ sub create_pipeline {
          { name => "cortical_masking",
          label => "masking cortical tissues using cortical_surface",
          inputs => [$xfm, $skull_mask, $cls, $pve_csf],
-         outputs => [$cortex, $brain_mask],
-         args => ["cortical_mask", $cls, $pve_csf, $cortex, $skull_mask, 
+         outputs => [$brain_mask],
+         args => ["cortical_mask", $cls, $pve_csf, $skull_mask, 
                   $brain_mask, $xfm ],
          prereqs => $Prereqs });
 

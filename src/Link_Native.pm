@@ -32,6 +32,8 @@ sub create_pipeline {
     my $output_pd = ($multi && -e $source_files->{pd}) ? $native_files->{pd} : "none";
     my $input_mask = (-e ${$image}->{user_mask}) ? ${$image}->{user_mask} : "none";
     my $output_mask = (-e ${$image}->{user_mask}) ? ${$image}->{skull_mask_native} : "none";
+    my $input_mp2 = (-e ${$image}->{mp2}) ? ${$image}->{mp2} : "none";
+    my $stx_model = ${$image}->{nlinmodel};
 
     my @outputs = ( $output_t1 );
     push @outputs, $output_t2 if( $input_t2 ne "none" );
@@ -45,8 +47,8 @@ sub create_pipeline {
            inputs => [],
            outputs => \@outputs,
            args => ["clean_native_scan", $input_t1, $input_t2, $input_pd,
-                    $input_mask, $output_t1, $output_t2, $output_pd, 
-                    $output_mask],
+                    $input_mp2, $input_mask, $output_t1, $output_t2, $output_pd, 
+                    $output_mask, $stx_model],
            prereqs => $Prereqs } );
     } else {
       die "Error: t1 image file $input_t1 must exist for pipeline to continue.\n";

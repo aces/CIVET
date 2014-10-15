@@ -13,6 +13,9 @@
 
 package Segment;
 use strict;
+use FindBin;
+use lib "$FindBin::Bin";
+
 use PMP::PMP;
 use MRI_Image;
 
@@ -21,35 +24,32 @@ sub create_pipeline {
     my $Prereqs = @_[1];
     my $image = @_[2];
     my $Template = @_[3];
-    my $Second_Model_Dir = @_[4];
-    my $atlas = @_[5];
-    my $atlasdir = @_[6];
-    my $nl_model = @_[7];
+    my $animal_model = @_[4];
+    my $animal_nl_model = @_[5];
 
     # global files for segmentation
 
-    my $stx_labels        = ${$image}->{stx_labels};
-    my $label_volumes     = ${$image}->{label_volumes};
-    my $lobe_volumes      = ${$image}->{lobe_volumes};
-    my $stx_labels_masked = ${$image}->{stx_labels_masked}; 
-    my $t1_tal_mnc        = ${$image}->{t1}{final};
+    my $animal_labels        = ${$image}->{animal_labels};
+    my $lobe_volumes         = ${$image}->{lobe_volumes};
+    my $animal_labels_masked = ${$image}->{animal_labels_masked}; 
+    my $t1_tal_mnc           = ${$image}->{t1}{final};
     my $t1_tal_nl_animal_xfm = ${$image}->{t1_tal_nl_xfm};
-    my $t1_tal_xfm        = ${$image}->{t1_tal_xfm};
-    my $cls_correct       = ${$image}->{cls_correct};
-    my $skull_mask        = ${$image}->{skull_mask_tal};
+    my $t1_tal_xfm           = ${$image}->{t1_tal_xfm};
+    my $cls_correct          = ${$image}->{cls_correct};
+    my $skull_mask           = ${$image}->{skull_mask_tal};
 
     # extra files
 
-    my $identity = "${Second_Model_Dir}/identity.xfm";
+    my $identity = "$FindBin::Bin/models/identity.xfm";
 
     # Compute the non-linear transformation to the model of the atlas,
     # if not the same as the target for registration.
 
-    if( ${nl_model} ne ${$image}->{nlinmodel} ) {
+    if( ${animal_nl_model} ne ${$image}->{nlinmodel} ) {
       # Not pretty, but must add extension .mnc to model name (because stx_register uses
       # the same model, but without the .mnc extension).
-      my $Non_Linear_Target = "${nl_model}.mnc";
-      my $model_head_mask = "${nl_model}_mask.mnc";
+      my $Non_Linear_Target = "${animal_nl_model}.mnc";
+      my $model_head_mask = "${animal_nl_model}_mask.mnc";
       $t1_tal_nl_animal_xfm = ${$image}->{t1_tal_nl_animal_xfm};
 
       ${$pipeline_ref}->addStage( {
@@ -67,62 +67,33 @@ sub create_pipeline {
     ### Note: In below, $cls_correct in based on $skull_mask, so it
     ###       contains the cerebellum and brain stem.
 
-    # Use the old stx_segment or the new lobe_segment.
+    ${$pipeline_ref}->addStage( {
+         name => "segment",
+         label => "automatic labelling",
+         inputs => [$t1_tal_nl_animal_xfm, $cls_correct],
+         outputs => [$animal_labels],
+         args => ["lobe_segment", "-clobber", "-modeldir", $animal_model,
+                  $t1_tal_nl_animal_xfm, $identity, "-template", $Template,
+                  $cls_correct, $animal_labels],
+         prereqs => $Prereqs } );
 
-    if( $atlas eq "-symmetric_atlas" ) {
-      ${$pipeline_ref}->addStage( {
-           name => "segment",
-           label => "automatic labelling",
-           inputs => [$t1_tal_nl_animal_xfm, $cls_correct],
-           outputs => [$stx_labels],
-           args => ["stx_segment", "-clobber", $atlas, "-modeldir", $atlasdir,
-                    $t1_tal_nl_animal_xfm, $identity, "-template", $Template,
-                    $cls_correct, $stx_labels],
-           prereqs => $Prereqs } );
-
-      # to do: use -lobe_mapping to specify mapping file to lobes:
-      # $LobeMap = "$FindBin::Bin/../share/jacob/" . 
-      #            'seg/jacob_atlas_brain_fine_remap_to_lobes.dat';
-      ${$pipeline_ref}->addStage( {
-           name => "segment_volumes",
-           label => "label and compute lobe volumes in native space",
-           inputs => [$t1_tal_xfm, $stx_labels],
-           outputs => [$label_volumes, $lobe_volumes],
-           args => ["compute_icbm_vols", "-clobber", "-transform", 
-                    $t1_tal_xfm, "-invert", "-lobe_volumes", 
-                    $lobe_volumes, $stx_labels, $label_volumes],
-           prereqs => ["segment"] });
-    } else {
-      ${$pipeline_ref}->addStage( {
-           name => "segment",
-           label => "automatic labelling",
-           inputs => [$t1_tal_nl_animal_xfm, $cls_correct],
-           outputs => [$stx_labels],
-           args => ["lobe_segment", "-clobber", "-modeldir", $atlasdir,
-                    $t1_tal_nl_animal_xfm, $identity, "-template", $Template,
-                    $cls_correct, $stx_labels],
-           prereqs => $Prereqs } );
-
-      # check this: label_volumes and lobe_volumes should be the same here.
-      ${$pipeline_ref}->addStage( {
-           name => "segment_volumes",
-           label => "label and compute lobe volumes in native space",
-           inputs => [$t1_tal_xfm, $stx_labels],
-           outputs => [$lobe_volumes],
-           args => ["compute_icbm_vols", "-clobber", "-transform", 
-                    $t1_tal_xfm, "-invert", $stx_labels, $lobe_volumes],
-           prereqs => ["segment"] });
-    }
+    ${$pipeline_ref}->addStage( {
+         name => "segment_volumes",
+         label => "label and compute lobe volumes in native space",
+         inputs => [$t1_tal_xfm, $animal_labels],
+         outputs => [$lobe_volumes],
+         args => ["compute_icbm_vols", "-clobber", "-transform", 
+                  $t1_tal_xfm, "-invert", $animal_labels, $lobe_volumes],
+         prereqs => ["segment"] });
 
     my $seg_mask_expr = 'if(A[1]<0.5){out=0;}else{out=A[0];}';
-
     ${$pipeline_ref}->addStage( {
          name => "segment_mask",
          label => "mask the segmentation",
-         inputs => [$stx_labels, $skull_mask],
-         outputs => [$stx_labels_masked],
+         inputs => [$animal_labels, $skull_mask],
+         outputs => [$animal_labels_masked],
          args => ["minccalc", "-clobber", "-expr", $seg_mask_expr,
-                  $stx_labels, $skull_mask, $stx_labels_masked],
+                  $animal_labels, $skull_mask, $animal_labels_masked],
          prereqs => ["segment"] });
 
     my $Segment_complete = ["segment_mask", "segment_volumes" ];

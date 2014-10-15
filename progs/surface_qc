@@ -11,6 +11,7 @@
 
 use strict;
 use warnings "all";
+use POSIX;
 
 use Getopt::Tabular;
 use MNI::Startup;
@@ -74,9 +75,12 @@ my ($ret,$bla,$sum_left,$sum_right,$sum_white,$sum_gray,$sum);
 &run( "mincdefrag", $white_mask_left, "${TmpDir}/white_mask_left_filled.mnc", 0, 6 );
 &run( "mincdefrag", $white_mask_right, "${TmpDir}/white_mask_right_filled.mnc", 0, 6 );
 
-# Resample at half resolution for more accurate calculation. Do
+# Resample at 0.5mm resolution for more accurate calculation. Do
 # the resampling by hand because of a bug in autocrop with start.
+# Note: There doesn't appear to be any gain at 0.25, 0.5 or 1.0,
+#       except for speed of execution. Maybe we should go back to 1.0.
 
+my $iso = 0.50;
 my $dx = `mincinfo -attvalue xspace:step $white_mask_left`; chomp( $dx );
 my $dy = `mincinfo -attvalue yspace:step $white_mask_left`; chomp( $dy );
 my $dz = `mincinfo -attvalue zspace:step $white_mask_left`; chomp( $dz );
@@ -86,22 +90,19 @@ my $nz = `mincinfo -attvalue zspace:length $white_mask_left`; chomp( $nz );
 my $sx = `mincinfo -attvalue xspace:start $white_mask_left`; chomp( $sx );
 my $sy = `mincinfo -attvalue yspace:start $white_mask_left`; chomp( $sy );
 my $sz = `mincinfo -attvalue zspace:start $white_mask_left`; chomp( $sz );
-$sx -= 0.25 * $dx;  # This shift is missing in autocrop.
-$sy -= 0.25 * $dy;
-$sz -= 0.25 * $dz;
-$dx *= 0.5;
-$dy *= 0.5;
-$dz *= 0.5;
-$nx *= 2;
-$ny *= 2;
-$nz *= 2;
-&run( 'mincresample', '-clob', '-nearest', '-start', $sx, $sy, $sz, 
-      '-step', $dx, $dy, $dz, '-nelements', $nx, $ny, $nz, 
+$sx += 0.50 * ( $iso - $dx );  # This shift is missing in autocrop.
+$sy += 0.50 * ( $iso - $dy );
+$sz += 0.50 * ( $iso - $dz );
+$nx = ceil( $nx * $dx / $iso );
+$ny = ceil( $ny * $dy / $iso );
+$nz = ceil( $nz * $dz / $iso );
+&run( 'mincresample', '-clob', '-quiet', '-nearest', '-start', $sx, $sy, $sz, 
+      '-step', $iso, $iso, $iso, '-nelements', $nx, $ny, $nz, 
       "${TmpDir}/white_mask_left_filled.mnc",
       "${TmpDir}/white_mask_left_filled_iso.mnc" );
 unlink( "${TmpDir}/white_mask_left_filled.mnc" );
-&run( 'mincresample', '-clob', '-nearest', '-start', $sx, $sy, $sz, 
-      '-step', $dx, $dy, $dz, '-nelements', $nx, $ny, $nz, 
+&run( 'mincresample', '-clob', '-quiet', '-nearest', '-start', $sx, $sy, $sz, 
+      '-step', $iso, $iso, $iso, '-nelements', $nx, $ny, $nz, 
       "${TmpDir}/white_mask_right_filled.mnc",
       "${TmpDir}/white_mask_right_filled_iso.mnc" );
 unlink( "${TmpDir}/white_mask_right_filled.mnc" );
@@ -131,7 +132,7 @@ $sum_white = 1 + $sum_left + $sum_right;
 # Compute difference between the surface mask and the target mask. This is not
 # the most accurate because there are errors "voxelizing" the surface.
 
-&run( "minccalc", "-clobber", 
+&run( "minccalc", '-quiet', "-clobber", 
       "-expression", 'if(abs(A[0]-A[1])>0.5){out=1;}else{out=0;}',
       "${TmpDir}/white_mask_left_filled_iso.mnc", "${TmpDir}/wqc.mnc", 
       "${TmpDir}/diff.mnc" );
@@ -145,7 +146,7 @@ chomp( $sum_left );
       "${TmpDir}/white_mask_right_filled_iso.mnc", $white_right, 
       "${TmpDir}/wqc_tmp.mnc" );
 &run( "dilate_volume", "${TmpDir}/wqc_tmp.mnc", "${TmpDir}/wqc.mnc", 0, 6, 1 );
-&run( "minccalc", "-clobber", 
+&run( "minccalc", '-quiet', "-clobber", 
       "-expression", 'if(abs(A[0]-A[1])>0.5){out=1;}else{out=0;}',
       "${TmpDir}/white_mask_right_filled_iso.mnc", "${TmpDir}/wqc.mnc", 
       "${TmpDir}/diff.mnc" );
@@ -165,13 +166,15 @@ my $info = sprintf( "white surface (%5.2f%%), ", 100.0*(${sum_left}+${sum_right}
 
 # number of voxels classified as gray (label 2).
 
-&run( "minccalc", "-clobber", "-expression", 
+&run( "minccalc", '-quiet', "-clobber", "-expression", 
       'if(A[0]>1.5&&A[1]>0.5){out=A[0];}else{out=0;}',
       $cls_correct, $brain_mask, "${TmpDir}/diff.mnc" );
 &run( "mincdefrag", "${TmpDir}/diff.mnc", "${TmpDir}/diff.mnc", 2, 6 );
 
-# Resample at half resolution for more accurate calculation. Do
+# Resample at 0.5mm resolution for more accurate calculation. Do
 # the resampling by hand because of a bug in autocrop with start.
+# Note: There doesn't appear to be any gain at 0.25, 0.5 or 1.0,
+#       except for speed of execution. Maybe we should go back to 1.0.
 
 $dx = `mincinfo -attvalue xspace:step $cls_correct`; chomp( $dx );
 $dy = `mincinfo -attvalue yspace:step $cls_correct`; chomp( $dy );
@@ -182,17 +185,14 @@ $nz = `mincinfo -attvalue zspace:length $cls_correct`; chomp( $nz );
 $sx = `mincinfo -attvalue xspace:start $cls_correct`; chomp( $sx );
 $sy = `mincinfo -attvalue yspace:start $cls_correct`; chomp( $sy );
 $sz = `mincinfo -attvalue zspace:start $cls_correct`; chomp( $sz );
-$sx -= 0.25 * $dx;  # This shift is missing in autocrop.
-$sy -= 0.25 * $dy;
-$sz -= 0.25 * $dz;
-$dx *= 0.5;
-$dy *= 0.5;
-$dz *= 0.5;
-$nx *= 2;
-$ny *= 2;
-$nz *= 2;
-&run( 'mincresample', '-clob', '-nearest', '-start', $sx, $sy, $sz, 
-      '-step', $dx, $dy, $dz, '-nelements', $nx, $ny, $nz, 
+$sx += 0.50 * ( $iso - $dx );  # This shift is missing in autocrop.
+$sy += 0.50 * ( $iso - $dy );
+$sz += 0.50 * ( $iso - $dz );
+$nx = ceil( $nx * $dx / $iso );
+$ny = ceil( $ny * $dy / $iso );
+$nz = ceil( $nz * $dz / $iso );
+&run( 'mincresample', '-quiet', '-clob', '-nearest', '-start', $sx, $sy, $sz, 
+      '-step', $iso, $iso, $iso, '-nelements', $nx, $ny, $nz, 
       "${TmpDir}/diff.mnc", "${TmpDir}/diff_iso.mnc" );
 unlink( "${TmpDir}/diff.mnc" );
 
@@ -215,12 +215,13 @@ $sum_gray += 1;
       "${TmpDir}/gqc_right.mnc", 0, 6, 1 );
 
 # Combine left + right, 
-&run( "minccalc", "-clobber", "-expression", 'if( A[0]>0.5 || A[1]>0.5 ) {out=1;} else {out=0;};', 
+&run( "minccalc", '-quiet', "-clobber", "-expression", 
+      'if( A[0]>0.5 || A[1]>0.5 ) {out=1;} else {out=0;};', 
       "${TmpDir}/gqc_left.mnc", "${TmpDir}/gqc_right.mnc", "${TmpDir}/gqc.mnc" );
 unlink( "${TmpDir}/gqc_left.mnc" );
 unlink( "${TmpDir}/gqc_right.mnc" );
 
-&run( "minccalc", "-clobber", "-expression", 
+&run( "minccalc", '-quiet', "-clobber", "-expression", 
       'if((A[0]>0.5&&A[1]<0.5)||(A[0]<0.5&&A[1]>0.5)){1}else{0}',
       "${TmpDir}/diff_iso.mnc", "${TmpDir}/gqc.mnc", 
       "${TmpDir}/diff.mnc" );

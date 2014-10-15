@@ -26,7 +26,7 @@ my $quiet = 1;
 my @mont_args = ();
 my @DrawText = ( "-font", "Helvetica" );
 
-my $xpos = 1.2*$tilesize;
+my $xpos = 0.80*$tilesize;
 my $ypos = 15;
 
 # Intersect gray surfaces with Laplacian field.
@@ -35,7 +35,7 @@ my $phi_left = "${tmpdir}/phi_left.txt";
 my $phi_right = "${tmpdir}/phi_right.txt";
 `volume_object_evaluate -linear $clasp_field $gm_right $phi_right`;
 
-# Title: Write min/max of Laplacian field on gray surfaces
+# Title: Write min/max/mean of Laplacian field on gray surfaces
 my @ret = `vertstats_stats $phi_left |grep Minimum`;
 $ret[0] =~ / Minimum: (.*)/;
 my $left_min = $1;
@@ -50,10 +50,19 @@ my $left_max = $1;
 $ret[0] =~ / Maximum: (.*)/;
 my $right_max = $1;
 
+@ret = `vertstats_stats $phi_left |grep Mean`;
+$ret[0] =~ / Mean: (.*)/;
+my $left_mean = $1;
+@ret = `vertstats_stats $phi_right |grep Mean`;
+$ret[0] =~ / Mean: (.*)/;
+my $right_mean = $1;
+
 my $phi_min = ( $left_min < $right_min ) ? $left_min : $right_min;
 my $phi_max = ( $left_max > $right_max ) ? $left_max : $right_max;
+my $phi_mean = 0.50 * ( $left_mean + $right_mean );
 
-my $title = sprintf( "Laplacian field on gray surfaces (Min=%f, Max=%f)", $phi_min, $phi_max );
+my $title = sprintf( "Laplacian field on gray surfaces (Min=%5.3f, Max=%6.3f, Mean=%5.3f)", 
+                     $phi_min, $phi_max, $phi_mean );
 push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$title\"";
 
 my $num_rows = 2;

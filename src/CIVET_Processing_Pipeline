@@ -19,7 +19,7 @@
 ###         McGill University
 ###
 ### For more information, have a look at our documentation at:
-###    http://wiki.bic.mni.mcgill.ca/index.php/CIVET
+###    http://www.bic.mni.mcgill.ca/ServicesSoftware/CIVET
 ###                                 
 ############################################################################
 ############################################################################
@@ -51,8 +51,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "1.1.12";
-my $versionDate= "February, 2013";
+my $version = "2.0.0";
+my $versionDate= "September, 2014";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
 $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile> &\n\n";
@@ -60,6 +60,56 @@ $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile
 my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
+
+    1 - marching-cubes algorithm for extraction of initial white surface
+    2 - new calibration of white surface at GM-WM t1-gradient
+    3 - improved node movement in surface fit program
+    4 - corrected functional for Laplacian constraint in surface
+        fit program (for gray surface)
+    5 - improved surface registration 
+    6 - new surface registration models based on marching-cubes
+    7 - simplified CIVET QC pipeline
+    8 - corrected pve classification at 0.50mm volume template
+    9 - all changes listed below for 1.1.13
+    10 - ANIMAL volumetric lobar segmentation
+    11 - corrected fwhm for surface smoothing (was off by sqrt(2) in 1.1.12)
+
+    Note: This version requires the package surface-extraction-3.0.2
+          or higher.
+
+    More to come soon:
+
+    1 - classification and surface extraction in native space.
+    2 - intermediate model for linear and non-linear volume registration.
+    3 - Plug-in for alternate population templates
+    4 - removal of self-intersections in .sm file for surface
+        registration (Maxime Boucher)
+    5 - Longitudinal surface registration and QC
+
+    *************************************************************************
+    New in July, 2013 quarantine, version 1.1.13 (not released)
+
+    1 - bug fixed in N3 to be invariant to voxel size (requires N3-1.12.0
+        and EBTKS-1.6.4)
+    2 - high-resolution surfaces at 320k polygons
+    3 - surface registration on high-resolution surfaces, true
+        multi-resolution algorithm (faster)
+    4 - improved medial cut through the corpus callosum
+    5 - processing at voxel sizes of 0.5mm and 1.0mm
+    6 - speed optimizations for pve
+    7 - speed optimizations for Laplacian field at 0.5mm
+    8 - cropping of non-linear xfm grid file to save disk space
+        and to reduce peak memory
+    9 - masking of hippocampus and amygdala for icbm152nl_09s model (0.5mm)
+    10 - masking of hippocampus and amygdala for ADNIhires model (0.5mm)
+    11 - improved schedule for white matter surface extraction
+         (smoother convergence, scaled starting ellipsoid)
+    12 - new ICBM surface average for scaled ellipsoid
+    13 - clean-up of connected pieces of white matter (partial
+         volumes) 
+    14 - new pipeline to build average surfaces from CIVET output
+
+    ********** From Feb-2013 quarantine, version 1.1.12 **********
 
     1 - Neck-cropping option on native image (-headheight)
     2 - Improved linear registration (now using normalized mutual information
@@ -84,21 +134,6 @@ my $whatsnew = <<NEW;
     11 - Generation of basic glim file as part of the CIVET QC
     12 - New verify figures for Laplacian fit and surface-surface
          intersections
-
-    More to come soon:
-
-    1 - improved medial cut through the corpus callosum.
-    2 - bug fixed in N3 to be invariant to voxel size
-    3 - high-resolution surfaces at 320k polygons.
-    4 - classification and surface extraction in native space.
-    5 - intermediate model for linear and non-linear volume registration.
-    6 - Plug-in for alternate population templates
-    7 - removal of self-intersections in .sm file for surface
-        registration (Maxime Boucher)
-    8 - Improved surface registration by geometric smoothing of
-        the surface
-    9 - Longitudinal surface registration and QC
-    10 - Marching-cubes for initial white surface
 
     ********** From Nov-2010 quarantine, version 1.1.11 **********
 
@@ -276,6 +311,9 @@ $ProgramName, version $version, released $versionDate.
     segmentations, symmetry analyses, regional thickness, surface areas 
     and volumes for brain lobes.
 
+    On-line documentation is available at:
+        http://www.bic.mni.mcgill.ca/ServicesSoftware/CIVET.
+
 $whatsnew
 HELP
 Getopt::Tabular::SetHelp($help, $usage);
@@ -342,7 +380,7 @@ my %PMPconf = ( 'DEFAULT' => { 'type' => "spawn",
                                'command' => "qsub",
                                'queue' => "qwork\@ms",
                                'hosts' => undef,
-                               'opts' => "-l walltime=7:00:00" },
+                               'opts' => "-l walltime=20:00:00 -l nodes=1:ppn=1" },
                 'KISTI'   => { 'type' => "pbs",
                                'maxqueued' => 100,
                                'granularity' => 1,
@@ -388,34 +426,159 @@ my $PMPopts = $PMPconf{$PMPtype}{opts};
 
 ############# Default models for pipeline
 
-my $CIVETModel = "icbm152nl";
+my $CIVETModel = "icbm152nl_09s";  ### "icbm152nl"; Now 2009-sym model in v2.0.0+.
+my $SurfRegModel = undef;
 my $TemplateSize = "1.00";
+
+my %SURFACEmodels = ( 'icbm152MCsym'  => {  # ICBM152, marching-cubes, symmetric
+                        'SurfRegModelDir'  => "$FindBin::Bin/models",
+                        'WhiteModelLeft'   => "icbm/icbm_avg_white_sym_mc_left.obj",
+                        'WhiteModelRight'  => "icbm/icbm_avg_white_sym_mc_right.obj",
+                        'WhiteModelMaskLeft'  => "icbm/icbm_avg_white_sym_mc_mask_left.txt",
+                        'WhiteModelMaskRight' => "icbm/icbm_avg_white_sym_mc_mask_right.txt",
+                        'MidModelLeft'     => "icbm/icbm_avg_mid_sym_mc_left.obj",
+                        'MidModelRight'    => "icbm/icbm_avg_mid_sym_mc_right.obj",
+                        'MidModelLeftHi'   => "icbm/icbm_avg_mid_sym_mc_left_hires.obj",
+                        'MidModelRightHi'  => "icbm/icbm_avg_mid_sym_mc_right_hires.obj",
+                        'SurfAtlasLeft'    => "icbm/lobes/icbm_avg_mid_sym_mc_atlas_left.txt",
+                        'SurfAtlasRight'   => "icbm/lobes/icbm_avg_mid_sym_mc_atlas_right.txt",
+                        'SurfGyriLeft'     => "icbm/gyri/icbm_avg_mid_sym_mc_gyri_left.txt",
+                        'SurfGyriRight'    => "icbm/gyri/icbm_avg_mid_sym_mc_gyri_right.txt",
+                      },
+                      # 'icbm152MCasym' => {  # ICBM152, marching-cubes, asymmetric
+                      #   'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      #   'WhiteModelLeft'   => "icbm/icbm_avg_white_asym_mc_left.obj",
+                      #   'WhiteModelRight'  => "icbm/icbm_avg_white_asym_mc_right.obj",
+                      #   'WhiteModelMaskLeft'  => undef,
+                      #   'WhiteModelMaskRight' => undef,
+                      #   'MidModelLeft'     => "icbm/icbm_avg_mid_asym_mc_left.obj",
+                      #   'MidModelRight'    => "icbm/icbm_avg_mid_asym_mc_right.obj",
+                      #   'MidModelLeftHi'   => "icbm/icbm_avg_mid_asym_mc_left_hires.obj",
+                      #   'MidModelRightHi'  => "icbm/icbm_avg_mid_asym_mc_right_hires.obj",
+                      #   'SurfAtlasLeft'    => "atlas/icbm_avg_white_asym_mc_left.txt",   ## incomplete
+                      #   'SurfAtlasRight'   => "atlas/icbm_avg_white_asym_mc_right.txt",
+                      #   'SurfGyriLeft'     => "atlas/icbm_avg_white_asym_mc_gyri_left.txt",
+                      #   'SurfGyriRight'    => "atlas/icbm_avg_white_asym_mc_gyri_right.txt",
+                      # },
+                      # 'adniMCsym'     => {  # ADNI, marching-cubes, symmetric
+                      #   'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      #   # not ready.
+                      #   'WhiteModelLeft'   => "adni/icbm_avg_white_asym_mc_left.obj",
+                      #   'WhiteModelRight'  => "adni/icbm_avg_white_asym_mc_right.obj",
+                      #   'WhiteModelMaskLeft'  => undef,
+                      #   'WhiteModelMaskRight' => undef,
+                      #   'MidModelLeft'     => "adni/icbm_avg_mid_asym_mc_left.obj",
+                      #   'MidModelRight'    => "adni/icbm_avg_mid_asym_mc_right.obj",
+                      #   'MidModelLeftHi'   => "adni/icbm_avg_mid_asym_mc_left_hires.obj",
+                      #   'MidModelRightHi'  => "adni/icbm_avg_mid_asym_mc_right_hires.obj",
+                      #   'SurfAtlasLeft'    => "atlas/icbm_avg_white_sym_mc_left.txt",
+                      #   'SurfAtlasRight'   => "atlas/icbm_avg_white_sym_mc_right.txt",
+                      #   'SurfGyriLeft'     => "atlas/icbm_avg_white_sym_mc_gyri_left.txt",
+                      #   'SurfGyriRight'    => "atlas/icbm_avg_white_sym_mc_gyri_right.txt",
+                      # },
+                      # 'adniMCasym'    => {  # ADNI, marching-cubes, asymmetric
+                      #   'SurfRegModelDir'  => "$FindBin::Bin/models",
+                      #   'WhiteModelLeft'   => "adni/adni_avg_white_asym_mc_left.obj",
+                      #   'WhiteModelRight'  => "adni/adni_avg_white_asym_mc_right.obj",
+                      #   'WhiteModelMaskLeft'  => undef,
+                      #   'WhiteModelMaskRight' => undef,
+                      #   'MidModelLeft'     => "adni/adni_avg_mid_asym_mc_left.obj",
+                      #   'MidModelRight'    => "adni/adni_avg_mid_asym_mc_right.obj",
+                      #   'MidModelLeftHi'   => "adni/adni_avg_mid_asym_mc_left_hires.obj",
+                      #   'MidModelRightHi'  => "adni/adni_avg_mid_asym_mc_right_hires.obj",
+                      #   'SurfAtlasLeft'    => "atlas/icbm_avg_white_asym_mc_left.txt",
+                      #   'SurfAtlasRight'   => "atlas/icbm_avg_white_asym_mc_right.txt",
+                      #   'SurfGyriLeft'     => "atlas/icbm_avg_white_sym_mc_gyri_left.txt",
+                      #   'SurfGyriRight'    => "atlas/icbm_avg_white_sym_mc_gyri_right.txt",
+                      # },
+                      'colinMCasym'   => {  # Colin, marching-cubes, asymmetric
+                        'SurfRegModelDir'  => "$FindBin::Bin/models",
+                        'WhiteModelLeft'   => "colin/colin_white_mc_left.obj",
+                        'WhiteModelRight'  => "colin/colin_white_mc_right.obj",
+                        'WhiteModelMaskLeft'  => "colin/colin_white_mc_mask_left.txt",
+                        'WhiteModelMaskRight'  => "colin/colin_white_mc_mask_right.txt",
+                        'MidModelLeft'     => "colin/colin_mid_mc_left.obj",
+                        'MidModelRight'    => "colin/colin_mid_mc_right.obj",
+                        'MidModelLeftHi'   => "colin/colin_mid_mc_left_hires.obj",
+                        'MidModelRightHi'  => "colin/colin_mid_mc_right_hires.obj",
+                        'SurfAtlasLeft'    => "colin/lobes/surface_atlas_colin_mc_left.txt",
+                        'SurfAtlasRight'   => "colin/lobes/surface_atlas_colin_mc_right.txt",
+                        'SurfGyriLeft'     => "colin/gyri/surface_gyri_colin_mc_left.txt",
+                        'SurfGyriRight'    => "colin/gyri/surface_gyri_colin_mc_right.txt"
+                      },
+                      'samirMCasym'     => {  # IBIS Phantom (Samir), marching-cubes, asymmetric
+                        'SurfRegModelDir'  => "$FindBin::Bin/models",
+                        'WhiteModelLeft'   => "samir/samir_white_left.obj",
+                        'WhiteModelRight'  => "samir/samir_white_right.obj",
+                        'WhiteModelMaskLeft'  => "samir/samir_white_mc_mask_left.txt",
+                        'WhiteModelMaskRight' => "samir/samir_white_mc_mask_right.txt",
+                        'MidModelLeft'     => "samir/samir_mid_left.obj",
+                        'MidModelRight'    => "samir/samir_mid_right.obj",
+                        'MidModelLeftHi'   => "samir/samir_mid_left_hires.obj",
+                        'MidModelRightHi'  => "samir/samir_mid_right_hires.obj",
+                        'SurfAtlasLeft'    => "samir/lobes/surface_atlas_samir_mc_left.txt",
+                        'SurfAtlasRight'   => "samir/lobes/surface_atlas_samir_mc_right.txt",
+                        'SurfGyriLeft'     => "samir/gyri/surface_gyri_samir_mc_left.txt",
+                        'SurfGyriRight'    => "samir/gyri/surface_gyri_samir_mc_right.txt"
+                      },
+                    );
+
+my %ANIMALmodels = ( 'icbm152nl-VI' => {
+                       'AnimalAtlas'      => "icbm152-nl-VI",
+                       'AnimalAtlasDir'   => MNI::DataDir::dir("ANIMAL_INSECT"),
+                       'AnimalNLRegDir'   => MNI::DataDir::dir("mni-models"),
+                       'AnimalNLRegModel' => "icbm_avg_152_t1_tal_nlin_symmetric_VI"
+                     },
+                     'icbm152nl-2009a' => {
+                       'AnimalAtlas'      => "icbm152-nl-2009a",
+                       'AnimalAtlasDir'   => MNI::DataDir::dir("ANIMAL_INSECT"),
+                       'AnimalNLRegDir'   => MNI::DataDir::dir("mni-models"),
+                       'AnimalNLRegModel' => "mni_icbm152_t1_tal_nlin_sym_09a"
+                     },
+                   );
+
 
 ### add avg64 model for cortical_surface, sphere models, 
 
-my %CIVETmodels = ( 'icbm152nl_09a' => {
+my %CIVETmodels = ( 'colin27' => {  # asymmetric
                       'RegLinDir'        => MNI::DataDir::dir("mni-models"),
-                      'RegLinModel'      => "mni_icbm152_t1_tal_nlin_asym_09a",
+                      'RegLinModel'      => "colin27_t1_tal_lin.mnc",
                       'RegNLDir'         => MNI::DataDir::dir("mni-models"),
-                      'RegNLModel'       => "mni_icbm152_t1_tal_nlin_asym_09a",
+                      'RegNLModel'       => "colin27_t1_tal_lin.mnc",
                       'TemplateDir'      => MNI::DataDir::dir("ICBM"),
                       'TemplateModel'    => "icbm_template",
                       'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
-                      'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_asym_09a_mask.obj",
-                      'SurfRegModelDir'  => "$FindBin::Bin/models",
-                      'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
-                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
-                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
-                      'TagFileDir'       => MNI::DataDir::dir("classify"),
-                      'TagFile'          => "ntags_1000_prob_90_nobg.tag",
-                      'bgTagFile'        => "ntags_1000_bg.tag",
-                      'AnimalAtlas'      => undef,
-                      'AnimalAtlasDir'   => undef,
-                      'AnimalNLRegDir'   => undef,
-                      'AnimalNLRegModel' => undef
+                      'SurfaceMask'      => "colin27_t1_tal_lin_mask.obj",
+                      'SurfRegModel'     => "colinMCasym",
+                      'SubcorticalMask'  => MNI::DataDir::dir("mni-models") . 
+                                            "/Cerebellum_Ventricles_SubCortical_Mask-colin.mnc",
+                      'TagFileDir'       => MNI::DataDir::dir("classify-Colin"),
+                      'TagFile'          => "colin27_t1_tal_lin_ntags_1000_nobg.tag",
+                      'bgTagFile'        => "colin27_t1_tal_lin_ntags_1000_bg.tag",
+                      'AnimalModel'      => undef,
+                      'AnimalRegNLModel' => undef,
                     },
+                    ## Incomplete: needs asym tags and asym Cereb-Vent mask.
+                    # 'icbm152nl_09a' => {
+                    #   'RegLinDir'        => MNI::DataDir::dir("mni-models"),
+                    #   'RegLinModel'      => "mni_icbm152_t1_tal_nlin_asym_09a",
+                    #   'RegNLDir'         => MNI::DataDir::dir("mni-models"),
+                    #   'RegNLModel'       => "mni_icbm152_t1_tal_nlin_asym_09a",
+                    #   'TemplateDir'      => MNI::DataDir::dir("ICBM"),
+                    #   'TemplateModel'    => "icbm_template",
+                    #   'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
+                    #   'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_asym_09a_mask.obj",
+                    #   'SurfRegModel   '  => "icbm152MCsym",  ## asym not yet available
+                    #   'SubcorticalMask'  => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
+                    #   'TagFileDir'       => MNI::DataDir::dir("classify"),
+                    #   'TagFile'          => "ntags_1000_prob_90_nobg.tag",
+                    #   'bgTagFile'        => "ntags_1000_bg.tag",
+                    #   'AnimalModel'      => undef,
+                    #   'AnimalRegNLModel' => undef,
+                    # },
+
+                    # WARNING: model is at 1mm, Cerebellum mask is at 0.5mm. 
+                    #          where is the model at 0.5mm?
                     'icbm152nl_09s' => {
                       'RegLinDir'        => MNI::DataDir::dir("mni-models"),
                       'RegLinModel'      => "mni_icbm152_t1_tal_nlin_sym_09a",
@@ -425,19 +588,13 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'TemplateModel'    => "icbm_template",
                       'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
                       'SurfaceMask'      => "mni_icbm152_t1_tal_nlin_sym_09a_mask.obj",
-                      'SurfRegModelDir'  => "$FindBin::Bin/models",
-                      'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
-                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
-                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
+                      'SurfRegModel'     => "icbm152MCsym",
+                      'SubcorticalMask'  => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask-2009s.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "ntags_1000_prob_90_nobg.tag",
                       'bgTagFile'        => "ntags_1000_bg.tag",
-                      'AnimalAtlas'      => undef,
-                      'AnimalAtlasDir'   => undef,
-                      'AnimalNLRegDir'   => undef,
-                      'AnimalNLRegModel' => undef
+                      'AnimalModel'      => undef,
+                      'AnimalRegNLModel' => undef,
                     },
                     'icbm152nl' => {
                       'RegLinDir'        => MNI::DataDir::dir("mni-models"),
@@ -448,19 +605,13 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'TemplateModel'    => "icbm_template",
                       'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
-                      'SurfRegModelDir'  => "$FindBin::Bin/models",
-                      'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
-                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
-                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
+                      'SurfRegModel'     => "icbm152MCsym",
+                      'SubcorticalMask'  => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask-VI.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "ntags_1000_prob_90_nobg.tag",
                       'bgTagFile'        => "ntags_1000_bg.tag",
-                      'AnimalAtlas'      => undef,
-                      'AnimalAtlasDir'   => undef,
-                      'AnimalNLRegDir'   => undef,
-                      'AnimalNLRegModel' => undef
+                      'AnimalModel'      => undef,
+                      'AnimalRegNLModel' => undef,
                     },
                     'icbm152lin' => {
                       'RegLinDir'        => MNI::DataDir::dir("mni-models"),
@@ -471,43 +622,34 @@ my %CIVETmodels = ( 'icbm152nl_09a' => {
                       'TemplateModel'    => "icbm_template",
                       'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_lin_symmetric_mask.obj",
-                      'SurfRegModelDir'  => "$FindBin::Bin/models",
-                      'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
-                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
-                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
+                      'SurfRegModel'     => "icbm152MCsym",
+                      'SubcorticalMask'  => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "ntags_1000_prob_90_nobg.tag",
                       'bgTagFile'        => "ntags_1000_bg.tag",
-                      'AnimalAtlas'      => undef,
-                      'AnimalAtlasDir'   => undef,
-                      'AnimalNLRegDir'   => undef,
-                      'AnimalNLRegModel' => undef
+                      'AnimalModel'      => undef,
+                      'AnimalRegNLModel' => undef,
                     },
-                    'ADNInl' => {
+                    # ADNI, symmetric, 0.5mm res, with good painted mask with amygdal/hippocampus,
+                    #       surface registration is to ICBM mc_sym.
+                    'ADNIhires' => {     # this model is up-to-date and good (Nov 2013)
                       'RegLinDir'        => MNI::DataDir::dir("mni-models"),
-                      'RegLinModel'      => "mni_adni_t1w_tal_nlin_asym",
+                      'RegLinModel'      => "mni_adni_hi_t1w_tal_nlin_sym",
                       'RegNLDir'         => MNI::DataDir::dir("mni-models"),
-                      'RegNLModel'       => "mni_adni_t1w_tal_nlin_asym",
+                      'RegNLModel'       => "mni_adni_hi_t1w_tal_nlin_sym",
                       'TemplateDir'      => MNI::DataDir::dir("ICBM"),
                       'TemplateModel'    => "icbm_template",
                       'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
-                      'SurfaceMask'      => "mni_adni_t1w_tal_nlin_asym_mask.obj",
-                      'SurfRegModelDir'  => "$FindBin::Bin/models",
-                      'SurfRegModel'     => "surf_reg_model_left.obj",
-                      'SurfRegDataTerm'  => "surf_reg_model_left.txt",
-                      'SurfAtlasLeft'    => "$FindBin::Bin/models/surface_atlas.txt",
-                      'SurfAtlasRight'   => "$FindBin::Bin/models/surface_atlas.txt",
-                      'WhiteSurfMask'    => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask-ADNI.mnc",
+                      'SurfaceMask'      => "mni_adni_hi_t1w_tal_nlin_sym_mask.obj",
+                      'SurfRegModel'     => "icbm152MCsym",
+                      'SubcorticalMask'  => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask-ADNIhi.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify-ADNI"),
-                      'TagFile'          => "mni_adni_t1w_tal_nlin_asym_ntags_1000_nobg.tag",
-                      'bgTagFile'        => "mni_adni_t1w_tal_nlin_asym_ntags_1000_bg.tag",
-                      'AnimalAtlas'      => undef,
-                      'AnimalAtlasDir'   => undef,
-                      'AnimalNLRegDir'   => undef,
-                      'AnimalNLRegModel' => undef
+                      'TagFile'          => "mni_adni_hi_t1w_tal_nlin_sym_ntags_nobg.tag",
+                      'bgTagFile'        => "mni_adni_hi_t1w_tal_nlin_sym_ntags_bg.tag",
+                      'AnimalModel'      => undef,
+                      'AnimalRegNLModel' => undef,
                     },
+
                   );
 
 ############# The status report filename:
@@ -518,11 +660,12 @@ my $statusReportFile = "CIVET_status_report.csv";
 ############# polygon surfaces, no symmetry stages, and surface registration. 
 my $inputType = "t1only";
 my $correctPVE = 0;
+my $calibrateWhite = 1;
 my $maskType = "t1only";
 my $interpMethod = "trilinear";
 my $headheight = 0;
 my $N3Distance = undef;
-my $N3Damping = "1.0e-07";
+my $N3Damping = "2.0e-06";
 my $lsqtype = "-lsq9";
 my $Area_fwhm = "40";
 my $Volume_fwhm = "40";
@@ -532,17 +675,14 @@ my $VBM_symmetry = "noSymmetry";
 my $VBM_cerebellum = "Cerebellum";
 my $surface = "SURFACE";
 my $MaskBloodVessels = 0;
-my @thickness = ("tlink","20");
+my @thickness = ("tlink","30");
 my $ResampleSurfaces = 0;
 my $MeanCurvature = 0;
 my $CombineSurfaces = 0;
-my @SurfaceAtlas = ();
+my $SurfaceAtlas = "lobes";
 
 my $animal = "noANIMAL";
 my $AnimalAtlas = undef;
-my $AnimalAtlasDir = undef;
-my $AnimalNLRegDir = undef;
-my $AnimalNLRegModel = undef;
 
 ############# Some directories that the user will need to specify
 my $sourceDir = undef;
@@ -577,48 +717,64 @@ my @argTbl = (
            "Define the template for image processing in stereotaxic space (0.50, 0.75, 1.00, 1.50, 2.00, 3.00, 4.00, 6.00).", "<val>"],
           ["-model", "string", 1, \$CIVETModel,
            "Define the model for image-processing: " .
+           "\"colin27\" (MNI Colin27 asymmetric (2009)), " .
            "\"icbm152nl_09s\" (MNI ICBM152 non-linear symmetric (2009)), " .
-           "\"icbm152nl_09a\" (MNI ICBM152 non-linear asymmetric (2009)), " .
+           ## "\"icbm152nl_09a\" (MNI ICBM152 non-linear asymmetric (2009)), " .
            "\"icbm152nl\" (MNI ICBM152 non-linear 6th generation), " .
            "\"icbm152lin\" (MNI ICBM152 linear), " .
-           "\"ADNInl\" (MNI ADNI non-linear) ",
+           "\"ADNIhires\" (MNI ADNI non-linear hi-res sym 0.5mm) ",
            "<model>"],
-          ["-surface-atlas", "string", 2, \@SurfaceAtlas,
-           "Define the atlas for surface parcellation ",
-           "<atlas_left.txt> <atlas_right.txt>"],
+          ["-surfreg-model", "string", 1, \$SurfRegModel,
+           "Define the model for surface registration: " .
+           "\"icbm152MCsym\" (ICBM152, marching-cubes, symmetric (2014)), " .
+           ## "\"icbm152MCasym\" (ICBM152, marching-cubes, asymmetric (2013)), " .
+           ## "\"adniMCsym\" (ADNI, marching-cubes, symmetric (2013)), " .
+           ## "\"adniMCasym\" (ADNI, marching-cubes, symmetric (2013)), " .
+           "\"colinMCasym\" (Colin, marching-cubes, asymmetric (2014)), " .
+           "\"samirMCasym\" (IBIS Phantom (Samir), marching-cubes, asymmetric (2014))",
+           "<model>"],
+          ["-surface-atlas", "string", 1, \$SurfaceAtlas,
+           "Define the atlas for surface parcellation: " .
+           "\"lobes\" (coarse lobar parcellation, symmetric), " .
+           "\"AAL\" (AAL parcellation, asymmetric, based on Colin brain), " .
+           "\"DKT\" (DKT-40 parcellation, asymmetric)",
+           "<model>"],
           ["CIVET options", "section"],  
           ["-multispectral", "const", "multispectral", \$inputType, 
            "Use T1, T2 and PD native files for tissue classification."],
           ["-correct-pve|-no-correct-pve", "boolean", 1, \$correctPVE, 
            "Apply correction to the mean and variance of tissue types at pve iterations."],
+          ["-calibrate-white|-no-calibrate-white", "boolean", 1, \$calibrateWhite,
+           "Apply gradient intensity correction for calibration of white surface."],
           ["-spectral_mask", "const", "multispectral", \$maskType, 
            "Use T1, T2 and PD stereotaxic files for brain masking."],
           ["-interp", "string", 1, \$interpMethod,
-           "Interpolation method from native to stereotaxic space (\"trilinear\", \"tricubic\", \"sinc\"",
+           "Interpolation method from native to stereotaxic space (\"trilinear\", \"tricubic\", \"sinc\")",
            "<method>"],
           ["-headheight", "string", 1, \$headheight, 
            "head height in mm for neck cropping (suggested value: 170; default 0=none).", "<dist>"],
           ["-N3-distance", "string", 1, \$N3Distance, 
            "N3 spline distance in mm (suggested values: 200 for 1.5T scan; 50 for 3T scan).", "<dist>"],
           ["-N3-damping", "string", 1, \$N3Damping, 
-           "N3 damping coefficient (lambda) (suggested values: 1.0e-07).", "<lambda>"],
+           "N3 damping coefficient (lambda) (suggested values: 2.0e-06).", "<lambda>"],
           ["-lsq6", "const", "-lsq6", \$lsqtype,
            "use 6-parameter transformation for linear registration [default -lsq9]" ],
           ["-lsq12", "const", "-lsq12", \$lsqtype,
            "use 12-parameter transformation for linear registration [default -lsq9]" ],
           ["-no-surfaces", "const", "noSURFACE", \$surface, "don\'t build surfaces"],
+          ["-hi-res-surfaces", "const", "hiResSURFACE", \$surface, "build high resolution surfaces"],
           ["-mask-blood-vessels|-no-mask-blood-vessels", "boolean", 1, \$MaskBloodVessels,
            "mask blood vessels prior to white surface extraction"],
           ["-thickness", "string", 2, \@thickness,
-           "compute cortical thickness and blur [tlink|tlaplace|tnear|tnormal] [kernel size in mm]"],
+           "compute cortical thickness and blur [tlink|tlaplace|tfs] [fwhm1:fwhm2:...:fwhmn kernel sizes in mm]"],
           ["-resample-surfaces|-no-resample-surfaces", "boolean", 1, \$ResampleSurfaces,
            "resample cortical surfaces"],
           ["-mean-curvature|-no-mean-curvature", "boolean", 1, \$MeanCurvature,
            "produce mean curvature maps on surfaces"],
           ["-area-fwhm", "string", 1, \$Area_fwhm, 
-           "blurring kernel size in mm for resampled surface areas", "<fwhm>"],
+           "fwhm1:fwhm2:...:fwhmn blurring kernel sizes in mm for resampled surface areas", "<fwhm>"],
           ["-volume-fwhm", "string", 1, \$Volume_fwhm, 
-           "blurring kernel size in mm for resampled surface volumes", "<fwhm>"],
+           "fwhm1:fwhm2:...:fwhmn blurring kernel sizes in mm for resampled surface volumes", "<fwhm>"],
           ["-combine-surfaces|-no-combine-surfaces", "boolean", 1, \$CombineSurfaces,
            "combine left and right cortical surfaces"],
 
@@ -639,16 +795,13 @@ my @argTbl = (
 
           ["ANIMAL options", "section"],  
           ["-animal", "const", "ANIMAL", \$animal, 
-           "run volumetric ANIMAL segmentation and cortical surface lobe parcellation [default -no-animal]"],
+           "run volumetric ANIMAL segmentation [default -no-animal]"],
           ["-no-animal", "const", "noANIMAL", \$animal, 
-           "don\'t run volumetric ANIMAL segmentation and cortical surface lobe parcellation"],
-          ["-symmetric_atlas", "const", "-symmetric_atlas", \$AnimalAtlas, 
-           "Use linear symmetric atlas for ANIMAL segmentation (old way)"],
-          ["-lobe_atlas", "const", "-lobe_atlas", \$AnimalAtlas, 
-           "Use non-linear lobe atlas for ANIMAL segmentation (new way)"],
-          ["-animal-atlas-dir", "string", 1, \$AnimalAtlasDir, 
-           "Directory containing the segmentation atlas", "<dir>"],
-
+           "don\'t run volumetric ANIMAL segmentation "],
+          ["-lobe_atlas", "string", 1, \$AnimalAtlas, 
+           "Use lobe atlas for ANIMAL segmentation: " .
+           "\"icbm152nl-VI\" (ICBM152 generation VI symmetric model), " .
+           "\"icbm152nl-2009a\" (ICBM152 2009a symmetric model)", "<model>" ],
           ["Pipeline control", "section"],
           ["-run", "const", "run", \$command, "Run the pipeline."],
           ["-status-from-files", "const", "statusFromFiles", \$command, "Compute pipeline status from files"],
@@ -671,25 +824,29 @@ GetOptions(\@argTbl, \@ARGV, \@leftOverArgs) or die "\n";
 
 ############# Basic usage
 my @dsids;
+my @long_dsids;
 
 if ($idTextFile) {
     open (IDTEXTFILE, "$idTextFile") or die ("Cannot open '$idTextFile': $!");
     # read the whole text file into one string
     my $idstext = "";
     while (my $idline = <IDTEXTFILE>) {
-    $idstext .= $idline;
+      $idstext .= $idline;
     }
     close (IDTEXTFILE) or die ("Cannot close '$idTextFile': $!");
     # split the string on whitespace (\s) or comma
-    @dsids = split(/[\s,]+/, $idstext);
-} 
-else {
-    @dsids = @leftOverArgs or die $usage;
+    @long_dsids = split(/[\s,]+/, $idstext);
+} else {
+    @long_dsids = @leftOverArgs or die $usage;
+}
+for my $id (@long_dsids) {
+  push @dsids, split( /:/, $id );   # split longitudinal to individual dsids
 }
 
 unless ($prefix && $target && $sourceDir) {
     die "\n\n*******ERROR********: \n     You must specify -prefix, -targetdir, and -sourcedir \n********************\n\n\n";
 }
+
 $target =~ s#/+$##;      # remove trailing / at end of directory name, if any
 $target = abs_path( $target );
 $sourceDir = abs_path( $sourceDir );
@@ -747,91 +904,130 @@ my $intermediate_model = undef;
 
 ############# Define Surface registration targets and directories and print them
 
-my $SurfRegModelDir = $CIVETmodels{$CIVETModel}{SurfRegModelDir};
-my $SurfRegModel = $CIVETmodels{$CIVETModel}{SurfRegModel};
-my $SurfRegDataTerm = $CIVETmodels{$CIVETModel}{SurfRegDataTerm};
+my $smodel = $CIVETmodels{$CIVETModel}{SurfRegModel};
+if( defined( $SurfRegModel ) ) {
+  foreach my $key ( keys %SURFACEmodels ) {
+    if( $key eq $SurfRegModel ) {
+      $smodel = $SurfRegModel;
+    }
+  }
+}
+$SurfRegModel = $smodel;
 
-print "* Surface registration model directory is: \n  ${SurfRegModelDir} \n";
-print "* Surface registration model is:    \n   ${SurfRegModel} \n";
-print "* Surface registration dataterm is: \n   ${SurfRegDataTerm} \n";
+if( $surface eq "hiResSURFACE" ) {
+  $SURFACEmodels{$smodel}{MidModelLeft} = $SURFACEmodels{$smodel}{MidModelLeftHi};
+  $SURFACEmodels{$smodel}{MidModelRight} = $SURFACEmodels{$smodel}{MidModelRightHi};
+}
+
+print "* Surface registration template is: $smodel \n";
+print "* Surface registration model directory is: \n  $SURFACEmodels{$smodel}{SurfRegModelDir} \n";
+print "* Surface registration model (left) is:    \n  $SURFACEmodels{$smodel}{MidModelLeft} \n";
+print "* Surface registration model (right) is:   \n  $SURFACEmodels{$smodel}{MidModelRight} \n";
 
 ############# Choose surface parcellation atlas if surfaces are to be resampled.
 
-if( defined @SurfaceAtlas ) {
+if( defined $SurfaceAtlas ) {
   if( !$ResampleSurfaces ) {
     die "You specified a surface parcellation atlas but did not ask to " .
         "resample the surfaces. Use -resample-surfaces option.\n";
   }
-  if( defined $SurfaceAtlas[0] && defined $SurfaceAtlas[1] ) {
-    if( -e $SurfaceAtlas[0] && -e $SurfaceAtlas[1] ) {
-      $CIVETmodels{$CIVETModel}{SurfAtlasLeft} = $SurfaceAtlas[0];
-      $CIVETmodels{$CIVETModel}{SurfAtlasRight} = $SurfaceAtlas[1];
-    } else {
-      if( -e "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[0]" && 
-          -e "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[1]" ) {
-        $CIVETmodels{$CIVETModel}{SurfAtlasLeft} = "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[0]";
-        $CIVETmodels{$CIVETModel}{SurfAtlasRight} = "$CIVETmodels{$CIVETModel}{SurfRegModelDir}/$SurfaceAtlas[1]";
-      } else {
-        die "You specified a surface parcellation atlas but the atlas " .
-            "cannot be found. Please check filename for atlas.\n";
+  if( $SurfaceAtlas eq "lobes" || $SurfaceAtlas eq "DKT" || $SurfaceAtlas eq "AAL" ) {
+
+    my $left_atlas = undef;
+    my $right_atlas = undef;
+
+    if( $smodel eq "icbm152MCsym" ) {
+      if( $SurfaceAtlas eq "lobes" ) {
+        $left_atlas = "icbm/lobes/icbm_avg_mid_sym_mc_atlas_left.txt";
+        $right_atlas = "icbm/lobes/icbm_avg_mid_sym_mc_atlas_right.txt";
       }
+      if( $SurfaceAtlas eq "DKT" ) {
+        $left_atlas = "icbm/DKT/icbm_avg_mid_mc_dkt40_left.txt";
+        $right_atlas = "icbm/DKT/icbm_avg_mid_mc_dkt40_left.txt";
+      }
+      if( $SurfaceAtlas eq "AAL" ) {
+        $left_atlas = "icbm/AAL/icbm_avg_mid_sym_mc_AAL_left.txt";
+        $right_atlas = "icbm/AAL/icbm_avg_mid_sym_mc_AAL_right.txt";
+      }
+    } else {
+      if( $smodel eq "colinMCasym" ) {
+        if( $SurfaceAtlas eq "lobes" ) {
+          $left_atlas = "colin/lobes/surface_atlas_colin_mc_left.txt";
+          $right_atlas = "colin/lobes/surface_atlas_colin_mc_right.txt";
+        }
+        if( $SurfaceAtlas eq "DKT" ) {
+          die "The DKT-40 atlas is not yet available on the Colin brain.\n";
+        }
+        if( $SurfaceAtlas eq "AAL" ) {
+          $left_atlas = "colin/AAL/AAL_atlas_colin_mc_hires_left.txt";
+          $right_atlas = "colin/AAL/AAL_atlas_colin_mc_hires_right.txt";
+        }
+      } else {
+        if( $smodel eq "samirMCasym" ) {
+          if( $SurfaceAtlas eq "lobes" ) {
+            $left_atlas = "samir/lobes/surface_atlas_samir_mc_left.txt";
+            $right_atlas = "samir/lobes/surface_atlas_samir_mc_right.txt";
+          }
+          if( $SurfaceAtlas eq "DKT" ) {
+            die "The DKT-40 atlas is not yet available on the Samir brain.\n";
+          }
+          if( $SurfaceAtlas eq "AAL" ) {
+            die "The AAL atlas is not yet available on the Samir brain.\n";
+          }
+        }
+      }
+    }
+
+    if( defined( $left_atlas ) && defined( $right_atlas ) ) {
+      $SURFACEmodels{$smodel}{SurfAtlasLeft} = "$SURFACEmodels{$smodel}{SurfRegModelDir}/$left_atlas";
+      $SURFACEmodels{$smodel}{SurfAtlasRight} = "$SURFACEmodels{$smodel}{SurfRegModelDir}/$right_atlas";
+    } else {
+      die "The surface parcellation atlas for this model is not defined.\n";
+    }
+
+    if( !( -e $SURFACEmodels{$smodel}{SurfAtlasLeft} && 
+           -e $SURFACEmodels{$smodel}{SurfAtlasRight} ) ) {
+      die "You specified a surface parcellation atlas but the atlas " .
+          "cannot be found. Please check filename for atlas.\n";
     }
   }
 }
 
-print "* Surface parcellation model (left) is: \n  $CIVETmodels{$CIVETModel}{SurfAtlasLeft}\n";
-print "* Surface parcellation model (right) is: \n  $CIVETmodels{$CIVETModel}{SurfAtlasRight}\n";
+print "* Surface parcellation model (left) is: \n  $SURFACEmodels{$smodel}{SurfAtlasLeft}\n";
+print "* Surface parcellation model (right) is: \n  $SURFACEmodels{$smodel}{SurfAtlasRight}\n";
+
+if( -e "$SURFACEmodels{$smodel}{SurfRegModelDir}/$SURFACEmodels{$smodel}{SurfGyriLeft}" &&
+    -e "$SURFACEmodels{$smodel}{SurfRegModelDir}/$SURFACEmodels{$smodel}{SurfGyriRight}" ) {
+  $SURFACEmodels{$smodel}{SurfGyriLeft} = "$SURFACEmodels{$smodel}{SurfRegModelDir}/" .
+                                          "$SURFACEmodels{$smodel}{SurfGyriLeft}";
+  $SURFACEmodels{$smodel}{SurfGyriRight} = "$SURFACEmodels{$smodel}{SurfRegModelDir}/" .
+                                           "$SURFACEmodels{$smodel}{SurfGyriRight}";
+}
+
+print "* Surface gyri model (left) is: \n  $SURFACEmodels{$smodel}{SurfGyriLeft}\n";
+print "* Surface gyri model (right) is: \n  $SURFACEmodels{$smodel}{SurfGyriRight}\n";
+
 
 ############# Choose ANIMAL model.
 
 if( $animal eq "ANIMAL" ) {
   if( ( defined $AnimalAtlas ) && 
-      ( $AnimalAtlas eq "-symmetric_atlas" || $AnimalAtlas eq "-lobe_atlas" ) ) {
-    if( !( defined $AnimalAtlasDir ) ) {
-      # Try to get the default one in the quarantine, if it has been installed.
-      $AnimalAtlasDir = MNI::DataDir::dir("ANIMAL_INSECT");
-    }
-    if( !( -e $AnimalAtlasDir ) ) {
-      print "Warning: Required ANIMAL atlas directory $AnimalAtlasDir does not exist.\n";
-      $animal = "noANIMAL";
-    } else {
-      if( $AnimalAtlas eq "-symmetric_atlas" ) {
-        $AnimalAtlasDir .= "/icbm152-symmetric-v1.0/";
-        $AnimalNLRegModel = "icbm_avg_152_t1_tal_lin_symmetric";
-        $AnimalNLRegDir = MNI::DataDir::dir("mni-models");
-      } elsif( $AnimalAtlas eq "-lobe_atlas" ) {
-        $AnimalAtlasDir .= "/icbm152-lobes-v1.1/";
-        $AnimalNLRegModel = "icbm_avg_152_t1_tal_nlin_symmetric_VI";
-        $AnimalNLRegDir = MNI::DataDir::dir("mni-models");
-      }
-      if( !( -e $AnimalAtlasDir ) ) {
-        print "Warning: Required ANIMAL atlas directory $AnimalAtlasDir does not exist.\n";
-        $animal = "noANIMAL";
-      }
-    }
+      ( $AnimalAtlas eq "icbm152nl-VI" || $AnimalAtlas eq "icbm152nl-2009a" ) ) {
+    $CIVETmodels{$CIVETModel}{AnimalModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalAtlasDir}/" .
+                                             "$ANIMALmodels{$AnimalAtlas}{AnimalAtlas}/";
+    $CIVETmodels{$CIVETModel}{AnimalRegNLModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalNLRegDir}/" .
+                                             $ANIMALmodels{$AnimalAtlas}{AnimalNLRegModel};
+    print "* ANIMAL atlas is $ANIMALmodels{$AnimalAtlas}{AnimalAtlas} \n";
+    print "* ANIMAL atlas directory is: \n  $ANIMALmodels{$AnimalAtlas}{AnimalAtlasDir} \n";
+    print "* ANIMAL non-linear registration model directory is: \n  $ANIMALmodels{$AnimalAtlas}{AnimalNLRegDir} \n";
+    print "* ANIMAL non-linear registration model is:    \n   $ANIMALmodels{$AnimalAtlas}{AnimalNLRegModel} \n";
+    print "\n";
   } else {
-    print "Warning: You must specify an atlas to use ANIMAL segmentation.\n";
+    print "Warning: You must specify a valid atlas to use ANIMAL segmentation.\n";
+    $AnimalAtlas = undef;
     $animal = "noANIMAL";
   }
 }
-
-if( $animal eq "ANIMAL" ) {
-  $CIVETmodels{$CIVETModel}{AnimalAtlas} = $AnimalAtlas;
-  $CIVETmodels{$CIVETModel}{AnimalAtlasDir} = $AnimalAtlasDir;
-  $CIVETmodels{$CIVETModel}{AnimalNLRegDir} = $AnimalNLRegDir;
-  $CIVETmodels{$CIVETModel}{AnimalNLRegModel} = $AnimalNLRegModel;
-  print "* ANIMAL atlas is $AnimalAtlas \n";
-  print "* ANIMAL atlas directory is: \n   ${AnimalAtlasDir} \n";
-  print "* ANIMAL non-linear registration model directory is: \n  ${AnimalNLRegDir} \n";
-  print "* ANIMAL non-linear registration model is:    \n   ${AnimalNLRegModel} \n";
-  print "\n";
-  print "*             -WARNING- -WARNING- -WARNING-\n\n";
-  print "* We recommend that you no longer use the ANIMAL segmentation in CIVET\n";
-  print "* until the new lobe segmentation based on the iterative non-linear \n";
-  print "* ICBM152 model is fully validated and released. Current results based\n";
-  print "* on the linear symmetric model are inaccurate and should not be used.\n";
-}
-
 
 ############# Print the Pipeline and Stage Control commands
 
@@ -882,6 +1078,7 @@ foreach my $dsid (@dsids) {
                                 $dsid,
                                 $inputType,
                                 $correctPVE,
+                                $calibrateWhite,,
                                 $maskType,
                                 $interpMethod,
                                 $headheight,
@@ -892,6 +1089,7 @@ foreach my $dsid (@dsids) {
                                 $surface,
                                 \@thickness,
                                 $ResampleSurfaces,
+                                $SurfaceAtlas,
                                 $MeanCurvature,
                                 $Area_fwhm,
                                 $Volume_fwhm,
@@ -902,7 +1100,9 @@ foreach my $dsid (@dsids) {
                                 $VBM_cerebellum,
                                 $animal,
                                 $Template,
-                                \$CIVETmodels{$CIVETModel} );
+                                \$CIVETmodels{$CIVETModel},
+                                \$SURFACEmodels{$smodel}
+                             );
 
     ##### Create references once, for first subject only #####
 
@@ -946,6 +1146,7 @@ foreach my $dsid (@dsids) {
                         \$pipeline,
                         \$image,
                         \$CIVETmodels{$CIVETModel},
+                        \$SURFACEmodels{$smodel},
                         $intermediate_model, 
                         $Template
                         );    
@@ -1016,8 +1217,10 @@ elsif ($command eq "run") {
 }
 
 else {
-    print "huh? Grunkle little gnu, grunkle\n";
+    print "Pipeline control command not recognized.\n";
+    exit(1);
 }
+exit(0);
 
 ############# Voila!! #############
 

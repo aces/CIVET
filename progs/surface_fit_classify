@@ -10,12 +10,12 @@
 # McGill University
 #
 
-use strict ;
-use warnings "all" ;
-use Getopt::Tabular ;
-use File::Basename ;
-use File::Temp qw/ tempdir / ;
-# use Math::BigFloat;
+use strict;
+use warnings "all";
+use Getopt::Tabular;
+use File::Basename;
+use File::Temp qw/ tempdir /;
+use POSIX;
 use MNI::MiscUtilities qw(shellquote);
 
 # inputs:
@@ -26,76 +26,94 @@ my $pve_csf = shift;
 my $pve_disc = shift;
 my $brain_mask = shift;
 my $final_callosum = shift;
+my $custom_mask = shift;
+my $blood_vessels = shift;
 my $final_classify = shift;
 my $skel_csf = shift;
 my $nl_transform = shift;
 my $model_mask = shift;
-my $RemoveBloodVessels = shift;
 
 # make tmpdir:
 my $me = &basename($0);
-my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 ) ;
+my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
 # temporary outputs:
-my $custom_mask = "${tmpdir}/custom_mask.mnc";
 my $classified_wm_fixed = "${tmpdir}/classified_wm_fixed.mnc";
 my $classified_wm_gm_fixed = "${tmpdir}/classified_wm_gm_fixed.mnc";
-
-# disable internal compression on temporary files (much faster)
-
-my $MINC_COMPRESS = $ENV{'MINC_COMPRESS'};
-$ENV{'MINC_COMPRESS'} = 0;
 
 # create $custom_mask
 
 make_custom_mask( $cls_correct, $nl_transform, $model_mask, $custom_mask );
 
-plug_ventricles( $cls_correct, $custom_mask );
+plug_ventricles( $pve_csf, $custom_mask );
 
 # copy contiguous pieces of white matter from pve image and custom mask
 
-fix_wm( $cls_correct, $pve_wm, $custom_mask, $classified_wm_fixed );
-unlink( $custom_mask );
+fix_wm( $cls_correct, $pve_wm, $custom_mask, $brain_mask, $classified_wm_fixed );
 
 # fix gray matter voxels
 
-fix_gm( $classified_wm_fixed, $classified_wm_gm_fixed );
-unlink( $classified_wm_fixed );
-
-# enable internal compression on output files
-
-$ENV{'MINC_COMPRESS'} = $MINC_COMPRESS if( defined $MINC_COMPRESS );
-
-# change WM voxels in contact with CSF/BG to GM.
-
-run( "minccalc", "-quiet", "-clobber", "-byte", "-unsigned",
-     "-expression", "if(abs(A[0])<0.5||abs(A[0]-1)<0.5){1}else{0}",
-     $classified_wm_gm_fixed, "${tmpdir}/csf_bg_mask.mnc" );
-run( "dilate_volume", "${tmpdir}/csf_bg_mask.mnc",
-     "${tmpdir}/csf_bg_mask.mnc", 1, 6, 1, $classified_wm_gm_fixed, 2.5, 3.5 );
-run( "minccalc", "-quiet", "-clobber",
-     "-expression", "if(abs(A[0]-3)<0.5&&abs(A[1]-1)<0.5){2}else{A[0]}",
-     $classified_wm_gm_fixed, "${tmpdir}/csf_bg_mask.mnc", "${tmpdir}/new_cls.mnc" );
-run( "mv", "-f", "${tmpdir}/new_cls.mnc", $classified_wm_gm_fixed );
-unlink( "${tmpdir}/csf_bg_mask.mnc" );
+if( 0 ) {
+  fix_gm( $classified_wm_fixed, $classified_wm_gm_fixed );
+  unlink( $classified_wm_fixed );
+} else {
+  run( "mv", "-f", $classified_wm_fixed, $classified_wm_gm_fixed );  ## ignore fix_gm
+}
 
 # create a midline mask to separate the hemispheres
 
-create_midline_mask( $classified_wm_gm_fixed, $final_callosum );
+create_midline_mask( $classified_wm_gm_fixed, $custom_mask, 
+                     $brain_mask, $final_callosum );
 
-# final classification
+# final classification with split hemispheres
 
-run( "minccalc", "-clobber", "-expr", 
-     "if(A[1]>0){out=A[1];}else{out=A[0];}",
+run( "minccalc", "-clobber", "-quiet", "-expr", 
+     "if(A[1]>0.5){out=A[1];}else{out=A[0];}",
      $classified_wm_gm_fixed, $final_callosum, $final_classify );
 unlink( $classified_wm_gm_fixed );
+
+# change WM voxels in contact with CSF/BG to GM. These
+# are mostly voxels below the brainstem. For that matter, 
+# the dilation is only in the y-z plane, because we want
+# to ignore CSF voxels in ventricles that could touch the
+# white mid-plane x=+/-2.
+
+run( "minccalc", "-quiet", "-clobber", "-byte", "-unsigned",
+     "-expression", "if(abs(A[0])<0.5||abs(A[0]-1)<0.5){1}else{0}",
+     $final_classify, "${tmpdir}/csf_bg_mask.mnc" );
+
+open DIL, "> ${tmpdir}/dilate.kernel";
+print DIL "MNI Morphology Kernel File\n";
+print DIL "Kernel_Type = Normal_Kernel;\n";
+print DIL "Kernel =\n";
+print DIL "0.0  1.0  0.0  0.0  0.0  1.0\n";   # kernel is 2-D in (y,z)
+print DIL "0.0 -1.0  0.0  0.0  0.0  1.0\n";
+print DIL "0.0  0.0  1.0  0.0  0.0  1.0\n";
+print DIL "0.0  0.0 -1.0  0.0  0.0  1.0\n";
+print DIL "0.0  1.0  1.0  0.0  0.0  1.0\n";
+print DIL "0.0 -1.0  1.0  0.0  0.0  1.0\n";
+print DIL "0.0 -1.0 -1.0  0.0  0.0  1.0\n";
+print DIL "0.0  1.0 -1.0  0.0  0.0  1.0;\n";
+close DIL;
+
+run( 'mincmorph', '-clobber', '-unsigned', '-byte', '-successive', 'D',
+     '-kernel', "${tmpdir}/dilate.kernel", "${tmpdir}/csf_bg_mask.mnc",
+     "${tmpdir}/csf_bg_mask_dil.mnc" );
+run( 'mv', '-f', "${tmpdir}/csf_bg_mask_dil.mnc", 
+     "${tmpdir}/csf_bg_mask.mnc" );
+unlink( "${tmpdir}/dilate.kernel" );
+
+run( "minccalc", "-quiet", "-clobber",
+     "-expression", "if(abs(A[0]-3)<0.5&&abs(A[1]-1)<0.5){2}else{A[0]}",
+     $final_classify, "${tmpdir}/csf_bg_mask.mnc", "${tmpdir}/new_cls.mnc" );
+unlink( "${tmpdir}/csf_bg_mask.mnc" );
+run( "mv", "-f", "${tmpdir}/new_cls.mnc", $final_classify );
 
 # create the csf skeleton
 
 make_csf_skel( $final_classify, $pve_csf, $skel_csf, $tmpdir );
 
-if( $RemoveBloodVessels ) {
-  my $blood_vessels = "${tmpdir}/blood_vessels.mnc";
+if( $blood_vessels ne "none" ) {
   my $tmp_cls = "${tmpdir}/tmp_cls.mnc";
   remove_blood_vessels( $t1_final, $brain_mask, $cls_correct, $pve_disc,
                         $blood_vessels );
@@ -132,11 +150,11 @@ sub make_csf_skel {
   #       and background. This will truncate the gray matter and
   #       make the cortex thinner.
 
-  run( "minccalc", "-clobber", "-byte", "-expression",
+  run( "minccalc", "-clobber", "-quiet", "-byte", "-expression",
        "if(A[0]>1.5){out=1;}else{out=0;}", $cls_correct, $wm_gm_mask );
   run( "dilate_volume", $wm_gm_mask, $wm_gm_maskD, "1", "26", "1" );
   unlink( $wm_gm_mask );
-  run( "minccalc", "-clobber", "-byte", "-expression", 
+  run( "minccalc", "-clobber", "-quiet", "-byte", "-expression", 
        "if((A[1]<1.5&&A[2]>0.5)||A[0]>1.0e-06){out=1;}else{out=0;}",
        $pve_csf, $cls_correct, $wm_gm_maskD, $pve_csf_dil );
   unlink( $wm_gm_maskD );
@@ -154,7 +172,7 @@ sub make_custom_mask {
   my $model_mask = shift;
   my $custom_mask = shift;
  
-  run( "mincresample", "-clobber", "-like", $cls_correct, 
+  run( "mincresample", "-clobber", "-quiet", "-like", $cls_correct, 
        "-invert_transformation", "-nearest_neighbour",
        "-transform", $nl_transform, $model_mask, $custom_mask );
 }
@@ -166,7 +184,7 @@ sub make_custom_mask {
 #      by blurring and cropping 
 #   2) blurs and crops the whole image, and its negative iteratively, 
 #      to remove "nonsense" voxels
-# Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
+# Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
 #
 # fix_wm( classified.mnc, pve_wm, custom_mask.mnc, output.mnc )
 #
@@ -176,150 +194,110 @@ sub fix_wm {
   my $classified =  shift;
   my $pve_wm =  shift;
   my $custom_mask = shift;
+  my $brain_mask = shift;
   my $output = shift;
 
-  my $classified_temp= "${tmpdir}/classified_plugged.mnc" ;
-  my $pve_wm_temp = "${tmpdir}/pve_plugged.mnc" ;
-  my $pve_wm_skel = "${tmpdir}/temp_skel.mnc" ;
-  my $temp_blur = "${tmpdir}/temp_blur" ;
-  my $pve_wm_skel_new = "${tmpdir}/temp_skel_new.mnc" ;
-  my $temp_diff = "${tmpdir}/temp_diff.mnc" ;
-  my $wm_with_skel = "${tmpdir}/wm_with_skel.mnc" ;
-  my $wm_with_skel_new = "${tmpdir}/wm_with_skel_new.mnc" ;
-  my $iteration = 0 ;
-  my $done = 0 ;
-  my $integrity = 0.3 ;
-  my @args = undef ;
- 
-  # Combine custom mask for ventricles and sub-cortical gray into white.
 
-  # how this expression works: keep only WM mask
-  #   custom_mask=2: cerebellum becomes 0
+  my $iso = `mincinfo -attvalue xspace:step $classified`; chomp($iso);
+  $iso = abs($iso);
+
+  # plug holes around ventricles/hippocampus/amygdala where there is 
+  # a small gap between the tissue type and wm.
+
+  my $wm_dil = "${tmpdir}/wm_dil.mnc";
+  my $ndil = ceil( 1.0 / $iso );  # dilate 1mm
+  &run( 'dilate_volume', $classified, $wm_dil, 3, 6, $ndil );
+  &run( 'dilate_volume', $custom_mask, $custom_mask, 3, 6, $ndil, $wm_dil, 2.5, 3.5 ); #ventricle 3
+  &run( 'dilate_volume', $custom_mask, $custom_mask, 4, 6, $ndil, $wm_dil, 2.5, 3.5 ); #hippocampus 4
+  &run( 'dilate_volume', $custom_mask, $custom_mask, 5, 6, $ndil, $wm_dil, 2.5, 3.5 ); #amygdala 5
+  unlink( $wm_dil );
+
+  # Disable internal compression on temporary files for fix_wm and fix_gm 
+  # (much faster)
+
+  my $MINC_COMPRESS = $ENV{'MINC_COMPRESS'};
+  $ENV{'MINC_COMPRESS'} = 0;
+
   #   custom_mask=1: sub-cortical gray becomes 1 if cls=GM
+  #   custom_mask=2: cerebellum becomes 0
   #   custom_mask=3: ventricles become 1 if cls=CSF (the latter
   #                  should be if pve_csf>threshold_csf
-  #   pve_wm>threshold_wm: any partial value of WM becomes 1
+  #   custom_mask=4: hippocampus becomes 1
+  #   custom_mask=5: amygdala becomes 1
 
-  my $expr = "if(abs(A[1]-2)<0.45){out=0}else{if((abs(A[1]-1)<0.45&&abs(A[0]-2)<0.45)||(abs(A[1]-3)<0.45&&abs(A[0]-1)<0.45)){out=1}else{if(A[2]>1.0e-06){out=1}else{out=0}}}";
-  run( "minccalc", "-byte", "-clobber", "-expr", $expr,
-       $classified, $custom_mask, $pve_wm, $pve_wm_temp );
-   
+  # Obtain a mask of voxels containing white matter. At this point,
+  # exclude ventricles and brain-stem. We don't want any of the
+  # white skeleton inside those regions. Also, apply the brain
+  # mask.
+
+  my $pve_wm_thresh = 0.001;
+  my $pve_wm_temp = "${tmpdir}/pve_plugged.mnc";
+  my $pve_wm_skel = "${tmpdir}/temp_skel.mnc";
+  my $expr = "if(A[1]>0.5){if(abs(A[0]-2)<0.45||abs(A[0]-3)<0.45){0}else{if(A[2]>$pve_wm_thresh){1}else{0}}}else{0}";
+  run( "minccalc", "-quiet", "-unsigned", "-byte", "-clobber", "-expr", 
+       $expr, $custom_mask, $brain_mask, $pve_wm, $pve_wm_temp );
   run( "skel", $pve_wm_temp, $pve_wm_skel );
   unlink( $pve_wm_temp );
 
-  # how this expression works:
-  #   custom_mask=2: cerebellum becomes csf=1
-  #   custom_mask=1: sub-cortical gray becomes wm=3 if cls=GM
-  #   custom_mask=3: ventricles become wm=3 if cls=CSF (the latter
-  #                  should be if pve_csf>threshold_csf
-
-  $expr = "if(abs(A[1]-2)<0.45){out=1}else{if((abs(A[1]-1)<0.45&&abs(A[0]-2)<0.45)||(abs(A[1]-3)<0.45&&abs(A[0]-1)<0.45)){out=3}else{out=A[0]}}";
-  run( "minccalc", "-clobber", "-expr", $expr,
-       $classified, $custom_mask, $classified_temp) ;
- 
-  ### First Pass, add the connected skeleton voxels to the image...
-
-  while( !$done && $iteration < 20 ) {
-  
-    $temp_blur = "${tmpdir}/temp_blur.mnc" ;
-  
-    run( "mincblur", "-clobber", "-fwhm", "2", $pve_wm_skel, $temp_blur );
- 
-    $temp_blur = "${temp_blur}_blur.mnc" ;
- 
-    run( "minccalc", "-clobber", "-expr", 
-         "out=(A[0]>${integrity}||A[2]==3)&&A[1];", 
-         $temp_blur, $pve_wm_skel, $classified_temp, $pve_wm_skel_new );
+  # Clean up the wm skeleton. 
+  my $fwhm = 2.0;
+  my $thresh = 0.15 * $iso;
+  my $iteration = 0;
+  while( $iteration < 3 ) {
+    my $temp_blur = "${tmpdir}/temp_blur.mnc";
+    run( "mincblur", "-clobber", "-quiet", "-fwhm", $fwhm, $pve_wm_skel, $temp_blur );
+    $temp_blur = "${temp_blur}_blur.mnc";
+    run( "minccalc", "-clobber", "-quiet", "-expr", "out=(A[0]>$thresh)", 
+         $temp_blur, $pve_wm_temp );
     unlink( $temp_blur );
- 
-    run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-A[1]);", 
-         $pve_wm_skel, $pve_wm_skel_new, $temp_diff);
-
-    @args = ( "mincstats", "-sum", $temp_diff );
-    print "@args\n" ;
-    my $result = `@args` ;
-    unlink( $temp_diff );
-    my @line = split/\s+/, $result ;
-    print ("Iteration:${iteration} Voxels changed:${line[1]}\n");
- 
-    $iteration = $iteration+1 ;
-
-    if ($line[1]==0) { $done = 1 ; }
-    run( "mv", "-f", $pve_wm_skel_new, $pve_wm_skel );
+    run( "skel", $pve_wm_temp, $pve_wm_skel );
+    unlink( $pve_wm_temp );
+    $iteration++;
   }
  
-  $done = 0 ;
- 
-  # now we have pruned the wm pve skeleton, we are going to add it to
-  # the classified white matter and then get rid of nonsense voxels....
+  # how this expression works:
+  #   custom_mask=1: sub-cortical gray becomes wm=3 if cls=GM
+  #   custom_mask=2: cerebellum/brainstem becomes csf=1
+  #   custom_mask=3: ventricles become wm=3 (validated in plug_ventricles)
+  #   custom_mask=4: hippocampus becomes wm=3
+  #   custom_mask=5: amygdala becomes wm=3
+  #   pve_wm_skel: white matter skeleton becomes wm=3
 
-  run( "minccalc", "-clobber", "-expr", "out=A[0]||(abs(A[1]-3)<0.45);", 
-       $pve_wm_skel, $classified_temp, $wm_with_skel) ;
+  my $output_tmp = "${tmpdir}/output_tmp.mnc";
+  $expr = "if(abs(A[1]-2)<0.45){out=1}else{if(A[1]>0.5||A[2]>0.5){out=3}else{out=A[0]}}";
+  run( "minccalc", "-clobber", "-quiet", "-expr", $expr,
+       $classified, $custom_mask, $pve_wm_skel, $output_tmp );
   unlink( $pve_wm_skel );
 
-  $iteration = 0 ;
+  # add a defrag on gray inside dilated custom_mask only.
 
-  while( !$done && $iteration < 40 ) {
- 
-    $temp_blur = "${tmpdir}/temp_blur.mnc" ;
-    
-    run( "mincblur", "-clobber", "-fwhm", "2", $wm_with_skel, $temp_blur );
- 
-    $temp_blur = "${temp_blur}_blur.mnc" ;
+  my $custom_mask_dil = "${tmpdir}/custom_mask_dil.mnc";
+  &run( 'minccalc', '-quiet', '-clobber', '-expression', 
+        'if(A[0]>0.5&&abs(A[0]-2)>0.5){1}else{0}', $custom_mask,
+        $custom_mask_dil );
+  &run( 'dilate_volume', $custom_mask_dil, $custom_mask_dil, 1, 6, $ndil );
 
-    run( "minccalc", "-clobber", "-expr", 
-         "out=if(A[0]<${integrity}&&A[1]>0.5){out==0;}else{if(A[0]>(1-${integrity})&&A[1]<0.5){out==1;}else{out=A[1];}};", 
-         $temp_blur, $wm_with_skel, $wm_with_skel_new );
-    unlink( $temp_blur );
- 
-    run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-A[1]);",
-         $wm_with_skel, $wm_with_skel_new, $temp_diff );
+  # enable internal compression on output files
 
-    @args = ("mincstats", "-sum", $temp_diff );
-    print "@args\n" ;
-    my $result = `@args`;
-    unlink( $temp_diff );
-    my @line = split/\s+/, $result;
-    print ("Iteration B:${iteration} Voxels changed:${line[1]}\n") ;
+  $ENV{'MINC_COMPRESS'} = $MINC_COMPRESS if( defined $MINC_COMPRESS );
 
-    run( "mv", "-f", $wm_with_skel_new, $wm_with_skel );
-
-    if( $line[1]==0 ) { $done = 1 ; }
-
-    $iteration = $iteration+1;
-  }
-
-  # first defrag the gray and add the excluded voxels to csf unless 
-  # they are surrounded by white
-
-  run( "mincdefrag", $wm_with_skel, $wm_with_skel_new, "1", "27", "100000");
-
-  run( "minccalc", "-clobber", "-expr", "out=A[0]<0.5;", 
-       $wm_with_skel_new, $wm_with_skel );
-
-  run( "mincdefrag", $wm_with_skel, $wm_with_skel_new, "1", "27", "100000");
-
-  run( "minccalc", "-clobber", "-expr", "out=A[0]<0.5;", 
-       $wm_with_skel_new, $wm_with_skel );
-  unlink( $wm_with_skel_new );
- 
-  run( "minccalc", "-clobber", "-expr", 
-       "if(abs(A[0]-1)>0.45&&abs(A[1]-3)<0.45){out=2;}else{if(abs(A[0]-1)<0.45&&abs(A[1]-3)>0.45){out=3}else{out=A[1];}};", 
-       $wm_with_skel, $classified_temp , $output );
-
-  unlink( $wm_with_skel );
-  unlink( $classified_temp );
-
+  my $ndefrag = ceil( 20 / ($iso * $iso * $iso ) ); # number of voxels in mm^3.
+  my $output_defrag = "${tmpdir}/output_defrag.mnc";
+  &run( 'mincdefrag', $output_tmp, $output_defrag, 2, 6, $ndefrag );
+  &run( 'minccalc', '-quiet', '-clobber', '-expression',
+        'if(A[0]>0.5&&abs(A[1]-2)<0.5&&abs(A[2]-2)>0.5){3}else{A[1]}',
+        $custom_mask_dil, $output_tmp, $output_defrag, $output );
+  unlink( $custom_mask_dil );
+  unlink( $output_tmp );
+  unlink( $output_defrag );
 }
 
 
 # fix_gm is a little bit of image processing alchemy that attempts 
 # the following:
-#   1) adds the wm skeleton to the wm image by removing any loose ends 
-#      by blurring and cropping 
-#   2) blurs and crops the whole image, and its negative iteratively, 
-#      to remove "nonsense" voxels
-# Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
+#   1) blurs and crops the whole image, and its negative iteratively, 
+#      to remove "nonsense" GM voxels
+# Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
 #
 # fix_gm( classified.mnc, output.mnc )
 #
@@ -329,118 +307,152 @@ sub fix_gm {
   my $classified = shift;
   my $result = shift;
 
-  my $temp_white = "${tmpdir}/temp_white.mnc" ;
-  my $temp_white_blur_prefix = "${tmpdir}/temp_white" ;
-  my $temp_white_blur = "${temp_white_blur_prefix}_blur.mnc" ;
+  my $temp_white = "${tmpdir}/temp_white.mnc";
+  my $temp_white_blur_prefix = "${tmpdir}/temp_white";
+  my $temp_white_blur = "${temp_white_blur_prefix}_blur.mnc";
 
-  my $temp_gray = "${tmpdir}/temp_gray.mnc" ;
-  my $temp_gray_defrag = "${tmpdir}/temp_gray_defrag.mnc" ;
-  my $temp_gray_blur_prefix = "${tmpdir}/temp_gray_defrag" ;
-  my $temp_gray_blur = "${temp_gray_blur_prefix}_blur.mnc" ;
-  my $temp_gray_new = "${tmpdir}/temp_gray_defrag_new.mnc" ;
-  my $temp_gray_diff = "${tmpdir}/temp_gray_diff.mnc" ;
-  my $done = 0 ;
-  my $count =0 ;
-  my @args = undef ;
+  my $temp_gray = "${tmpdir}/temp_gray.mnc";
+  my $temp_gray_blur_prefix = "${tmpdir}/temp_gray";
+  my $temp_gray_blur = "${temp_gray_blur_prefix}_blur.mnc";
+  my $temp_gray_new = "${tmpdir}/temp_gray_new.mnc";
   
-  run( "minccalc", "-clobber", "-expr", 'out=abs(A[0]-3)<0.45;', 
+  # Disable internal compression on temporary files for fix_wm and fix_gm 
+  # (much faster)
+
+  my $MINC_COMPRESS = $ENV{'MINC_COMPRESS'};
+  $ENV{'MINC_COMPRESS'} = 0;
+
+  run( "minccalc", "-clobber", "-quiet", "-expr", 'out=abs(A[0]-3)<0.45;', 
        $classified, $temp_white );
-  run( "mincblur", "-clobber", "-fwhm", "2", $temp_white, 
+  run( "mincblur", "-clobber", "-quiet", "-fwhm", "2", $temp_white, 
        $temp_white_blur_prefix );
   unlink( $temp_white );
-  run( "minccalc", "-clobber", "-expr", 'out=abs(A[0]-2)<0.45;', 
-       $classified, $temp_gray );
- 
-  ###first defrag the gray 
-  run( "mincdefrag", $temp_gray, $temp_gray_defrag, "1", "27", "100000" );
 
-  ###then go through iterations of blur and remove until converged
-  while (!$done && $count<50){
-    run( "mincblur", "-clobber", "-fwhm", "2", $temp_gray_defrag, 
+  run( "minccalc", "-clobber", "-quiet", "-expr", 'out=abs(A[0]-2)<0.45;', 
+       $classified, $temp_gray );
+
+  ###first defrag the gray 
+  run( "mincdefrag", $temp_gray, $temp_gray, "1", "27", "100000" );
+
+  ###then go through iterations of blur and remove.
+  # Simply do 5 fixed iterations, no checking for convergence (faster).
+  my $count =0;
+  while ($count<5){
+    run( "mincblur", "-clobber", "-quiet", "-fwhm", "2", $temp_gray, 
          $temp_gray_blur_prefix );
  
-    run( "minccalc", "-clobber", "-expr", 
-         'out=(A[0]>0.45&&abs(A[1]-1)<0.45)||(A[0]>0.001&&A[2]>0.01&&abs(A[1]-1)<0.45);', 
-         $temp_gray_blur, $temp_gray_defrag, $temp_white_blur, $temp_gray_new);
+    # pure gray will be kept and gray-white will be kept, but small
+    # bits of gray surrounded by CSF (no white around) will be eroded.
+    run( "minccalc", "-clobber", "-quiet", "-expr", 
+         'out=(A[0]>0.45||A[0]>0.001&&A[2]>0.01)&&abs(A[1]-1)<0.45;', 
+         $temp_gray_blur, $temp_gray, $temp_white_blur, $temp_gray_new);
     unlink( $temp_gray_blur );
  
-    run( "minccalc", "-clobber", "-expr", 'out=abs(A[0]-A[1]);', 
-         $temp_gray_defrag, $temp_gray_new, $temp_gray_diff );
-
-    @args = ("mincstats", "-sum", $temp_gray_diff) ;
-    print "@args\n" ;
-    my $stats_result = `@args` ;
-    unlink( $temp_gray_diff );
-    my @line = split/\s+/, $stats_result ;
-    print ("Iteration:${count}\tVoxels changed:${line[1]}\n") ;
-
-    if ($line[1]<20) { $done = 1 ; }
-    $count = $count+1 ;
-    run("mv", "-f", $temp_gray_new, $temp_gray_defrag) ;
+    $count++;
+    run( "mincdefrag", $temp_gray_new, $temp_gray, "1", "27", "100000" );
+    unlink( $temp_gray_new );
   }
- 
-  run( "mincdefrag", $temp_gray_defrag, $temp_gray_new, "1", "27", "100000" );
-  unlink( $temp_gray_defrag );
+
+  # enable internal compression on output files
+
+  $ENV{'MINC_COMPRESS'} = $MINC_COMPRESS if( defined $MINC_COMPRESS );
    
-  run( "minccalc", "-clobber", "-expr", 
-       'if(A[0]<0.5&&A[1]>0.5&&A[2]>0.25){out=2}else{if(A[0]<0.5&&A[1]>0.5&&A[2]<0.25){out=1}else{out=A[3];}}', 
-       $temp_gray_new, $temp_gray, $temp_white_blur, $classified, $result );
+  # A removed gray voxel will be restored if it's in clear contact with WM;
+  # A removed gray voxel will be set to CSF if it's not in clear contact with WM;
+  # For other cases, keep the original classification.
+  run( "minccalc", "-clobber", "-quiet", "-expr", 
+       'if(A[0]<0.5&&abs(A[1]-2)<0.5&&A[2]>0.25){out=2}else{if(A[0]<0.5&&abs(A[1]-2)<0.5&&A[2]<0.25){out=1}else{out=A[1];}}', 
+       $temp_gray, $classified, $temp_white_blur, $result );
 
   unlink( $temp_white_blur );
   unlink( $temp_gray );
-  unlink( $temp_gray_new );
-
 }
 
 
 # create_midline_mask extracts ...
 # 
-# Problems or comments should be sent to: oliver\@bic.mni.mcgill.ca
+# Problems or comments should be sent to: claude\@bic.mni.mcgill.ca
 # 
 # create_midline_mask classified.mnc output.mnc\n".
 
 sub create_midline_mask {
 
   my $classify = shift;
+  my $custom_mask = shift;
+  my $brain_mask = shift;
   my $output = shift;
 
-  my $callosum_with_bits  = "${tmpdir}/callosum_with_bits.mnc";
-  my $callosal_defrag = "${tmpdir}/callosum_defrag.mnc";
-  my $callosal_blur  = "${tmpdir}/callosal_blur.mnc";
+  # Extract the brain mask of the mid plane x=0. This will remove white 
+  # voxels for skull, but should not in any way interfere with the 
+  # surroundings of the corpus callosum on the mid plane.
+
+  my $mid_mask = "${tmpdir}/mid_mask.mnc";
+  run( "mincresample", "-clobber", "-quiet", "-xstart", 0, "-xnelements", 1,
+       $brain_mask, $mid_mask );
 
   # The creation of the midline mask below will work with
   # any template (0.5mm, 1.0mm, for example), assuming that
   # the centerline voxel is at x=0.
 
-  my $filled = "${tmpdir}/filled.mnc";
   my $mid_tmp = "${tmpdir}/mid_tmp.mnc";
-  my $midline_mask = "${tmpdir}/midline_mask.mnc";
+  my $custom_tmp = "${tmpdir}/custom_tmp.mnc";
+  my $callosum_with_bits  = "${tmpdir}/callosum_with_bits.mnc";
+  run( "mincresample", "-clobber", "-quiet", "-xstart", 0, "-xnelements", 1,
+       $classify, $mid_tmp );
+  run( "mincresample", "-clobber", "-quiet", "-xstart", 0, "-xnelements", 1,
+       $custom_mask, $custom_tmp );
 
-  run( "minccalc", "-clobber", "-byte", "-expr", "out=1;", $classify, $filled );
-  run( "mincresample", "-clobber", "-xstart", 0, "-xnelements", 1,
-       $filled, $mid_tmp );
-  run( "mincresample", "-clobber", "-like", $classify, $mid_tmp,
-       $midline_mask );
-
-  run( "minccalc", "-clobber", "-expr", "out=abs(A[0]-3)<0.45&&A[1];",
-       $classify, $midline_mask, $callosum_with_bits );
-
-  run( "mincdefrag", $callosum_with_bits, $callosal_defrag, 1, 27, 1000 );
-
-  run( "mincblur", "-clobber", "-fwhm", 2, $callosal_defrag, $callosal_blur );
-
-  $callosal_blur = "${callosal_blur}_blur.mnc";    
-                   
-  run( "minccalc", "-clobber", "-byte", "-expr",
-       "if(A[0]>0.0001&&A[1]==1){out=1}else{if(A[0]>0.08){out=2}else{out=0;}};", 
-       $callosal_blur, $midline_mask, $output );
-  
-  unlink( $filled );
+  run( "minccalc", "-clobber", "-quiet", "-expr", "out=((A[2]>0.5)&&(abs(A[0]-3)<0.45)||(((abs(A[1]-1)<0.5)||(abs(A[1]-3)<0.5))&&(A[0]>1.5)))",
+       $mid_tmp, $custom_tmp, $mid_mask, $callosum_with_bits );
+  unlink( $mid_mask );
   unlink( $mid_tmp );
-  unlink( $callosal_blur );
-  unlink( $midline_mask );
-  unlink( $callosal_defrag );
+  unlink( $custom_tmp );
+
+  # Remove small islands of mask.
+  run( "mincdefrag", $callosum_with_bits, $callosum_with_bits, 1, 6, 1000 );
+  run( "mincdefrag", $callosum_with_bits, $callosum_with_bits, 0, 6 );
+
+  # Retain the largest blob, which should be for the corpus callosum.
+  open GROUP, "> ${tmpdir}/group.kernel";
+  print GROUP "MNI Morphology Kernel File\n";
+  print GROUP "Kernel_Type = Normal_Kernel;\n";
+  print GROUP "Kernel =\n";
+  print GROUP "0.0  1.0  0.0  0.0  0.0  1.0\n";   # kernel is 2-D in (y,z)
+  print GROUP "0.0 -1.0  0.0  0.0  0.0  1.0\n";
+  print GROUP "0.0  0.0  1.0  0.0  0.0  1.0\n";
+  print GROUP "0.0  0.0 -1.0  0.0  0.0  1.0;\n";
+  close GROUP;
+  my $mid_groups = "${tmpdir}/mid_groups.mnc";
+  run( 'mincmorph', '-clobber', '-unsigned', '-short', '-kernel', 
+       "${tmpdir}/group.kernel", '-group', $callosum_with_bits, $mid_groups );
+  run( 'minccalc', '-quiet', '-clobber', '-expression', 
+       "if(abs(A[0]-1)<0.5){1}else{0}", $mid_groups, $callosum_with_bits );
+  unlink( "${tmpdir}/group.kernel" );
+  unlink( $mid_groups );
+
+  # Fill-in the gaps.
+  run( "dilate_volume", $callosum_with_bits, $callosum_with_bits, 1, 6 );
+  run( "dilate_volume", $callosum_with_bits, $callosum_with_bits, 0, 6 );
+
+  # back to 3-D
+  my $callosal_defrag = "${tmpdir}/callosum_defrag.mnc";
+  run( "mincresample", "-clobber", "-quiet", '-unsigned', '-byte', "-like", 
+       $classify, $callosum_with_bits, $callosal_defrag );
   unlink( $callosum_with_bits );
+
+  open DILX, "> ${tmpdir}/kernel.dilx";
+  print DILX "MNI Morphology Kernel File\n";
+  print DILX "Kernel_Type = Normal_Kernel;\n";
+  print DILX "Kernel =\n";
+  print DILX "-2.0  0.0  0.0  0.0  0.0  3.0\n";
+  print DILX "-1.0  0.0  0.0  0.0  0.0  2.0\n";
+  print DILX "1.0  0.0  0.0  0.0  0.0  2.0\n";
+  print DILX "2.0  0.0  0.0  0.0  0.0  3.0;\n";
+  close DILX;
+  &run( 'mincmorph', '-clobber', '-unsigned', '-byte', '-successive', 'D',
+        '-kernel', "${tmpdir}/kernel.dilx", $callosal_defrag, $output );
+  unlink( $callosal_defrag );
+
 }  
 
 # fix custom mask to get all of the ventricles if non-linear transform
@@ -448,24 +460,75 @@ sub create_midline_mask {
 
 sub plug_ventricles {
 
+  my $pve_csf = shift;
+  my $custom_mask = shift;
+
+  my $custom_mask_new = "${tmpdir}/custom_mask_new.mnc";
+
+  my $iso = `mincinfo -attvalue xspace:step $custom_mask`; chomp($iso);
+  $iso = abs($iso);
+
+  # custom_mask = 1 (subcortical gray), = 2 (cerebellum),
+  #             = 3 (ventricles surrounded by sc gray),
+  #             = 4 (hippocampus), = 5 (amygdala),
+  #             = 6 (ventricles not surrounded by sc gray).
+  #             = 7 (permissible region for growth of ventricles of region 6).
+  # 
+
+  # this is real csf intersected with the csf from the custom mask.
+
+  my $csf_vent = "${tmpdir}/csf_vent.mnc";
+  &run( 'minccalc', '-clob', '-quiet', '-byte', '-unsigned', '-expr',
+        'if((abs(A[0]-3)<0.5||abs(A[0]-6)<0.5)&&A[1]>0.10){1}else{0}',
+        $custom_mask, $pve_csf, $csf_vent );
+  &run( 'mincdefrag', $csf_vent, $csf_vent, 1, 27 );
+
+  # dilate through classified csf that's connected to the mask of the ventricles.
+
+  my $ndil = ceil( 10.0 / $iso );  # dilate 10mm
+  &run( 'dilate_volume', $csf_vent, $csf_vent, 1, 6, $ndil, $pve_csf, 0.1, 1.1 );
+
+  # dilate ventricular csf by only one layer to account for partial volume effects.
+
+  &run( 'dilate_volume', $csf_vent, $csf_vent, 1, 6, 1 );
+
+  # anything that is not connected csf in sc gray (1) will become sc gray (1). 
+  # anything that is not connected csf in region 7 will become (0).
+  # all other labels keep the same value 
+
+  &run( 'minccalc', '-quiet', '-clobber', '-unsigned', '-byte', '-expression',
+        'if(abs(A[0]-3)<0.5){if(A[1]>0.5){3}else{1}}else{if(abs(A[0]-6)<0.5){if(A[1]>0.5){3}else{0}}else{if(abs(A[0]-7)<0.5){if(A[1]>0.5){3}else{0}}else{A[0]}}}',
+        $custom_mask, $csf_vent, $custom_mask_new );
+
+  unlink( $csf_vent );
+  run( 'mv', '-f', $custom_mask_new, $custom_mask );
+}
+
+
+# fix custom mask to get all of the ventricles if non-linear transform
+# is incomplete. Note: this will overwrite custom_mask.
+
+sub plug_ventricles_old {
+
   my $cls = shift;
   my $custom_mask = shift;
 
   my $custom_mask_new = "${tmpdir}/custom_mask_new.mnc";
 
   # custom_mask = 1 (subcortical gray), = 2 (cerebellum), = 3 (ventricles).
+  #             = 4 (hippocampus), = 5 (amygdala)
   # anything that is subcortical gray in the custom_mask will be turned
   # to ventricles (3) if it is CSF in the classified image. anything that
   # is ventricles in the custom_mask will be turned to subcortical gray
   # in the custom mask it if is GM in the classified image.
 
-  run( 'minccalc',  '-clobber', '-quiet', '-byte', '-unsigned','-expr',
-       'if(abs(A[0]-1)<0.5&&abs(A[1]-1)<0.5){3}else{if(abs(A[0]-3)<0.5&&abs(A[1]-2)<0.5){1}else{A[0]}}',
+  run( 'minccalc', '-clob', '-quiet', '-byte', '-unsigned', '-expr', 
+       'if(abs(A[0]-1)<0.5&&(abs(A[1]-1)<0.5)){3}else{if(abs(A[0]-3)<0.5&&(abs(A[1]-2)<0.5)){1}else{A[0]}}',
        $custom_mask, $cls, $custom_mask_new );
   run( 'mv', '-f', $custom_mask_new, $custom_mask );
 
   my $cls_plugged = "${tmpdir}/cls_plugged.mnc";
-  run( "minccalc", "-byte", "-unsigned", "-clobber", "-expr",
+  run( "minccalc", "-byte", "-unsigned", "-clobber", "-quiet", "-expr",
        "if(abs(A[1]-1)<0.5||abs(A[1]-3)<0.5||abs(A[0]-3)<0.5){out=3}else{A[0]}",
        $cls, $custom_mask, $cls_plugged );
 

@@ -26,14 +26,14 @@ package Surface_Fit;
 use strict;
 use PMP::PMP;
 use MRI_Image;
+# use FindBin;
+# use lib "$FindBin::Bin";
 
 sub create_pipeline {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-    my $claspOption = @_[3];          # not yet used
-    my $model_mask = @_[4];
-    my $Second_model_Dir = @_[5];
+    my $model_mask = @_[3];
 
     my $pve_wm  = ${$image}->{pve_wm};
     my $pve_csf = ${$image}->{pve_csf};
@@ -43,20 +43,20 @@ sub create_pipeline {
     my $t1_tal_mnc     = ${$image}->{t1}{final};
     my $nl_transform   = ${$image}->{t1_tal_nl_xfm};
     my $final_callosum = ${$image}->{final_callosum};
+    my $subcortical_mask = ${$image}->{subcortical_mask};
+    my $blood_vessels  = ${$image}->{removebloodvessels} ? ${$image}->{blood_vessels} : "none";
     my $final_classify = ${$image}->{final_classify};
     my $skel_csf       = ${$image}->{csf_skel};
     my $brain_mask     = ${$image}->{brain_mask};
     my $laplace_field  = ${$image}->{laplace};
 
-    my $slide_left_xfm  = "${Second_model_Dir}/slide_left.xfm";
-    my $slide_right_xfm = "${Second_model_Dir}/slide_right.xfm";
-    my $flip_right_xfm  = "${Second_model_Dir}/flip_right.xfm";
-
     # Final surfaces in stereotaxic space
+    my $left_hemi_white80K = ${$image}->{white}{left80K};
+    my $right_hemi_white80K = ${$image}->{white}{right80K};
     my $left_hemi_white = ${$image}->{white}{left};
     my $right_hemi_white = ${$image}->{white}{right};
-    my $left_hemi_white_calibrated = ${$image}->{cal_white}{left};
-    my $right_hemi_white_calibrated = ${$image}->{cal_white}{right};
+    my $gray_surface_left80K = ${$image}->{gray}{left80K};
+    my $gray_surface_right80K = ${$image}->{gray}{right80K};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
     my $mid_surface_left = ${$image}->{mid_surface}{left};
@@ -64,11 +64,8 @@ sub create_pipeline {
 
     # a bunch of temporary files that should be cleaned up.
 
-    my $wm_left_centered  = ${$image}->{wm_left_centered};
-    my $wm_right_centered = ${$image}->{wm_right_centered};
-    my $white_surf_left_prelim = ${$image}->{white}{left_prelim};
-    my $white_surf_right_prelim = ${$image}->{white}{right_prelim};
-    my $white_surf_right_prelim_flipped = ${$image}->{white}{right_prelim_flipped};
+    my $wm_left = ${$image}->{wm_left};
+    my $wm_right = ${$image}->{wm_right};
 
 # ---------------------------------------------------------------------------
 #  Step 1: Application of the custom mask (ventricules, cerebellum,
@@ -76,17 +73,20 @@ sub create_pipeline {
 #          extraction.
 # ---------------------------------------------------------------------------
 
+    my @bloodOutput = ();
+    push @bloodOutput, ($blood_vessels) if (-e ${$image}->{removebloodvessels});
+
     ${$pipeline_ref}->addStage( {
           name => "surface_classify",
           label => "fix the classification for surface extraction",
           inputs => [$t1_tal_mnc, $cls_correct, $pve_wm, $pve_csf, 
                      $pve_disc, $brain_mask, $nl_transform ],
-          outputs => [$final_callosum, $final_classify, $skel_csf],
+          outputs => [$final_callosum, $subcortical_mask, @bloodOutput,
+                      $final_classify, $skel_csf],
           args => ["surface_fit_classify", $t1_tal_mnc, $cls_correct, 
                    $pve_wm, $pve_csf, $pve_disc, $brain_mask, 
-                   $final_callosum, $final_classify, $skel_csf, 
-                   $nl_transform, $model_mask, 
-                   ${$image}->{removebloodvessels} ],
+                   $final_callosum, $subcortical_mask, $blood_vessels,
+                   $final_classify, $skel_csf, $nl_transform, $model_mask ],
           prereqs => $Prereqs }
           );
 
@@ -105,95 +105,43 @@ sub create_pipeline {
           label => "create white matter hemispheric masks",
           inputs => [$final_classify, $t1_tal_mnc, @maskInput,
                      $brain_mask, $t1_tal_xfm],
-          outputs => [$wm_left_centered, $wm_right_centered],
+          outputs => [$wm_left, $wm_right],
           args=>["extract_wm_hemispheres", $final_classify, $t1_tal_mnc,
-                 $brain_mask, $user_mask, $t1_tal_xfm,
-                 $Second_model_Dir, $wm_left_centered, 
-                 $wm_right_centered],
+                 $brain_mask, $user_mask, $t1_tal_xfm, $wm_left, $wm_right],
           prereqs =>["surface_classify"] });
 
 # ---------------------------------------------------------------------------
-#  Step 3: Extraction of the white surfaces
+#  Step 3: Extraction of the white surfaces (with gradient calibration)
 # ---------------------------------------------------------------------------
 
-    ${$pipeline_ref}->addStage(
-          { name => "extract_white_surface_left",
-          label => "extract white left surface in Talairach",
-          inputs => [$wm_left_centered], 
-          outputs => [$white_surf_left_prelim],
-          args => ["extract_white_surface", $wm_left_centered,
-                  $white_surf_left_prelim, 0.5],
+    my @mc_opts = ();
+    push @mc_opts, '-subsample';
+    push @mc_opts, '-calibrate' if( ${$image}->{calibrateWhite} );;
+    push @mc_opts, '-refine' if( ${$image}->{surface} eq "hiResSURFACE" );
+
+    ${$pipeline_ref}->addStage( {
+          name => "extract_white_surface_left",
+          label => "extract marching-cubes white left surface in Talairach",
+          inputs => [$t1_tal_mnc, $final_classify, $wm_left], 
+          outputs => [$left_hemi_white80K, $left_hemi_white],
+          args => ["marching_cubes.pl", '-left', @mc_opts,
+                   $t1_tal_mnc, $final_classify, $wm_left,
+                   $left_hemi_white80K, ${$image}->{mc_model}{left},
+                   ${$image}->{mc_mask}{left} ],
           prereqs => ["create_wm_hemispheres"] }
           );
 
-    ${$pipeline_ref}->addStage(
-          { name => "extract_white_surface_right",
-          label => "extract white right surface in Talairach",
-          inputs => [$wm_right_centered],
-          outputs => [$white_surf_right_prelim],
-          args => ["extract_white_surface", $wm_right_centered,
-                  $white_surf_right_prelim, 0.5],
+    ${$pipeline_ref}->addStage( {
+          name => "extract_white_surface_right",
+          label => "extract marching-cubes white right surface in Talairach",
+          inputs => [$t1_tal_mnc, $final_classify, $wm_right], 
+          outputs => [$right_hemi_white80K, $right_hemi_white],
+          args => ["marching_cubes.pl", '-right', @mc_opts,
+                   $t1_tal_mnc, $final_classify, $wm_right,
+                   $right_hemi_white80K, ${$image}->{mc_model}{right},
+                   ${$image}->{mc_mask}{right} ],
           prereqs => ["create_wm_hemispheres"] }
           );
-
-    ${$pipeline_ref}->addStage(
-          { name => "slide_left_hemi_obj_back",
-          label => "move left hemi obj to left",
-          inputs => [$white_surf_left_prelim],
-          outputs => [$left_hemi_white],
-          args => ["transform_objects", $white_surf_left_prelim, $slide_left_xfm,
-                  $left_hemi_white] ,
-          prereqs =>["extract_white_surface_left"] }
-          );
- 
-    ${$pipeline_ref}->addStage(
-          { name => "flip_right_hemi_obj_back",
-          label => "flip right hemi obj back to resemble right side",
-          inputs => [$white_surf_right_prelim],
-          outputs => [$white_surf_right_prelim_flipped],
-          args => ["transform_objects", $white_surf_right_prelim, 
-                   $flip_right_xfm,
-                  $white_surf_right_prelim_flipped] ,
-          prereqs =>["extract_white_surface_right"] }
-          );
-
-    ${$pipeline_ref}->addStage(
-          { name => "slide_right_hemi_obj_back",
-          label => "move right hemi obj to right",
-          inputs => [$white_surf_right_prelim_flipped],
-          outputs => [$right_hemi_white],
-          args => ["transform_objects", $white_surf_right_prelim_flipped, $slide_right_xfm,
-                  $right_hemi_white] ,
-          prereqs =>["flip_right_hemi_obj_back"] }
-          );
-
-
-# ---------------------------------------------------------------------------
-#  Step 3: Calibrate white_surface wite a gradient field
-# ---------------------------------------------------------------------------
-
-    ${$pipeline_ref}->addStage(
-          { name => "calibrate_left_white",
-          label => "calibrate left WM-surface with gradient field",
-          inputs => [$left_hemi_white, $final_classify, $skel_csf,
-                    $t1_tal_mnc],
-          outputs => [$left_hemi_white_calibrated],
-          args => ["calibrate_white", $t1_tal_mnc, $final_classify,
-                  $skel_csf, $left_hemi_white, $left_hemi_white_calibrated],
-          prereqs => ["slide_left_hemi_obj_back"] }
-          );
-
-    ${$pipeline_ref}->addStage(
-          { name => "calibrate_right_white",
-          label => "calibrate right WM-surface with gradient field",
-          inputs => [$right_hemi_white, $final_classify, $skel_csf,
-                    $t1_tal_mnc],
-          outputs => [$right_hemi_white_calibrated],
-          args => ["calibrate_white", $t1_tal_mnc, $final_classify, 
-                  $skel_csf, $right_hemi_white, $right_hemi_white_calibrated],
-          prereqs => ["slide_right_hemi_obj_back"] }
-          );
-
 
 # ---------------------------------------------------------------------------
 #  Step 4: Create a Laplacian field from the WM surface to the
@@ -203,14 +151,14 @@ sub create_pipeline {
     ${$pipeline_ref}->addStage(
           { name => "laplace_field",
           label => "create laplacian field in the cortex",
-          inputs => [$skel_csf, $left_hemi_white_calibrated,
-                     $right_hemi_white_calibrated, $final_classify,
-                     $final_callosum],
+          inputs => [$t1_tal_mnc, $skel_csf, $left_hemi_white,
+                     $right_hemi_white, $final_classify,
+                     $pve_wm, $final_callosum],
           outputs => [$laplace_field],
-          args => ["make_asp_grid", $skel_csf, $left_hemi_white_calibrated,
-                  $right_hemi_white_calibrated, $final_classify,
+          args => ["make_asp_grid", $t1_tal_mnc, $skel_csf, $left_hemi_white,
+                  $right_hemi_white, $final_classify, $pve_wm,
                   $final_callosum, $laplace_field],
-          prereqs => ["calibrate_left_white","calibrate_right_white"] }
+          prereqs => ["extract_white_surface_left","extract_white_surface_right"] }
           );
 
 # ---------------------------------------------------------------------------
@@ -220,47 +168,74 @@ sub create_pipeline {
 #          original classified volume for this step.
 # ---------------------------------------------------------------------------
 
-    ${$pipeline_ref}->addStage(
-          { name => "gray_surface_left",
+    ${$pipeline_ref}->addStage( {
+          name => "gray_surface_left",
           label => "expand to left pial surface in Talairach",
-          inputs => [$final_classify, $left_hemi_white, $laplace_field],
-          outputs => [$gray_surface_left],
-          args => ["expand_from_white", $final_classify, 
-                   $left_hemi_white, $gray_surface_left, $laplace_field],
+          inputs => [$left_hemi_white80K, $laplace_field],
+          outputs => [$gray_surface_left80K],
+          args => ["expand_from_white", '-left', $left_hemi_white80K, 
+                   $gray_surface_left80K, $laplace_field ],
           prereqs => ["laplace_field"] }
           );
 
-    ${$pipeline_ref}->addStage(
-          { name => "gray_surface_right",
+    ${$pipeline_ref}->addStage( {
+          name => "gray_surface_right",
           label => "expand to right pial surface in Talairach",
-          inputs => [$final_classify, $right_hemi_white, $laplace_field],
-          outputs => [$gray_surface_right],
-          args => ["expand_from_white", $final_classify, 
-                   $right_hemi_white, $gray_surface_right, $laplace_field],
+          inputs => [$right_hemi_white80K, $laplace_field],
+          outputs => [$gray_surface_right80K],
+          args => ["expand_from_white", '-right', $right_hemi_white80K, 
+                   $gray_surface_right80K, $laplace_field],
           prereqs => ["laplace_field"] }
           );
+
+    if( ${$image}->{surface} eq "hiResSURFACE" ) {
+      ${$pipeline_ref}->addStage( {
+            name => "gray_surface_left_hires",
+            label => "expand to left pial surface in Talairach",
+            inputs => [$left_hemi_white, $gray_surface_left80K, $laplace_field],
+            outputs => [$gray_surface_left],
+            args => ["expand_from_white", '-left', '-hiresonly',
+                     $left_hemi_white, $gray_surface_left80K, 
+                     $laplace_field ],
+            prereqs => ["gray_surface_left"] } );
+
+      ${$pipeline_ref}->addStage( {
+            name => "gray_surface_right_hires",
+            label => "expand to right pial surface in Talairach",
+            inputs => [$right_hemi_white, $gray_surface_right80K,
+                       $laplace_field],
+            outputs => [$gray_surface_right],
+            args => ["expand_from_white", '-right', '-hiresonly',
+                     $right_hemi_white, $gray_surface_right80K, 
+                     $laplace_field],
+            prereqs => ["gray_surface_right"] } );
+    }
 
 # ---------------------------------------------------------------------------
-#  Step 6: Find the mid-surfaces from calibrated white and gray.
+#  Step 6: Find the mid-surfaces from white and gray.
 # ---------------------------------------------------------------------------
 
     ${$pipeline_ref}->addStage( {
           name => "mid_surface_left",
           label => "left mid-surface",
-          inputs => [$left_hemi_white_calibrated, $gray_surface_left],
+          inputs => [$left_hemi_white, $gray_surface_left],
           outputs => [$mid_surface_left],
           args => ["average_surfaces", $mid_surface_left, "none", "none",
-                   1, $left_hemi_white_calibrated, $gray_surface_left ],
-          prereqs => ["gray_surface_left"] } );
+                   1, $left_hemi_white, $gray_surface_left ],
+          prereqs => [${$image}->{surface} eq "hiResSURFACE" ? 
+                       "gray_surface_left_hires" :
+                       "gray_surface_left"] } );
 
     ${$pipeline_ref}->addStage( {
           name => "mid_surface_right",
           label => "right mid-surface",
-          inputs => [$right_hemi_white_calibrated, $gray_surface_right],
+          inputs => [$right_hemi_white, $gray_surface_right],
           outputs => [$mid_surface_right],
           args => ["average_surfaces", $mid_surface_right, "none", "none",
-                   1, $right_hemi_white_calibrated, $gray_surface_right ],
-          prereqs => ["gray_surface_right"] } );
+                   1, $right_hemi_white, $gray_surface_right ],
+          prereqs => [${$image}->{surface} eq "hiResSURFACE" ? 
+                       "gray_surface_right_hires" :
+                       "gray_surface_right"] } );
 
     my @Surface_Fit_complete = ( "mid_surface_left",
                                  "mid_surface_right" );
@@ -277,10 +252,10 @@ sub surface_qc {
     my $image = @_[2];
 
     my $final_classify = ${$image}->{final_classify};
-    my $wm_left_centered  = ${$image}->{wm_left_centered};
-    my $wm_right_centered = ${$image}->{wm_right_centered};
-    my $white_surf_left_prelim = ${$image}->{white}{left_prelim};
-    my $white_surf_right_prelim = ${$image}->{white}{right_prelim};
+    my $wm_left = ${$image}->{wm_left};
+    my $wm_right = ${$image}->{wm_right};
+    my $white_surf_left = ${$image}->{white}{left};
+    my $white_surf_right = ${$image}->{white}{right};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
     my $brain_mask = ${$image}->{skull_mask_tal};
@@ -290,13 +265,13 @@ sub surface_qc {
     ${$pipeline_ref}->addStage( {
           name => "surface_fit_error",
           label => "surface fit error measurement",
-          inputs => [$final_classify, $wm_left_centered, $wm_right_centered,
-                     $white_surf_left_prelim, $white_surf_right_prelim, 
+          inputs => [$final_classify, $wm_left, $wm_right,
+                     $white_surf_left, $white_surf_right, 
                      $gray_surface_left, $gray_surface_right, $brain_mask],
           outputs => [$surface_qc],
-          args => ["surface_qc", $final_classify, $wm_left_centered, 
-                   $wm_right_centered, $white_surf_left_prelim, 
-                   $white_surf_right_prelim, $gray_surface_left, 
+          args => ["surface_qc", $final_classify, $wm_left, 
+                   $wm_right, $white_surf_left, 
+                   $white_surf_right, $gray_surface_left, 
                    $gray_surface_right, $brain_mask, $surface_qc ],
           prereqs => $Prereqs } );
 
@@ -314,8 +289,8 @@ sub combine_surfaces {
     my $image = @_[2];
 
     # Final surfaces in stereotaxic space
-    my $left_hemi_white_calibrated = ${$image}->{cal_white}{left};
-    my $right_hemi_white_calibrated = ${$image}->{cal_white}{right};
+    my $left_hemi_white = ${$image}->{white}{left};
+    my $right_hemi_white  = ${$image}->{white}{right};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
     my $mid_surface_left = ${$image}->{mid_surface}{left};
@@ -324,16 +299,16 @@ sub combine_surfaces {
     my @Combine_Surface_complete = ();
 
     if( ${$image}->{combinesurfaces} ) {
-      my $white_full = ${$image}->{cal_white}{full};
+      my $white_full = ${$image}->{white}{full};
       my $gray_full = ${$image}->{gray}{full};
       my $mid_full = ${$image}->{mid_surface}{full};
 
       ${$pipeline_ref}->addStage( {
            name => "white_surface_full",
            label => "white surface full",
-           inputs => [$left_hemi_white_calibrated, $right_hemi_white_calibrated],
+           inputs => [$left_hemi_white, $right_hemi_white],
            outputs => [$white_full],
-           args => ["objconcat", $left_hemi_white_calibrated, $right_hemi_white_calibrated,
+           args => ["objconcat", $left_hemi_white, $right_hemi_white,
                     "none", "none", $white_full, "none"],
            prereqs => $Prereqs } );
 

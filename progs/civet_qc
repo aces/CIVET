@@ -1,0 +1,551 @@
+#! /usr/bin/env perl
+
+############################################################################
+############################################################################
+### Post-processing module to the CIVET pipeline to extract basic
+### quality control metrics.
+###                                       
+###   Authors: Claude Lepage
+###            December, 2013
+###
+###         Copyright Alan C. Evans
+###         Professor of Neurology
+###         McGill University
+###
+### For more information, have a look at our documentation at:
+###    http://wiki.bic.mni.mcgill.ca/index.php/CIVET
+###                                 
+############################################################################
+############################################################################
+
+use strict;
+use File::Temp qw/ tempdir /;
+use File::Basename;
+
+# Create tmp dir.
+my $tmpdir = &tempdir( "QC-XXXXXX", TMPDIR => 1, CLEANUP => 1 );
+
+#########################################################
+# Collect data for each subject.
+#########################################################
+
+my $t1_native = shift;
+my $t1_stx = shift;
+my $t1_tal_xfm = shift;
+my $skull_mask = shift;
+my $model_mask = shift;
+my $cls = shift;
+my $clasp_field = shift;
+my $classify_qc = shift;
+my $surface_qc = shift;
+my $mid_rsl_left = shift;
+my $mid_rsl_right = shift;
+my $gm_left = shift;
+my $wm_left = shift;
+my $gm_right = shift;
+my $wm_right = shift;
+my $meanct_left_file = shift;
+my $meanct_right_file = shift;
+my $gi_left = shift;
+my $gi_right = shift;
+my $gi_full = shift;
+my $animal = shift;
+
+my $output = shift;
+
+open FILE, ">$output";
+
+# Voxel sizes in native space
+my ($dx, $dy, $dz) = get_voxel_spacing( $t1_native );
+print FILE "XSTEP=$dx\n";
+print FILE "YSTEP=$dy\n";
+print FILE "ZSTEP=$dz\n";
+
+# Error in stereotaxic brain mask.
+my $mask_error = get_brain_mask_error( $skull_mask, $model_mask );
+print FILE "MASK_ERROR=$mask_error\n";
+
+# Percentages of CSF, GM, WM tissue in brain.
+my ($csf, $gm, $wm) = get_tissue_classes( $classify_qc );
+print FILE "CSF_PERCENT=$csf\n";
+print FILE "GM_PERCENT=$gm\n";
+print FILE "WM_PERCENT=$wm\n";
+
+# Volume of cortical gray between white and gray surfaces, native space, in cc.
+my $cortical_gm = get_cortical_gray_volume( $wm_left, $gm_left, $t1_tal_xfm ) +
+                  get_cortical_gray_volume( $wm_right, $gm_right, $t1_tal_xfm );
+print FILE "CORTICAL_GM=$cortical_gm\n";
+
+# Total volume of cerebrum defined as the volume inside left+right gray 
+# surfaces, native space, in cc. (No cerebellum, no brainstem.)
+my $cerebrum_vol = get_cerebrum_volume( $t1_stx, $gm_left, $gm_right, 
+                                        $t1_tal_xfm );
+print FILE "CEREBRUM_VOL=$cerebrum_vol\n";
+
+# Total volume of brain defined as the volume inside the mincbet mask:
+# cerebrum+cerebellum+brainstem+csf, native space, in cc.
+my $brain_vol = get_brain_volume( $skull_mask, $t1_tal_xfm );
+print FILE "BRAIN_VOL=$brain_vol\n";
+
+# Total volume of white matter defined as the volume inside left+right white 
+# surfaces, native space, in cc. (No cerebellum, no brainstem.)
+my ($csf_vol, $subgm_vol, $white_vol) = get_white_volume( $cls, $wm_left, 
+                                                          $wm_right, $t1_tal_xfm );
+print FILE "CSF_VENT_VOL=$csf_vol\n";
+print FILE "SUBGM_VOL=$subgm_vol\n";
+print FILE "WHITE_VOL=$white_vol\n";
+
+# Error in wm surface and gm surface.
+my ($wm_err, $gm_err) = get_surface_error( $surface_qc );
+print FILE "WM_ERROR=$wm_err\n";
+print FILE "GM_ERROR=$gm_err\n";
+
+# Error in pial surface laplacian fit.
+my ($laplacian_min, $laplacian_max, $laplacian_mean) = 
+  get_laplacian_fit_error( $clasp_field, $gm_left, $gm_right );
+print FILE "LAPLACIAN_MIN=$laplacian_min\n";
+print FILE "LAPLACIAN_MAX=$laplacian_max\n";
+print FILE "LAPLACIAN_MEAN=$laplacian_mean\n";
+
+# Number of self-intersections on resampled left/right mid surfaces
+my $left_intersects = get_self_intersects( $mid_rsl_left );
+my $right_intersects = get_self_intersects( $mid_rsl_right );
+print FILE "LEFT_INTER=$left_intersects\n";
+print FILE "RIGHT_INTER=$right_intersects\n";
+
+# Number of surface-surface intersections between left/right wm-gm surfaces
+my $left_surf_surf = get_surf_surf_intersects( $wm_left, $gm_left );
+my $right_surf_surf = get_surf_surf_intersects( $wm_right, $gm_right );
+print FILE "LEFT_SURF_SURF=$left_surf_surf\n";
+print FILE "RIGHT_SURF_SURF=$right_surf_surf\n";
+
+# Mean cortical thickness for left,right hemispheres
+my $meanct_left = get_mean_thickness( $meanct_left_file );
+my $meanct_right = get_mean_thickness( $meanct_right_file );
+print FILE "LEFT_MEANCT=$meanct_left\n";
+print FILE "RIGHT_MEANCT=$meanct_right\n";
+
+# T1 mean and stddev for WM and GM.
+my ($WMmean, $WMsdev, $GMmean, $GMsdev) = get_tissue_thresholds( $t1_stx, $skull_mask, $cls );
+print FILE "WMMEAN=$WMmean\n";
+print FILE "WMSDEV=$WMsdev\n";
+print FILE "GMMEAN=$GMmean\n";
+print FILE "GMSDEV=$GMsdev\n";
+
+# Gyrification index for left/right/both hemispheres
+my $left_gi = get_gi( $gi_left );
+my $right_gi = get_gi( $gi_right );
+my $full_gi = get_gi( $gi_full );
+print FILE "GI_LEFT=$left_gi\n";
+print FILE "GI_RIGHT=$right_gi\n";
+print FILE "GI_FULL=$full_gi\n";
+
+# ANIMAL lobe segment:
+my @lobes = get_lobe_volumes( $animal );
+for( my $i = 0; $i < $#lobes; $i+=2 ) {
+  print FILE "ANIMAL_$lobes[$i]=$lobes[$i+1]\n";
+}
+
+close FILE;
+
+
+# Task-specific functions to extract information.
+
+sub get_voxel_spacing {
+
+  my $t1_native = shift;
+
+  if( -e $t1_native ) {
+    my $dx = `mincinfo -attvalue xspace:step $t1_native`;
+    my $dy = `mincinfo -attvalue yspace:step $t1_native`;
+    my $dz = `mincinfo -attvalue zspace:step $t1_native`;
+    chomp( $dx ); chomp( $dy ); chomp( $dz );
+    $dx = abs($dx); $dy = abs($dy); $dz = abs($dz);
+    return( $dx, $dy, $dz );
+  } else {
+    return( 0, 0, 0 );
+  }
+}
+
+sub get_brain_mask_error {
+
+  my $skull_mask = shift;
+  my $model_mask = shift;
+
+  if( -e $skull_mask ) {
+
+    my $skull_mask_rsl = "${tmpdir}/skull_mask_rsl.mnc";
+    `mincresample -clobber -quiet -like $model_mask -nearest_neighbour $skull_mask $skull_mask_rsl`;
+
+    my $diff = "${tmpdir}/diff_mask_stx.mnc";
+    `minccalc -clobber -quiet -expression 'A[1]!=A[0]' $model_mask $skull_mask_rsl $diff`;
+
+    my $diff_volume;
+    chomp( $diff_volume = `mincstats -quiet -sum $diff` );
+    my $mask2_volume;
+    chomp( $mask2_volume = `mincstats -quiet -sum $model_mask` );
+    my $error = 100.0 * $diff_volume / $mask2_volume;
+
+    unlink( $skull_mask_rsl );
+    unlink( $diff );
+
+    $error = sprintf( "%5.2f", $error );
+    return( $error );
+  } else {
+    return( 0 );
+  }
+}
+
+sub get_tissue_classes {
+
+  my $classify_qc = shift;
+
+  if( -e $classify_qc ) {
+    open (IDFILE, $classify_qc);
+    my $idline = <IDFILE>;
+    close (IDFILE);
+    $idline =~ /classified image CSF (.*)\%  GM (.*)\%  WM (.*)\%/;
+    return( $1, $2, $3 );
+  } else {
+    return( 0, 0, 0 );
+  }
+}
+
+sub get_cortical_gray_volume {
+
+  my $white = shift;
+  my $gray = shift;
+  my $t1_tal_xfm = shift;
+
+  if( -e $t1_tal_xfm && -e $white && -e $gray ) {
+
+    # Invert transformation from stereotaxic to native space.
+    my $inv_trans = "${tmpdir}/inv_trans.xfm";
+    &run( "xfminvert", $t1_tal_xfm, $inv_trans );
+
+    # Transform white/gray surfaces from stereotaxic to native space.
+    my $white_native = "${tmpdir}/white_native.obj";
+    my $gray_native = "${tmpdir}/gray_native.obj";
+    &run( "transform_objects", $white, $inv_trans, $white_native );
+    &run( "transform_objects", $gray, $inv_trans, $gray_native );
+    unlink( $inv_trans );
+
+    # Compute volumes using resampled white/gray surfaces in native space.
+    &run( "cortex_volume", "-zero", "-white", $white_native, "-gray", $gray_native,
+          "-output", "${tmpdir}/rsl_native_volume.txt" );
+    unlink( $white_native );
+    unlink( $gray_native );
+
+    my $ret = `vertstats_stats ${tmpdir}/rsl_native_volume.txt |grep Sum`;
+    $ret =~ / Sum: (.*)/;
+    $ret = $1 / 1000.0;   # in cc, not mm^3.
+    return( $ret );
+  } else {
+    return( 0 );
+  }
+}
+
+sub get_cerebrum_volume {
+
+  my $t1 = shift;
+  my $gray_left = shift;
+  my $gray_right = shift;
+  my $t1_tal_xfm = shift;
+
+  if( -e $t1 && -e $gray_left && -e $gray_right && -e $t1_tal_xfm ) {
+
+    # Combine left+right sides.
+    my $gray_full_stx = "${tmpdir}/gray_full_stx.obj";
+    &run( 'objconcat', $gray_left, $gray_right, 'none', 'none',
+          $gray_full_stx, 'none' );
+
+    &run( 'surface_mask2', '-binary_mask', $t1, $gray_full_stx, 
+          "${tmpdir}/cerebrum_volume_stx.mnc" );
+
+    # surface and labels must be in stx space, then use xfm to scale
+    # back to native space. This assume stx volume at 1mm.
+    &run( "compute_icbm_vols", "-clobber", "-transform", $t1_tal_xfm,
+          "-invert", "-surface_mask", $gray_full_stx,
+          "${tmpdir}/cerebrum_volume_stx.mnc", "${tmpdir}/cerebrum_vol.dat" );
+    unlink( "${tmpdir}/cerebrum_volume_stx.mnc" );
+    unlink( $gray_full_stx );
+    open (IDFILE, "${tmpdir}/cerebrum_vol.dat" );
+    my $idline = <IDFILE>;
+    close (IDFILE);
+    unlink( "${tmpdir}/cerebrum_vol.dat" );
+
+    $idline =~ s/^\s+//;
+    my ($lbl, $vol) = split(/\s+/, $idline); chomp( $vol );
+    $vol /= 1000.0;    # convert from mm^3 to cc
+
+    # Account for unit voxel size in stx space.
+    my $dx = `mincinfo $t1 -attvalue xspace:step`; chomp( $dx );
+    my $dy = `mincinfo $t1 -attvalue yspace:step`; chomp( $dy );
+    my $dz = `mincinfo $t1 -attvalue zspace:step`; chomp( $dz );
+    $vol *= $dx * $dy * $dz;
+
+    return( $vol );
+  } else {
+    return( 0 );
+  }
+}
+
+sub get_brain_volume {
+
+  my $skull_mask = shift;
+  my $t1_tal_xfm = shift;
+
+  if( -e $skull_mask && -e $t1_tal_xfm ) {
+
+    # labels (mask) must be in stx space, then use xfm to scale
+    # back to native space. This assume stx volume at 1mm.
+    &run( "compute_icbm_vols", "-clobber", "-transform", $t1_tal_xfm,
+          "-invert", $skull_mask, "${tmpdir}/brain_vol.dat" );
+    open (IDFILE, "${tmpdir}/brain_vol.dat" );
+    my $idline = <IDFILE>;
+    close (IDFILE);
+    unlink( "${tmpdir}/brain_vol.dat" );
+
+    $idline =~ s/^\s+//;
+    my ($lbl, $vol) = split(/\s+/, $idline); chomp( $vol );
+    $vol /= 1000.0;    # convert from mm^3 to cc
+
+    # Account for unit voxel size in stx space.
+    my $dx = `mincinfo $skull_mask -attvalue xspace:step`; chomp( $dx );
+    my $dy = `mincinfo $skull_mask -attvalue yspace:step`; chomp( $dy );
+    my $dz = `mincinfo $skull_mask -attvalue zspace:step`; chomp( $dz );
+    $vol *= $dx * $dy * $dz;
+
+    return( $vol );
+  } else {
+    return( 0 );
+  }
+}
+
+sub get_white_volume {
+
+  my $cls = shift;
+  my $white_left = shift;
+  my $white_right = shift;
+  my $t1_tal_xfm = shift;
+
+  if( -e $cls && -e $white_left && -e $white_right && -e $t1_tal_xfm ) {
+
+    # Combine left+right sides.
+    my $white_full_stx = "${tmpdir}/white_full_stx.obj";
+    &run( 'objconcat', $white_left, $white_right, 'none', 'none',
+          $white_full_stx, 'none' );
+
+    &run( 'surface_mask2', '-binary_mask', $cls, $white_full_stx, 
+          "${tmpdir}/white_volume_stx.mnc" );
+
+    # surface and labels must be in stx space, then use xfm to scale
+    # back to native space. This assume stx volume at 1mm.
+    &run( "compute_icbm_vols", "-clobber", "-transform", $t1_tal_xfm,
+          "-invert", "-surface_mask", $white_full_stx, $cls,
+          "${tmpdir}/white_vol.dat" );
+    unlink( "${tmpdir}/white_volume_stx.mnc" );
+    unlink( $white_full_stx );
+    open (IDFILE, "${tmpdir}/white_vol.dat" );
+    my $idline = <IDFILE>;
+    $idline =~ s/^\s+//;
+    my ($lbl, $csf_vol) = split(/\s+/, $idline); chomp( $csf_vol );
+    my $idline = <IDFILE>;
+    $idline =~ s/^\s+//;
+    my ($lbl, $subgm_vol) = split(/\s+/, $idline); chomp( $subgm_vol );
+    my $idline = <IDFILE>;
+    $idline =~ s/^\s+//;
+    my ($lbl, $white_vol) = split(/\s+/, $idline); chomp( $white_vol );
+    close (IDFILE);
+    unlink( "${tmpdir}/white_vol.dat" );
+
+    # Account for unit voxel size in stx space.
+    my $dx = `mincinfo $cls -attvalue xspace:step`; chomp( $dx );
+    my $dy = `mincinfo $cls -attvalue yspace:step`; chomp( $dy );
+    my $dz = `mincinfo $cls -attvalue zspace:step`; chomp( $dz );
+    my $scale = $dx * $dy * $dz / 1000.0;
+
+    $csf_vol *= $scale;      # convert from mm^3 to cc
+    $subgm_vol *= $scale;    # convert from mm^3 to cc
+    $white_vol *= $scale;    # convert from mm^3 to cc
+
+    return( $csf_vol, $subgm_vol, $white_vol );
+  } else {
+    return( 0, 0, 0 );
+  }
+}
+
+
+sub get_surface_error {
+
+  my $surface_qc = shift;
+
+  if( -e $surface_qc ) {
+    open (IDFILE, $surface_qc);
+    my $idline = <IDFILE>;
+    close (IDFILE);
+    $idline =~ /white surface \((.*)\%\), gray surface \((.*)\%\)/;
+    return( $1, $2 );
+  } else {
+    return( 100.0, 100.0 );
+  }
+}
+
+sub get_laplacian_fit_error {
+
+  my $clasp_field = shift;
+  my $gm_left = shift;
+  my $gm_right = shift;
+
+  if( -e $clasp_field && -e $gm_left && -e $gm_right ) {
+
+    # Intersect gray surfaces with Laplacian field.
+    my $phi_left = "${tmpdir}/phi_left.txt";
+    `volume_object_evaluate -linear $clasp_field $gm_left $phi_left`;
+    my $phi_right = "${tmpdir}/phi_right.txt";
+    `volume_object_evaluate -linear $clasp_field $gm_right $phi_right`;
+
+    # Title: Write min/max of Laplacian field on gray surfaces
+    my @ret = `vertstats_stats $phi_left |grep Minimum`;
+    $ret[0] =~ / Minimum: (.*)/;
+    my $left_min = $1;
+    @ret = `vertstats_stats $phi_right |grep Minimum`;
+    $ret[0] =~ / Minimum: (.*)/;
+    my $right_min = $1;
+
+    @ret = `vertstats_stats $phi_left |grep Maximum`;
+    $ret[0] =~ / Maximum: (.*)/;
+    my $left_max = $1;
+    @ret = `vertstats_stats $phi_right |grep Maximum`;
+    $ret[0] =~ / Maximum: (.*)/;
+    my $right_max = $1;
+
+    @ret = `vertstats_stats $phi_left |grep Mean`;
+    $ret[0] =~ / Mean: (.*)/;
+    my $left_mean = $1;
+    @ret = `vertstats_stats $phi_right |grep Mean`;
+    $ret[0] =~ / Mean: (.*)/;
+    my $right_mean = $1;
+
+    unlink( $phi_left );
+    unlink( $phi_right );
+
+    my $phi_min = ( $left_min < $right_min ) ? $left_min : $right_min;
+    my $phi_max = ( $left_max > $right_max ) ? $left_max : $right_max;
+    my $phi_mean = 0.50 * ( $left_mean + $right_mean );
+
+    return( $phi_min, $phi_max, $phi_mean );
+  } else {
+    return( 0, 0, 0 );
+  }
+
+}
+
+sub get_self_intersects {
+
+  my $surf = shift;
+
+  if( -e $surf ) {
+    my @ret = `check_self_intersect $surf`;
+    $ret[1] =~ /triangles = (\d+)/;
+    return( $1 );
+  } else {
+    return( 0 );
+  }
+}
+
+sub get_surf_surf_intersects {
+
+  my $wm = shift;
+  my $gm = shift;
+
+  if( -e $gm && -e $wm ) {
+    my @ret = `check_surf_surf_intersect $wm $gm`;
+    $ret[2] =~ /intersections = (\d+)/;
+    return( $1 );
+  } else {
+    return( 0 );
+  }
+}
+
+sub get_mean_thickness {
+
+  my $meanct_file = shift;
+
+  if( -e $meanct_file ) {
+    my $idline = `grep Total $meanct_file`;
+    chomp( $idline );
+    $idline =~ / Total  (.*)/;
+    return( $1 );
+  } else {
+    return( 0 );
+  }
+}
+
+
+sub get_tissue_thresholds {
+
+  my $t1_stx = shift;
+  my $mask = shift;
+  my $cls = shift;
+
+  if( -e $t1_stx && -e $cls && -e $mask ) {
+    my $cls_masked = "${tmpdir}/cls_masked.mnc";
+    `minccalc -quiet -clobber -expression 'if(A[1]>0.5){A[0]}else{0}' $cls $mask $cls_masked`;
+    my $WMmean = `mincstats -quiet -mask $cls_masked -mask_binvalue 3 -mean $t1_stx`;
+    my $WMsdev = `mincstats -quiet -mask $cls_masked -mask_binvalue 3 -stddev $t1_stx`;
+    my $GMmean = `mincstats -quiet -mask $cls_masked -mask_binvalue 2 -mean $t1_stx`;
+    my $GMsdev = `mincstats -quiet -mask $cls_masked -mask_binvalue 2 -stddev $t1_stx`;
+    chomp( $WMmean );
+    chomp( $WMsdev );
+    chomp( $GMmean );
+    chomp( $GMsdev );
+    unlink( $cls_masked );
+    return( $WMmean, $WMsdev, $GMmean, $GMsdev );
+  } else {
+    return( 0, 0, 0, 0 );
+  }
+}
+
+sub get_gi {
+
+  my $gi_file = shift;
+
+  if( -e $gi_file ) {
+    open (IDFILE, $gi_file);
+    my $idline = <IDFILE>;
+    close (IDFILE);
+    $idline =~ /gyrification index gray: (.*)/;
+    return( $1 );
+  } else {
+    return( 0 );
+  }
+}
+
+sub get_lobe_volumes {
+  my $file = shift;
+
+  my @vols = ();
+  if( ( $file ne "none" ) && (-e $file ) ) {
+    open( LOBES, $file );
+    while (my $line = <LOBES>) {
+      my ($label, $vol) = split( ' ', $line );
+      chomp( $label );
+      chomp( $vol );
+      push @vols, $label;
+      push @vols, $vol/1000.0;   # scale from mm^3 to cc
+    }
+    close( LOBES );
+  }
+  return @vols;
+}
+
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

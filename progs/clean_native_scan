@@ -20,22 +20,31 @@ use warnings "all";
 use File::Basename;
 use File::Temp qw/ tempdir /;
 
+my $CENTER_IMAGE = 0;
+
 # Directory for temporary files.
 my $me = &basename($0);
-my $tmpdir = &tempdir( "$me-XXXXXX", TMPDIR => 1, CLEANUP => 0 );
+my $tmpdir = &tempdir( "$me-XXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
 my $input_t1 = $ARGV[0];
 my $input_t2 = $ARGV[1];
 my $input_pd = $ARGV[2];
-my $input_mask = $ARGV[3];
-my $output_t1 = $ARGV[4];
-my $output_t2 = $ARGV[5];
-my $output_pd = $ARGV[6];
-my $output_mask = $ARGV[7];
+my $input_mp2 = $ARGV[3];
+my $input_mask = $ARGV[4];
+my $output_t1 = $ARGV[5];
+my $output_t2 = $ARGV[6];
+my $output_pd = $ARGV[7];
+my $output_mask = $ARGV[8];
+my $stx_model = $ARGV[9];
 
-# Regularize t1, t2, pd, mask.
+# Regularize t1, t2, pd, mp2, mask.
 
 if( ( $input_t1 ne "none" ) and ( -e $input_t1 ) ) {
+
+  if( ( $input_mp2 ne "none" ) and ( -e $input_mp2 ) ) {
+    &mask_mp2_bg( $input_t1, $input_mp2, $output_t1, $stx_model );
+    $input_t1 = $output_t1;
+  }
   &make_regular( $input_t1, $output_t1 );
 }
 
@@ -65,16 +74,56 @@ sub make_regular {
   my $input = shift;
   my $output = shift;
 
-  # bypass symbolic link, if any
-  &run( 'cp', '-f', $input, "${tmpdir}/regular.mnc" );
-  # convert to minc2 since minc_modify_header can crash on 
-  # minc1 files (don't know why).
-  my $ret = `file ${tmpdir}/regular.mnc`;
-  chomp( $ret ) ;
-  if( $ret =~ m/NetCDF/ ) {
-    &run( 'mincconvert', '-2', "${tmpdir}/regular.mnc", 
-          "${tmpdir}/regular_v2.mnc" );
-    &run( 'mv', '-f', "${tmpdir}/regular_v2.mnc", "${tmpdir}/regular.mnc" );
+  # make sure the file is 3-D
+  my $ret = `mincinfo -dimnames $input`;
+  if( $ret =~ m/time/ ) {
+    die "Image $input contains time dimension.\n";
+  }
+  if( !( ( $ret =~ m/xspace/ ) && ( $ret =~ m/yspace/ ) && 
+         ( $ret =~ m/zspace/ ) ) ) {
+    die "Image $input does not contain all 3 (x,y,z) space dimensions.\n";
+  }
+
+  # bypass symbolic link, if any, or .mnc.gz, and convert to minc2
+  # in the process.
+  &run( 'minccalc', '-clobber', '-quiet', '-expr', 'A[0]', $input, 
+        "${tmpdir}/regular.mnc" );
+
+# # convert to minc2 since minc_modify_header can crash on 
+# # minc1 files (don't know why).
+# my $ret = `file ${tmpdir}/regular.mnc`;
+# chomp( $ret ) ;
+# if( $ret =~ m/NetCDF/ ) {
+#   &run( 'mincconvert', '-2', "${tmpdir}/regular.mnc", 
+#         "${tmpdir}/regular_v2.mnc" );
+#   &run( 'mv', '-f', "${tmpdir}/regular_v2.mnc", "${tmpdir}/regular.mnc" );
+# }
+
+  # make sure image is centered in field of view
+  my $dx = `mincinfo -attvalue xspace:step $input`; chomp( $dx );
+  my $dy = `mincinfo -attvalue yspace:step $input`; chomp( $dy );
+  my $dz = `mincinfo -attvalue zspace:step $input`; chomp( $dz );
+  my $nx = `mincinfo -dimlength xspace $input`; chomp( $nx );
+  my $ny = `mincinfo -dimlength yspace $input`; chomp( $ny );
+  my $nz = `mincinfo -dimlength zspace $input`; chomp( $nz );
+  my $sx = `mincinfo -attvalue xspace:start $input`; chomp( $sx );
+  my $sy = `mincinfo -attvalue yspace:start $input`; chomp( $sy );
+  my $sz = `mincinfo -attvalue zspace:start $input`; chomp( $sz );
+  my $xc = $sx + 0.5 * $dx * $nx;
+  my $yc = $sy + 0.5 * $dy * $ny;
+  my $zc = $sz + 0.5 * $dz * $nz;
+  if( abs( $xc ) > 100.0 || abs( $yc ) > 100.0 || abs( $zc ) > 100.0 ) {
+    if( $CENTER_IMAGE ) {
+      $sx = -0.5 * $nx * $dx if( abs( $xc ) > 100.0 );
+      $sy = -0.5 * $ny * $dy if( abs( $yc ) > 100.0 );
+      $sz = -0.5 * $nz * $dz if( abs( $zc ) > 100.0 );
+      &run( 'minc_modify_header', '-sinsert', 'xspace:start=$sx',
+            '-sinsert', 'yspace:start=$sy', '-sinsert',
+            'zspace:start=$sz', "${tmpdir}/regular.mnc" );
+      print "Image $input has been translated closer to the center of the field of view.\n";
+    } else {
+      die "Image $input is not centered in field of view. Have you used the -usecoordinates option with dcm2mnc?\n";
+    }
   }
 
   &run( 'minc_modify_header', '-sinsert', 'xspace:spacing=regular__',
@@ -88,6 +137,37 @@ sub make_regular {
         'zspace:direction_cosines=0,0,1', $output );
   unlink( "${tmpdir}/regular.mnc" );
 }
+
+# Mask the background of the mp2rage image using its associated t1 image.
+# It is assumed that the mp2rage and t1 images have been acquired 
+# simultaneously, thus co-registered. 
+
+sub mask_mp2_bg {
+
+  my $t1 = shift;
+  my $mp2 = shift;
+  my $output = shift;
+  my $model = shift;
+
+  # Obtain a head mask by quick registration to the stx model.
+
+  my $tmp_mask = "${tmpdir}/t1_mask_tmp.mnc";
+  &run( 'bestlinreg.pl', '-clobber', '-lsq12', '-nmi', $t1,
+        "${model}.mnc", "${tmpdir}/mp2_lin.xfm" );
+  &run( 'mincresample', '-clobber', '-quiet', '-like', $mp2,
+        '-nearest', '-transform', "${tmpdir}/mp2_lin.xfm", '-invert',
+        "${model}\_headmask.mnc", $tmp_mask );
+  unlink( "${tmpdir}/mp2_lin.xfm" );
+  &run( 'mincdefrag', $tmp_mask, $tmp_mask, 1, 6 );
+  &run( 'dilate_volume', $tmp_mask, $tmp_mask, 1, 6, 1 );
+
+  # Mask out the background outside the headmask.
+
+  &run( 'minccalc', '-quiet', '-clobber', '-expression',
+        "if(A[1]<0.5){A[0]/10.0}else{A[0]}", $mp2, $tmp_mask, $output );
+  unlink( $tmp_mask );
+}
+
 
 # Execute a system call.
 

@@ -1,3 +1,19 @@
+        New in Release 2.0.0
+* Marching-cubes algorithm for white surface extraction
+* New surface models for ICBM, Colin27 and IBIS-Samir based on
+  marching-cubes
+* New surface parcellations for DKT-40
+* New script for generation of average surfaces (in development)
+* GM-WM t1-gradient calibration of white surface
+* Improved CIVET QC pipeline (faster, more complete)
+* Improved surface registration parameters (hopefully better)
+* Corrections for processing at 0.5mm voxel size
+* Hi-res cortical surfaces and registration
+* ANIMAL volume segmentation added back 
+* Corrected fwhm for surface smoothing
+* Now using new N3 (1.12.0 or higher with EBTKS-1.6.4) and new pve
+* Masked hippocampus and amygdala for icbm152nl_09s and ADNIhires models
+
         New in Release 1.1.12
 * New verify figures for Laplacian fit and surface-surface
   intersections
