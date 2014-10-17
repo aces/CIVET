@@ -810,31 +810,6 @@ my @fields = ( { 'name' => 'XSTEP',
                );
 
 #########################################################
-# Header line for html document.
-#########################################################
-
-my $html = "<h1> CIVET PIPELINE QUALITY CONTROL</h1>\n";
-$html .= "<table cellspacing=\"2\" bgcolor=\"white\">\n";
-$html .= "<tr bgcolor=\"\#cccccc\">" .
-         "<th>No.</th>" .
-         "<th>ID</th>";
-for( my $j = 0; $j <= $#fields; $j++ ) {
-  $html .= "<th>$fields[$j]{name}</th>";
-}
-$html .= "</tr>\n";
-
-#########################################################
-# Header line for csv file.
-#########################################################
-
-my $csv = "ID,";
-for( my $j = 0; $j <= $#fields; $j++ ) {
-  $csv .= "$fields[$j]{name}";
-  $csv .= "," if( $j < $#fields );
-}
-$csv .= "\n";
-
-#########################################################
 # Collect data for each subject.
 #########################################################
 
@@ -905,6 +880,35 @@ print "Creating html table for all data...\n";
 my @colours = ( "#aabbbb", "#eeeedd", "#cccccc", "#aabbaa", "#dddddd" );
 my $ncolours = 5;
 
+#########################################################
+# Header line for html document.
+#########################################################
+
+my $html = "<h1> CIVET PIPELINE QUALITY CONTROL</h1>\n";
+$html .= "<table cellspacing=\"2\" bgcolor=\"white\">\n";
+$html .= "<tr bgcolor=\"\#cccccc\">" .
+         "<th>No.</th>" .
+         "<th>ID</th>";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  if( $fields[$j]{count} > 0 ) {
+    $html .= "<th>$fields[$j]{name}</th>";
+  }
+}
+$html .= "</tr>\n";
+
+#########################################################
+# Header line for csv file.
+#########################################################
+
+my $csv = "ID,";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  if( $fields[$j]{count} > 0 ) {
+    $csv .= "$fields[$j]{name}";
+    $csv .= "," if( $j < $#fields );
+  }
+}
+$csv .= "\n";
+
 my $count = 0;
 my $group = -1;
 foreach my $id (@long_dsids) {
@@ -924,11 +928,13 @@ foreach my $id (@long_dsids) {
     my $civet_qc_file = "${target}/${dsid}/verify/${prefix}_${dsid}_civet_qc.txt";
     my %list = ( -e $civet_qc_file ) ? &parse_qc_file( $civet_qc_file ) : undef;
     for( my $j = 0; $j <= $#fields; $j++ ) {
-      my $key = $fields[$j]{name};
-      if( defined( $list{$key} ) ) {
-        # Contribution to the local mean for this field.
-        $subject_count[$j]++;
-        $subject_mean[$j] += $list{$key};
+      if( $fields[$j]{count} > 0 ) {
+        my $key = $fields[$j]{name};
+        if( defined( $list{$key} ) ) {
+          # Contribution to the local mean for this field.
+          $subject_count[$j]++;
+          $subject_mean[$j] += $list{$key};
+        }
       }
     }
   }
@@ -953,30 +959,32 @@ foreach my $id (@long_dsids) {
     my $qc_code = 0;
 
     for( my $j = 0; $j <= $#fields; $j++ ) {
-      my $key = $fields[$j]{name};
-      if( defined( $list{$key} ) ) {
-        my $str = sprintf( $fields[$j]{format}, $list{$key} );
-        $csvline .= "${str},";
-        my $code = ( defined( $fields[$j]{function} ) ) ? 
-                   $fields[$j]{function}->( $list{$key}, $fields[$j]{mean}, $fields[$j]{stdev} ) : 
-                   $Qc_good;
-        if( !$code ) {
-          $code = ( defined( $fields[$j]{function} ) ) ? 
-                    $fields[$j]{function}->( $list{$key}, $subject_mean[$j], 
-                                             $fields[$j]{stdev_long} ) : 
-                    $Qc_good;
-          $code = $Qc_local if( $code );
-        }
-        if( $code ) {
-          $qc_code += $QcFactor[$code];
-          $htmlline .= "<td bgcolor=\"$QcColours[$code]\">" . $str . "</td> ";
-        } else {
-          $htmlline .= "<td>" . $str . "</td> ";
-        }
+      if( $fields[$j]{count} > 0 ) {
+        my $key = $fields[$j]{name};
+        if( defined( $list{$key} ) ) {
+          my $str = sprintf( $fields[$j]{format}, $list{$key} );
+          $csvline .= "${str},";
+          my $code = ( defined( $fields[$j]{function} ) ) ? 
+                     $fields[$j]{function}->( $list{$key}, $fields[$j]{mean}, $fields[$j]{stdev} ) : 
+                     $Qc_good;
+          if( !$code ) {
+            $code = ( defined( $fields[$j]{function} ) ) ? 
+                      $fields[$j]{function}->( $list{$key}, $subject_mean[$j], 
+                                               $fields[$j]{stdev_long} ) : 
+                      $Qc_good;
+            $code = $Qc_local if( $code );
+          }
+          if( $code ) {
+            $qc_code += $QcFactor[$code];
+            $htmlline .= "<td bgcolor=\"$QcColours[$code]\">" . $str . "</td> ";
+          } else {
+            $htmlline .= "<td>" . $str . "</td> ";
+          }
 
-      } else {
-        $csvline .= ",";
-        $htmlline .= "<td></td> ";
+        } else {
+          $csvline .= ",";
+          $htmlline .= "<td></td> ";
+        }
       }
     }
 
@@ -1041,8 +1049,10 @@ $html .= "<tr bgcolor=\"#dddddd\">" .
          "<th></th>" .
          "<th>N</th> ";
 for( my $j = 0; $j <= $#fields; $j++ ) {
-  my $str = sprintf( "%d", $fields[$j]{count} );
-  $html .= "<th>$str</th>";
+  if( $fields[$j]{count} > 0 ) {
+    my $str = sprintf( "%d", $fields[$j]{count} );
+    $html .= "<th>$str</th>";
+  }
 }
 $html .= "</tr>\n";
 
@@ -1051,8 +1061,10 @@ $html .= "<tr bgcolor=\"#dddddd\">" .
          "<th></th>" .
          "<th>Inter Mean</th> ";
 for( my $j = 0; $j <= $#fields; $j++ ) {
-  my $str = sprintf( $fields[$j]{format}, $fields[$j]{mean} );
-  $html .= "<th>$str</th>";
+  if( $fields[$j]{count} > 0 ) {
+    my $str = sprintf( $fields[$j]{format}, $fields[$j]{mean} );
+    $html .= "<th>$str</th>";
+  }
 }
 $html .= "</tr>\n";
 
@@ -1061,8 +1073,10 @@ $html .= "<tr bgcolor=\"#dddddd\">" .
          "<th></th>" .
          "<th>Inter StdDev</th> ";
 for( my $j = 0; $j <= $#fields; $j++ ) {
-  my $str = sprintf( $fields[$j]{format}, $fields[$j]{stdev} );
-  $html .= "<th>$str</th>";
+  if( $fields[$j]{count} > 0 ) {
+    my $str = sprintf( $fields[$j]{format}, $fields[$j]{stdev} );
+    $html .= "<th>$str</th>";
+  }
 }
 $html .= "</tr>\n";
 
@@ -1071,8 +1085,10 @@ $html .= "<tr bgcolor=\"#dddddd\">" .
          "<th></th>" .
          "<th>Intra StdDev</th> ";
 for( my $j = 0; $j <= $#fields; $j++ ) {
-  my $str = sprintf( $fields[$j]{format}, $fields[$j]{stdev_long} );
-  $html .= "<th>$str</th>";
+  if( $fields[$j]{count} > 0 ) {
+    my $str = sprintf( $fields[$j]{format}, $fields[$j]{stdev_long} );
+    $html .= "<th>$str</th>";
+  }
 }
 $html .= "</tr>\n";
 
@@ -1085,8 +1101,10 @@ $html .= "</table>";
 $html .= "<h2> Legend of symbols</h2>\n";
 $html .= "<table>\n";
 for( my $j = 0; $j <= $#fields; $j++ ) {
-  my $key = $fields[$j]{name};
-  $html .= "<tr> <td> $fields[$j]{name} </td> <td> $fields[$j]{title} </td></tr>\n";
+  if( $fields[$j]{count} > 0 ) {
+    my $key = $fields[$j]{name};
+    $html .= "<tr> <td> $fields[$j]{name} </td> <td> $fields[$j]{title} </td></tr>\n";
+  }
 }
 $html .= "</table>\n";
 
@@ -1110,33 +1128,34 @@ print FILE "set datafile separator \",\"\n";
 my $column = 1;   # skip dsid in .csv file
 
 for( my $i = 0; $i <= $#fields; $i++ ) {
-  my $key = $fields[$i]{name};
-  print "Processing field $key...\n";
+  if( $fields[$i]{count} > 0 ) {
+    my $key = $fields[$i]{name};
+    print "Processing field $key...\n";
 
-  $column++;
+    $column++;
 
-  # Make the gnuplot graph for this field.
+    # Make the gnuplot graph for this field.
 
-  print FILE "# $key\n";
-  print FILE "clear\n";
-  print FILE "set grid\n";
-  print FILE "unset key\n";
-  print FILE "set title \"$fields[$i]{title}\"\n";
-  print FILE "set xlabel \"$fields[$i]{xlabel}\"\n";
-  print FILE "set ylabel \"$fields[$i]{ylabel}\"\n";
-  print FILE "set terminal png\n";
-  print FILE "set output \"${qc_dir}/$key.png\"\n";
-  print FILE "plot \"${qc_dir}/civet_${prefix}.csv\" u $column w lp, $fields[$i]{mean} w li 2, " .
-             sprintf("%f",$fields[$i]{mean}-$fields[$i]{stdev}) . " w li 3, " .
-             sprintf("%f",$fields[$i]{mean}+$fields[$i]{stdev}) . " w li 3\n";
+    print FILE "# $key\n";
+    print FILE "clear\n";
+    print FILE "set grid\n";
+    print FILE "unset key\n";
+    print FILE "set title \"$fields[$i]{title}\"\n";
+    print FILE "set xlabel \"$fields[$i]{xlabel}\"\n";
+    print FILE "set ylabel \"$fields[$i]{ylabel}\"\n";
+    print FILE "set terminal png\n";
+    print FILE "set output \"${qc_dir}/$key.png\"\n";
+    print FILE "plot \"${qc_dir}/civet_${prefix}.csv\" u $column w lp, $fields[$i]{mean} w li 2, " .
+               sprintf("%f",$fields[$i]{mean}-$fields[$i]{stdev}) . " w li 3, " .
+               sprintf("%f",$fields[$i]{mean}+$fields[$i]{stdev}) . " w li 3\n";
 
-  my $figure = $column - 1;
-  $html .= "<table>\n" .
-           "<tr> <td></td> <td> <img src=\"$key.png\"> </td></tr>\n" .
-           "<tr> <td> Figure $figure: </td> <td> $fields[$i]{caption} </td></tr>\n" .
-           "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>";
-           "</table>\n";
-
+    my $figure = $column - 1;
+    $html .= "<table>\n" .
+             "<tr> <td></td> <td> <img src=\"$key.png\"> </td></tr>\n" .
+             "<tr> <td> Figure $figure: </td> <td> $fields[$i]{caption} </td></tr>\n" .
+             "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>";
+             "</table>\n";
+  }
 }
 
 close( FILE );

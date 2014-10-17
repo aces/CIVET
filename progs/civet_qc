@@ -135,10 +135,12 @@ print FILE "GMSDEV=$GMsdev\n";
 # Gyrification index for left/right/both hemispheres
 my $left_gi = get_gi( $gi_left );
 my $right_gi = get_gi( $gi_right );
-my $full_gi = get_gi( $gi_full );
 print FILE "GI_LEFT=$left_gi\n";
 print FILE "GI_RIGHT=$right_gi\n";
-print FILE "GI_FULL=$full_gi\n";
+if( $gi_full ne "none" ) {
+  my $full_gi = get_gi( $gi_full );
+  print FILE "GI_FULL=$full_gi\n";
+}
 
 # ANIMAL lobe segment:
 my @lobes = get_lobe_volumes( $animal );

@@ -293,7 +293,7 @@ sub QC {
                 @{${$image}->{lobe_thickness}{left}}[0], 
                 @{${$image}->{lobe_thickness}{right}}[0],
                 ${$image}->{gyrification_index}{left}, ${$image}->{gyrification_index}{right},
-                ${$image}->{combinesurfaces} ?  ${$image}->{gyrification_index}{full} : "none",
+                ${$image}->{combinesurfaces} ? ${$image}->{gyrification_index}{full} : "none",
                 ${$image}->{animal} eq "ANIMAL" ? ${$image}->{lobe_volumes} : "none",
                 $qc_file ],
       prereqs => $Prereqs });
