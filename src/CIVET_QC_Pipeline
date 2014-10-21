@@ -48,9 +48,9 @@ my $tmpdir = tempdir( CLEANUP => 1 );
 my $version = "2.0.0";
 my $versionDate= "September, 2014";
 my $authors= "Claude Lepage";
-my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile>\n 
+my $usage = "\nUSAGE:\n$ProgramName -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile>\n 
 ALTERNATIVE USAGE:\n
-$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile>\n\n";
+$ProgramName -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile>\n\n";
 
 my $whatsnew = <<NEW;
     *************************************************************************
@@ -83,21 +83,18 @@ Getopt::Tabular::SetHelp($help, $usage);
 
 
 ############# Some directories that the user will need to specify
-my $sourceDir = undef;
+my $source = undef;   ## now obsolete
 my $target = undef;
 my $prefix = undef;
-my $sourceSubDir = "noIdSubDir";
 my $idTextFile = undef;
 
 ############# Options table
 my @leftOverArgs;
 my @argTbl = (
           ["File options", "section"],
-          ["-sourcedir", "string", 1, \$sourceDir, "Directory containing the source files.", "<dir>"],
+          ["-sourcedir", "string", 1, \$source, "obsolete parameter.", "<dir>"],
           ["-targetdir", "string", 1, \$target, "Directory where processed data will be placed.", "<dir>"],
           ["-prefix", "string", 1, \$prefix, "File prefix to be used in naming output files.", "<prefix>"],
-          ["-id-subdir", "const", "IdSubDir", \$sourceSubDir, 
-           "Indicate that the source directory contains sub-directories for each id"],
           ["-id-file", "string", 1, \$idTextFile, "A text file that contains all the subject id\'s (separated by space, tab, return or comma) that CIVET will run on.", "<file>"],
           );
 
@@ -126,15 +123,14 @@ for my $id (@long_dsids) {
   push @dsids, split( /:/, $id );
 }
 
-unless ($prefix && $target && $sourceDir) {
+unless ($prefix && $target) {
     die "\n\n" .
         "*************************** ERROR ****************************: \n" .
-        "     You must specify -prefix, -targetdir, and -sourcedir \n" .
+        "     You must specify -prefix and -targetdir \n" .
         "**************************************************************\n\n\n";
 }
 $target =~ s#/+$##;      # remove trailing / at end of directory name, if any
 $target = abs_path( $target );
-$sourceDir = abs_path( $sourceDir );
 
 ############# Set no file buffering for stdout (buffer is printed every 1 line)
 $| = 1;
@@ -147,7 +143,6 @@ chomp( $UNAME );
 print "\n\n* Pipeline started at $DATE on $UNAME \n";
 print "\n* This is CIVET $version, $versionDate \n";
 print "\n* CIVET Command line is:\n       $0 @ARGV \n";
-print "\n* The source directory is: '$sourceDir' \n";
 print "* The target directory is: '$target' \n";
 print "* The prefix is: '$prefix' \n";
 
@@ -862,12 +857,11 @@ foreach my $id (@long_dsids) {
 
 for( my $j = 0; $j <= $#fields; $j++ ) {
   if( $fields[$j]{count} > 0 ) {
-    $fields[$j]{stdev_long} = sqrt( ( $fields[$j]{stdev} - $fields[$j]{stdev_long} ) /
+    $fields[$j]{stdev_long} = sqrt( abs( $fields[$j]{stdev} - $fields[$j]{stdev_long} ) /
                                     $fields[$j]{count} );
     $fields[$j]{mean} /= $fields[$j]{count};
-    $fields[$j]{stdev} = sqrt( $fields[$j]{stdev} / $fields[$j]{count} -
-                               $fields[$j]{mean} * $fields[$j]{mean} );
-
+    $fields[$j]{stdev} = sqrt( abs( $fields[$j]{stdev} / $fields[$j]{count} -
+                                    $fields[$j]{mean} * $fields[$j]{mean} ) );
   }
 }
 

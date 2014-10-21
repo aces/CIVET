@@ -799,7 +799,7 @@ my @argTbl = (
           ["-no-animal", "const", "noANIMAL", \$animal, 
            "don\'t run volumetric ANIMAL segmentation "],
           ["-lobe_atlas", "string", 1, \$AnimalAtlas, 
-           "Use lobe atlas for ANIMAL segmentation: " .
+           "Use lobe atlas for ANIMAL segmentation (mandatory with -animal): " .
            "\"icbm152nl-VI\" (ICBM152 generation VI symmetric model), " .
            "\"icbm152nl-2009a\" (ICBM152 2009a symmetric model)", "<model>" ],
           ["Pipeline control", "section"],
@@ -1014,7 +1014,7 @@ if( $animal eq "ANIMAL" ) {
   if( ( defined $AnimalAtlas ) && 
       ( $AnimalAtlas eq "icbm152nl-VI" || $AnimalAtlas eq "icbm152nl-2009a" ) ) {
     $CIVETmodels{$CIVETModel}{AnimalModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalAtlasDir}/" .
-                                             "$ANIMALmodels{$AnimalAtlas}{AnimalAtlas}/";
+                                             "$ANIMALmodels{$AnimalAtlas}{AnimalAtlas}";
     $CIVETmodels{$CIVETModel}{AnimalRegNLModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalNLRegDir}/" .
                                              $ANIMALmodels{$AnimalAtlas}{AnimalNLRegModel};
     print "* ANIMAL atlas is $ANIMALmodels{$AnimalAtlas}{AnimalAtlas} \n";
