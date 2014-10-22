@@ -946,8 +946,8 @@ if( defined $SurfaceAtlas ) {
         $right_atlas = "icbm/DKT/icbm_avg_mid_mc_dkt40_left.txt";
       }
       if( $SurfaceAtlas eq "AAL" ) {
-        $left_atlas = "icbm/AAL/icbm_avg_mid_sym_mc_AAL_left.txt";
-        $right_atlas = "icbm/AAL/icbm_avg_mid_sym_mc_AAL_right.txt";
+        $left_atlas = "icbm/AAL/icbm_avg_mid_mc_AAL_left.txt";
+        $right_atlas = "icbm/AAL/icbm_avg_mid_mc_AAL_right.txt";
       }
     } else {
       if( $smodel eq "colinMCasym" ) {
