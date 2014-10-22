@@ -1014,7 +1014,7 @@ if( $animal eq "ANIMAL" ) {
   if( ( defined $AnimalAtlas ) && 
       ( $AnimalAtlas eq "icbm152nl-VI" || $AnimalAtlas eq "icbm152nl-2009a" ) ) {
     $CIVETmodels{$CIVETModel}{AnimalModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalAtlasDir}/" .
-                                             "$ANIMALmodels{$AnimalAtlas}{AnimalAtlas}";
+                                             "$ANIMALmodels{$AnimalAtlas}{AnimalAtlas}/";
     $CIVETmodels{$CIVETModel}{AnimalRegNLModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalNLRegDir}/" .
                                              $ANIMALmodels{$AnimalAtlas}{AnimalNLRegModel};
     print "* ANIMAL atlas is $ANIMALmodels{$AnimalAtlas}{AnimalAtlas} \n";
