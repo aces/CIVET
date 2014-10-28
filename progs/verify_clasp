@@ -59,6 +59,9 @@ foreach my $pos ('front', 'back') {
 # ROW 3: gray left hemi surfaces + gray top and bottom views
 $ypos += $tilesize - 0.10*$tilesize;
 push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$lg_title\"";
+$xpos -= 0.2*$tilesize;
+push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"Left:\"";
+$xpos += 0.2*$tilesize;
 $ypos += 0.10*$tilesize;
 foreach my $pos ('default', 'left', 'right') {
   print "Making left gray ${pos} surface\n" unless $quiet;
@@ -74,6 +77,9 @@ foreach my $pos ('top', 'bottom') {
 # ROW 4: gray right hemi surfaces + gray front and back views
 $ypos += $tilesize - 0.10*$tilesize;
 push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$rg_title\"";
+$xpos -= 0.25*$tilesize;
+push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"Right:\"";
+$xpos += 0.25*$tilesize;
 $ypos += 0.10*$tilesize;
 foreach my $pos ('flipped', 'right', 'left') {
   print "Making right gray ${pos} surface\n" unless $quiet;
@@ -95,14 +101,19 @@ if( -e $thickness_left && $thickness_left ne "none" &&
   my $mid_rms_left = "${tmpdir}/mid_rms_left.txt";
   my $mid_rms_right = "${tmpdir}/mid_rms_right.txt";
 
-  my $rms_left_min = `sort -n $thickness_left |head -1`;
-  my $rms_right_min = `sort -n $thickness_right |head -1`;
-  my $rms_left_max = `sort -n $thickness_left |tail -1`;
-  my $rms_right_max = `sort -n $thickness_right |tail -1`;
+  my $rms_left_min = `vertstats_stats $thickness_left |grep Minimum`;
+  my $rms_right_min = `vertstats_stats $thickness_right |grep Minimum`;
+  my $rms_left_max = `vertstats_stats $thickness_left |grep Maximum`;
+  my $rms_right_max = `vertstats_stats $thickness_right |grep Maximum`;
+
   chomp( $rms_left_min );
   chomp( $rms_right_min );
   chomp( $rms_left_max );
   chomp( $rms_right_max );
+  $rms_left_min =~ /Minimum: (.*)/; $rms_left_min = $1;
+  $rms_right_min =~ /Minimum: (.*)/; $rms_right_min = $1;
+  $rms_left_max =~ /Maximum: (.*)/; $rms_left_max = $1;
+  $rms_right_max =~ /Maximum: (.*)/; $rms_right_max = $1;
 
   my $rms_min = min( $rms_left_min, $rms_right_min );
   my $rms_max = max( $rms_left_max, $rms_right_max );
