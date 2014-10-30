@@ -72,6 +72,7 @@ my $code = "spectral";
 
 if( $max_label > 16 ) {  # use spectral with few labels
   $min_label = 0;
+  $max_label = 255;
   $code = "label";
 }
 

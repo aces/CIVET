@@ -88,7 +88,7 @@ samirlobesdir = $(bindir)/models/samir/lobes/
 samirgyridir = $(bindir)/models/samir/gyri/
 
 models_DATA = \
-        models/Cerebellum_Ventricles_SubCortical_Mask-1.2.0.mnc \
+        models/Cerebellum_Ventricles_SubCortical_Mask-VI.mnc \
         models/Cerebellum_Ventricles_SubCortical_Mask-2009s.mnc \
         models/Cerebellum_Ventricles_SubCortical_Mask-ADNIhi.mnc \
         models/Cerebellum_Ventricles_SubCortical_Mask.mnc \

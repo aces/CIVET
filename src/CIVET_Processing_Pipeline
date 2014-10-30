@@ -606,7 +606,7 @@ my %CIVETmodels = ( 'colin27' => {  # asymmetric
                       'SurfaceMaskDir'   => MNI::DataDir::dir("mni-models"),
                       'SurfaceMask'      => "icbm_avg_152_t1_tal_nlin_symmetric_VI_mask.obj",
                       'SurfRegModel'     => "icbm152MCsym",
-                      'SubcorticalMask'  => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask-VI.mnc",
+                      'SubcorticalMask'  => "$FindBin::Bin/models/Cerebellum_Ventricles_SubCortical_Mask.mnc",
                       'TagFileDir'       => MNI::DataDir::dir("classify"),
                       'TagFile'          => "ntags_1000_prob_90_nobg.tag",
                       'bgTagFile'        => "ntags_1000_bg.tag",
