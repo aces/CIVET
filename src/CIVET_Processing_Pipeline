@@ -425,6 +425,16 @@ my %PMPconf = ( 'DEFAULT' => { 'type' => "spawn",
                                'opts' => "-l walltime=08:00:00 -l nodes=1:ppn=1 -v tpt=2" } );
 
 my $PMPtype = ( $ENV{'CIVET_JOB_SCHEDULER'} || "DEFAULT" );
+my $PMPfound = 0;
+foreach my $key ( keys %PMPconf ) {
+  if( $key eq $PMPtype ) {
+    $PMPfound = 1;
+  }
+}
+if( !$PMPfound ) {
+  die "The environment variable CIVET_JOB_SCHEDULER=$PMPtype is improperly set in your configuration.\n";
+}
+
 my $PMPmaxQueued = $PMPconf{$PMPtype}{maxqueued};
 my $PMPgranularity = $PMPconf{$PMPtype}{granularity};
 my $PMPqueue = $PMPconf{$PMPtype}{queue};
