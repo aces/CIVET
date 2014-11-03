@@ -370,7 +370,7 @@ my %PMPconf = ( 'DEFAULT' => { 'type' => "spawn",
               'GUILLIMIN' => { 'type' => "pbs",
                                'maxqueued' => 1000,
                                'granularity' => 1,
-                               'command' => "msub",
+                               'command' => "qsub",
                                'queue' => "sw",
                                'hosts' => undef,
                                'opts' => "-A eim-670-ae -l walltime=20:00:00 -l nodes=1:ppn=12" },
@@ -440,6 +440,7 @@ my $PMPgranularity = $PMPconf{$PMPtype}{granularity};
 my $PMPqueue = $PMPconf{$PMPtype}{queue};
 my $PMPhosts = $PMPconf{$PMPtype}{hosts};
 my $PMPopts = $PMPconf{$PMPtype}{opts};
+my $PMPmpi = 1;
 
 ############# Default models for pipeline
 
@@ -720,6 +721,8 @@ my @argTbl = (
            "Granularity level for submission of jobs using queueing system."],
           ["-maxqueued", "string", 1, \$PMPmaxQueued, 
            "Maximum number of jobs that can be submitted at once.", "<val>"],
+          ["-mpi|-no-mpi", "boolean", 1, \$PMPmpi, 
+           "Submit jobs using mpirun to fill all processors on core."],
 
           ["File options", "section"],
           ["-sourcedir", "string", 1, \$sourceDir, "Directory containing the source files.", "<dir>"],
@@ -1072,10 +1075,103 @@ system("mkdir -p ${target}") if (! -d ${target});
 ############# An array to store the pipeline definitions for each subject
 my $pipes = PMP::Array->new();
 
-#########################################################
-# Set up the pipeline output directories for each subject
-#########################################################
-foreach my $dsid (@dsids) {
+my $ppn = 1;
+if( $PMPmpi ) {
+  if( defined( $PMPconf{$PMPtype}{opts} ) && ( $PMPconf{$PMPtype}{opts} =~ m/ppn/ ) ) {
+    $PMPconf{$PMPtype}{opts} =~ /(.*)ppn=(\d+)/;;
+    $ppn = $2;
+  }
+}
+
+if( $ppn > 1 ) {
+
+  print "Jobs will be submitted using mpirun to fill the compute nodes with ppn=$ppn.\n";
+
+  my @list = ( $0 );
+  for( my $i = 0; $i <= $#ARGV; $i++ ) {
+    next if( $ARGV[$i] =~ /-mpi/ );
+    if( $ARGV[$i] =~ /-id-file/ ) { $i++; next; }
+    if( $ARGV[$i] =~ /-spawn/ ) { next; }
+    my $found = 0;
+    foreach my $j (@leftOverArgs) {
+      $found = 1 if( $ARGV[$i] =~ m/$j/ );
+    }
+    push @list, $ARGV[$i] if( !$found );
+  }
+  push @list, "-spawn";
+  push @list, "-no-mpi";
+
+  my $count = 0;
+  my $mpijobdir = "${target}/mpi/bin";
+  my $mpilogdir = "${target}/mpi/logs";
+  `mkdir -p $mpijobdir` if( !( -e $mpijobdir ) );
+  `mkdir -p $mpilogdir` if( !( -e $mpilogdir ) );
+  my $jobfile = undef;
+  foreach my $dsid (@dsids) {
+    if( $count % $ppn == 0 ) {
+      $jobfile = "job_$count.sh";
+      open OUT, ">${mpijobdir}/${jobfile}";
+    }
+    $count++;
+    print OUT "mpirun -np 1 @list $dsid & \n";
+    print OUT "sleep 0.10\n";
+    if( $count % $ppn == 0 || $count == $#dsids+1 ) {
+      print OUT "wait\n";
+      close OUT;
+      `chmod u+x ${mpijobdir}/${jobfile}`;
+
+      ### submit this job script to sge/pbs/spawn.
+
+      my $pipeline;
+
+      if ($PMPconf{$PMPtype}{type} eq "spawn") {
+        $pipeline = PMP::spawn->new();
+      } elsif ($PMPconf{$PMPtype}{type} eq "sge") {
+        $pipeline = PMP::sge->new();
+        $pipeline->setCommand($PMPconf{$PMPtype}{command});
+        $pipeline->setQueue($PMPconf{$PMPtype}{queue});
+        $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
+        $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
+	$pipeline->setPriorityScheme("later-stages");
+      } elsif ($PMPconf{$PMPtype}{type} eq "pbs") {
+        $pipeline = PMP::pbs->new();
+        $pipeline->setCommand($PMPconf{$PMPtype}{command});
+        $pipeline->setQueue($PMPconf{$PMPtype}{queue});
+        $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
+        $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
+        $pipeline->setPriorityScheme("later-stages");
+      }
+
+      # set some generic pipeline options
+      $pipeline->name( "mpi_${count}" );
+      $pipeline->debug( 0 );
+      $pipeline->statusDir( ${mpilogdir} );
+
+      $pipeline->addStage( {
+          name => "civet_mpi_${count}",
+          label => "run CIVET using mpirun",
+          inputs => [],
+          outputs => [],
+          args => [$jobfile],
+          prereqs => [] });
+      $pipeline->updateStatus();
+      $pipes->addPipe($pipeline);
+
+      $jobfile = undef;
+    }
+  }
+  $PATH = "${mpijobdir}:${PATH}";
+  $pipes->registerPrograms();
+  $pipes->maxQueued($PMPmaxQueued);
+  $pipes->setGranularity(0);  # disabled for MPI wrapper
+  $pipes->run();
+
+} else {
+
+  #########################################################
+  # Set up the pipeline output directories for each subject
+  #########################################################
+  foreach my $dsid (@dsids) {
 
     ##### Create image object. #####
 
@@ -1195,48 +1291,35 @@ foreach my $dsid (@dsids) {
     
     $pipes->addPipe($pipeline);
     
-} ####################################### end of foreach
-
+  } ####################################### end of foreach
 
 ############# Now run whatever it is that the user wanted done
 
-if ($command eq "printStatus" ) {
+  if ($command eq "printStatus" ) {
     $pipes->printUnfinished();
-}
-
-elsif ($command eq "printStatusReport") {
+  } elsif ($command eq "printStatusReport") {
     $pipes->printStatusReport($statusReportFile);
-}
-
-elsif ($command eq "statusFromFiles") {
+  } elsif ($command eq "statusFromFiles") {
     $pipes->updateFromFiles();
     $pipes->printUnfinished();
-}
-
-elsif ($command eq "printStages") {
+  } elsif ($command eq "printStages") {
     $pipes->printStages();
-}
-
-elsif ($command eq "makeGraph") {
+  } elsif ($command eq "makeGraph") {
     $pipes->createDotGraph("dependency-graph.dot");
-}
-
-elsif ($command eq "makeFilenameGraph") {
+  } elsif ($command eq "makeFilenameGraph") {
     $pipes->createFilenameDotGraph("filename-dependency-graph.dot","${target}/$dsids[0]/");
-}
-
-elsif ($command eq "run") { 
+  } elsif ($command eq "run") { 
     # register all the programs
     $pipes->registerPrograms();
     $pipes->maxQueued($PMPmaxQueued);
     $pipes->setGranularity($PMPgranularity);
     $pipes->run();
-}
-
-else {
+  } else {
     print "Pipeline control command not recognized.\n";
     exit(1);
-}
+  }
+} ######## end of ppn == 1
+
 exit(0);
 
 ############# Voila!! #############

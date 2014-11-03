@@ -1,4 +1,5 @@
         New in Release 2.0.0
+* -mpi option for filling compute nodes on HPCs
 * Marching-cubes algorithm for white surface extraction
 * New surface models for ICBM, Colin27 and IBIS-Samir based on
   marching-cubes

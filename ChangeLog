@@ -1,3 +1,6 @@
+2014-11-03  Claude Lepage <claude@bic.mni.mcgill.ca>
+    * -mpi option for filling compute nodes on HPCs
+
 2014-09-24  Claude Lepage <claude@bic.mni.mcgill.ca>
     * Marching-cubes algorithm for white surface extraction
     * New surface models for ICBM, Colin27 and IBIS-Samir based on
