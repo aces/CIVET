@@ -1100,6 +1100,7 @@ if( $ppn > 1 ) {
   }
   push @list, "-spawn";
   push @list, "-no-mpi";
+  push @list, "-no-granular";
 
   my $count = 0;
   my $mpijobdir = "${target}/mpi/bin";
