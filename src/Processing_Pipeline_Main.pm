@@ -412,6 +412,7 @@ sub create_pipeline{
     }
 
     my $QCPrereqs = [ @{$Classify_complete} ];
+    push @{$QCPrereqs}, @{$Verify_image_complete};
     unless (${$image}->{surface} eq "noSURFACE") {
       push @{$QCPrereqs}, @{$Surface_QC_complete};
       push @{$QCPrereqs}, @{$GyrificationIndex_complete};
