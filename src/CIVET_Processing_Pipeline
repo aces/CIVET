@@ -946,6 +946,11 @@ print "* Surface registration model (right) is:   \n  $SURFACEmodels{$smodel}{Mi
 
 ############# Choose surface parcellation atlas if surfaces are to be resampled.
 
+if( $surface eq "noSURFACE" ) {
+  $SurfaceAtlas = undef;
+  $ResampleSurfaces = 0;
+}
+
 if( defined $SurfaceAtlas ) {
   if( !$ResampleSurfaces ) {
     die "You specified a surface parcellation atlas but did not ask to " .
