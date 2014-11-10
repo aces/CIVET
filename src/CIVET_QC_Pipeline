@@ -1119,6 +1119,14 @@ $html .= "<h2>Scatter plots of QC fields </h2>\n";
 open FILE, ">${qc_dir}/civet_${prefix}.gnu";
 print FILE "set datafile separator \",\"\n";
 
+# determine the gnuplot version for backward compatibility 
+# of line colour specification.
+
+my @junk = split( /[\s]+/, `gnuplot --version` );
+my $gnuplot_version = $junk[1];
+
+my $lc = ( $gnuplot_version >= 4.2 ) ? "lc" : "";
+
 my $column = 1;   # skip dsid in .csv file
 
 for( my $i = 0; $i <= $#fields; $i++ ) {
@@ -1139,9 +1147,10 @@ for( my $i = 0; $i <= $#fields; $i++ ) {
     print FILE "set ylabel \"$fields[$i]{ylabel}\"\n";
     print FILE "set terminal png\n";
     print FILE "set output \"${qc_dir}/$key.png\"\n";
-    print FILE "plot \"${qc_dir}/civet_${prefix}.csv\" u $column w lp, $fields[$i]{mean} w li 2, " .
-               sprintf("%f",$fields[$i]{mean}-$fields[$i]{stdev}) . " w li 3, " .
-               sprintf("%f",$fields[$i]{mean}+$fields[$i]{stdev}) . " w li 3\n";
+    print FILE "plot \"${qc_dir}/civet_${prefix}.csv\" u $column w lp, " .
+               "$fields[$i]{mean} w li $lc 2, " .
+               sprintf("%f",$fields[$i]{mean}-$fields[$i]{stdev}) . " w li $lc 3, " .
+               sprintf("%f",$fields[$i]{mean}+$fields[$i]{stdev}) . " w li $lc 3\n";
 
     my $figure = $column - 1;
     $html .= "<table>\n" .
