@@ -897,10 +897,16 @@ $html .= "</tr>\n";
 my $csv = "ID,";
 for( my $j = 0; $j <= $#fields; $j++ ) {
   if( $fields[$j]{count} > 0 ) {
-    $csv .= "$fields[$j]{name}";
-    $csv .= "," if( $j < $#fields );
+    $csv .= "$fields[$j]{name},";
   }
 }
+$csv .= "ResampledThicknessLeft,";
+$csv .= "ResampledThicknessRight,";
+$csv .= "ResampledAreaLeft,";
+$csv .= "ResampledAreaRight,";
+$csv .= "ResampledVolumeLeft,";
+$csv .= "ResampledVolumeRight,";
+$csv .= "ResampledAsymmetryMap";   # no comma on last entry
 $csv .= "\n";
 
 my $count = 0;
