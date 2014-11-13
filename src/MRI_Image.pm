@@ -622,6 +622,11 @@ sub print_options {
   print PIPE "N3 damping is $image->{nuc_damping}mm\n";
   print PIPE "Linear registration type is $image->{lsqtype}\n";
   if( $image->{surface} ne "noSURFACE" ) {
+    if( $image->{surface} eq "hiResSURFACE" ) {
+      print PIPE "Hi-res surface extraction\n";
+    } else {
+      print PIPE "Lo-res surface extraction\n";
+    }
     foreach my $val (@{$image->{tkernel}}) {
       print PIPE "Cortical thickness using $image->{tmethod}, blurred at ${val}mm\n";
     }
