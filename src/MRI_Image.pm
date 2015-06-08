@@ -36,6 +36,7 @@ sub new {
     my $prefix = shift;
     my $dsid = shift;
     my $inputType = shift;
+    my $inputIsStx = shift;
     my $correctPVE = shift;
     my $calibrateWhite = shift;
     my $maskType = shift;
@@ -64,6 +65,7 @@ sub new {
 
     ### $image->{dsid} = $dsid;
     $image->{inputType} = $inputType;
+    $image->{inputIsStx} = $inputIsStx;
     $image->{correctPVE} = $correctPVE;
     $image->{calibrateWhite} = $calibrateWhite;
     $image->{maskType} = $maskType;
@@ -618,6 +620,8 @@ sub print_options {
   print PIPE "Brain masking is $image->{maskType}\n";
   print PIPE "Interpolation method from native to stereotaxic is $image->{interpMethod}\n";
   print PIPE "Head height for neck cropping is $image->{headheight}mm\n";
+  print PIPE "Linear registration type is " . 
+             (($image->{inputIsStx}) ? 'identity matrix' : $image->{lsqtype}) . "\n";
   print PIPE "N3 distance is $image->{nuc_dist}mm\n";
   print PIPE "N3 damping is $image->{nuc_damping}mm\n";
   print PIPE "Linear registration type is $image->{lsqtype}\n";
