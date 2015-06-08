@@ -517,6 +517,7 @@ my $statusReportFile = "CIVET_status_report.csv";
 ############# t1 data, cleaning tags, ANIMAL, the production of 82k 
 ############# polygon surfaces, no symmetry stages, and surface registration. 
 my $inputType = "t1only";
+my $inputIsStx = 0;
 my $correctPVE = 0;
 my $maskType = "t1only";
 my $interpMethod = "trilinear";
@@ -602,6 +603,8 @@ my @argTbl = (
            "N3 spline distance in mm (suggested values: 200 for 1.5T scan; 50 for 3T scan).", "<dist>"],
           ["-N3-damping", "string", 1, \$N3Damping, 
            "N3 damping coefficient (lambda) (suggested values: 1.0e-07).", "<lambda>"],
+          ["-input_is_stx", "boolean", 1, \$inputIsStx, 
+           "Assume that the input volume is already linearly registered to stx space; this skips the linear registration steps"],
           ["-lsq6", "const", "-lsq6", \$lsqtype,
            "use 6-parameter transformation for linear registration [default -lsq9]" ],
           ["-lsq12", "const", "-lsq12", \$lsqtype,
@@ -881,6 +884,7 @@ foreach my $dsid (@dsids) {
                                 $prefix,
                                 $dsid,
                                 $inputType,
+				$inputIsStx,
                                 $correctPVE,
                                 $maskType,
                                 $interpMethod,
