@@ -36,12 +36,16 @@ sub new {
     my $prefix = shift;
     my $dsid = shift;
     my $inputType = shift;
+    my $inputIsStx = shift;
     my $correctPVE = shift;
     my $calibrateWhite = shift;
     my $maskType = shift;
     my $interpMethod = shift;
     my $headheight = shift;
     my $bloodvessels = shift;
+    my $hippocampus = shift;
+    my $cerebellum = shift;
+    my $pve_subcortical = shift;
     my $nuc_dist = shift;
     my $nuc_damping = shift;
     my $lsqtype = shift;
@@ -62,14 +66,17 @@ sub new {
     my $models = shift;
     my $surface_models = shift;
 
-    ### $image->{dsid} = $dsid;
     $image->{inputType} = $inputType;
+    $image->{inputIsStx} = $inputIsStx;
     $image->{correctPVE} = $correctPVE;
     $image->{calibrateWhite} = $calibrateWhite;
     $image->{maskType} = $maskType;
     $image->{interpMethod} = $interpMethod;
     $image->{headheight} = $headheight;
     $image->{removebloodvessels} = $bloodvessels;
+    $image->{maskhippocampus} = $hippocampus;
+    $image->{maskcerebellum} = $cerebellum;
+    $image->{pve_subcortical} = $pve_subcortical;
     $image->{nuc_dist} = $nuc_dist;
     $image->{nuc_damping} = $nuc_damping;
     $image->{lsqtype} = $lsqtype;
@@ -79,7 +86,8 @@ sub new {
     $image->{VBM_cerebellum} = $VBM_cerebellum;
     $image->{animal} = $animal;
     $image->{surface} = $surface;
-    $image->{tmethod} = $$thickness[0];
+    my @thickness_method = split( ':', $$thickness[0] );
+    $image->{tmethod} = \@thickness_method;
     my @thickness_fwhm = split( ':', $$thickness[1] );
     $image->{tkernel} = \@thickness_fwhm;
     $image->{resamplesurfaces} = $ResampleSurfaces;
@@ -98,10 +106,21 @@ sub new {
     $image->{mc_mask}{right} = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{WhiteModelMaskRight}";
     $image->{surfregmodel}{left} = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{MidModelLeft}";
     $image->{surfregmodel}{right} = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{MidModelRight}";
-    $image->{surface_atlas}{left} = "${$surface_models}->{SurfAtlasLeft}";
-    $image->{surface_atlas}{right} = "${$surface_models}->{SurfAtlasRight}";
-    $image->{surface_gyri}{left} = "${$surface_models}->{SurfGyriLeft}";
-    $image->{surface_gyri}{right} = "${$surface_models}->{SurfGyriRight}";
+
+    my $prefixid = ( defined( $prefix ) && $prefix ne "" ) ? 
+                   "${prefix}_${dsid}" : ${dsid};
+
+    # Eventually, we could loop on the %keys for all available atlases.
+    my $key = ${$surface_models}->{SurfAtlasLeft}{default};
+    if( defined( $key ) ) {
+      $image->{surface_atlas}{left} = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{SurfAtlasLeft}{$key}";
+      $image->{surface_atlas}{right} = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{SurfAtlasRight}{$key}";
+    } else {
+      $image->{surface_atlas}{left} = undef;
+      $image->{surface_atlas}{right} = undef;
+    }
+    $image->{surface_gyri}{left} = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{SurfAtlasLeft}{Gyri}";
+    $image->{surface_gyri}{right} = "${$surface_models}->{SurfRegModelDir}/${$surface_models}->{SurfAtlasRight}{Gyri}";
     $image->{surfmask} = "${$models}->{SurfaceMaskDir}/${$models}->{SurfaceMask}";
     $image->{tagdir} = "${$models}->{TagFileDir}";
     $image->{tagfile} = "${$models}->{TagFile}";
@@ -139,10 +158,10 @@ sub new {
     }
 
     # Define volume files on each image type.
-    $image->{mp2} = "${Source_Dir}/${prefix}_${dsid}_mp2.mnc";
+    $image->{mp2} = "${Source_Dir}/${prefixid}_mp2.mnc";
     foreach my $type (@ImageTypes) {
       $image->{$type} = $image->image( $type, $Source_Dir, $Base_Dir, 
-                                       $prefix, $dsid );
+                                       $prefixid );
     }
 
     my $tmp_dir = "${Base_Dir}/$image->{directories}{TMP}";
@@ -151,63 +170,66 @@ sub new {
 
     # Define linear transformation files.
     my $lin_dir = "${Base_Dir}/$image->{directories}{LIN}";
-    $image->{t1_tal_xfm} = "${lin_dir}/${prefix}_${dsid}_t1_tal.xfm";
-    $image->{t2pd_t1_xfm} = "${lin_dir}/${prefix}_${dsid}_t2pd_t1.xfm";
-    $image->{t2pd_tal_xfm} = "${lin_dir}/${prefix}_${dsid}_t2pd_tal.xfm";
-    $image->{tal_to_6_xfm} = "${lin_dir}/${prefix}_${dsid}_t1_tal_to_6.xfm";
-    $image->{tal_to_7_xfm} = "${lin_dir}/${prefix}_${dsid}_t1_tal_to_7.xfm";
-    $image->{t1_suppressed} = "${lin_dir}/${prefix}_${dsid}_t1_suppressed.mnc";
+    $image->{t1_tal_xfm} = "${lin_dir}/${prefixid}_t1_tal.xfm";
+    $image->{t2pd_t1_xfm} = "${lin_dir}/${prefixid}_t2pd_t1.xfm";
+    $image->{t2pd_tal_xfm} = "${lin_dir}/${prefixid}_t2pd_tal.xfm";
+    $image->{tal_to_6_xfm} = "${lin_dir}/${prefixid}_t1_tal_to_6.xfm";
+    $image->{tal_to_7_xfm} = "${lin_dir}/${prefixid}_t1_tal_to_7.xfm";
+    $image->{t1_suppressed} = "${lin_dir}/${prefixid}_t1_suppressed.mnc";
 
     # Define non-linear transformation files.
     my $nl_dir = "${Base_Dir}/$image->{directories}{NL}";
-    $image->{t1_tal_nl_xfm} = "${nl_dir}/${prefix}_${dsid}_nlfit_It.xfm";
+    $image->{t1_tal_nl_xfm} = "${nl_dir}/${prefixid}_nlfit_It.xfm";
 
     # Define classification files.
     my $cls_dir = "${Base_Dir}/$image->{directories}{CLS}";
-    $image->{dilated_cls_mask} = "${tmp_dir}/${prefix}_${dsid}_skull_mask_dilated.mnc";
-    $image->{cls_clean} = "${cls_dir}/${prefix}_${dsid}_cls_clean.mnc";
-    $image->{cls_volumes} = "${cls_dir}/${prefix}_${dsid}_cls_volumes.dat";
-    $image->{pve_prefix} = "${cls_dir}/${prefix}_${dsid}_pve";
+    $image->{cls_clean} = "${cls_dir}/${prefixid}_cls_clean.mnc";
+    $image->{cls_volumes} = "${cls_dir}/${prefixid}_cls_volumes.dat";
+    $image->{pve_prefix} = "${cls_dir}/${prefixid}_pve";
     $image->{pve_wm} = "$image->{pve_prefix}_exactwm.mnc";
     $image->{pve_gm} = "$image->{pve_prefix}_exactgm.mnc";
     $image->{pve_csf} = "$image->{pve_prefix}_exactcsf.mnc";
+    $image->{pve_sc} = "$image->{pve_prefix}_exactsc.mnc";
     $image->{pve_disc} = "$image->{pve_prefix}_disc.mnc";
     $image->{cls_correct} = "$image->{pve_prefix}_classify.mnc";
+    $image->{subcortical_mask} = "${tmp_dir}/${prefixid}_subcortical_mask.mnc";
 
     # Define the VBM files.
     my $VBM_Dir = "${Base_Dir}/$image->{directories}{VBM}";
     unless ($image->{VBM} eq "noVBM") {
-      $image->{VBM_cls_masked} = "${VBM_Dir}/${prefix}_${dsid}_cls_masked.mnc";
-      $image->{VBM_smooth_wm} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_wm.mnc";
-      $image->{VBM_smooth_gm} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_gm.mnc";
-      $image->{VBM_smooth_csf} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_csf.mnc";
+      $image->{VBM_cls_masked} = "${VBM_Dir}/${prefixid}_cls_masked.mnc";
+      $image->{VBM_smooth_sc} = "${VBM_Dir}/${prefixid}_smooth_${VBM_fwhm}mm_sc.mnc";
+      $image->{VBM_smooth_wm} = "${VBM_Dir}/${prefixid}_smooth_${VBM_fwhm}mm_wm.mnc";
+      $image->{VBM_smooth_gm} = "${VBM_Dir}/${prefixid}_smooth_${VBM_fwhm}mm_gm.mnc";
+      $image->{VBM_smooth_csf} = "${VBM_Dir}/${prefixid}_smooth_${VBM_fwhm}mm_csf.mnc";
       unless ($image->{VBM_symmetry} eq "noSymmetry") {
-        $image->{VBM_smooth_wm_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_wm_sym.mnc";
-        $image->{VBM_smooth_gm_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_gm_sym.mnc";
-        $image->{VBM_smooth_csf_sym} = "${VBM_Dir}/${prefix}_${dsid}_smooth_${VBM_fwhm}mm_csf_sym.mnc";
+        $image->{VBM_smooth_sc_sym} = "${VBM_Dir}/${prefixid}_smooth_${VBM_fwhm}mm_sc_sym.mnc";
+        $image->{VBM_smooth_wm_sym} = "${VBM_Dir}/${prefixid}_smooth_${VBM_fwhm}mm_wm_sym.mnc";
+        $image->{VBM_smooth_gm_sym} = "${VBM_Dir}/${prefixid}_smooth_${VBM_fwhm}mm_gm_sym.mnc";
+        $image->{VBM_smooth_csf_sym} = "${VBM_Dir}/${prefixid}_smooth_${VBM_fwhm}mm_csf_sym.mnc";
       }
     }
 
     # Define brain-masking files.
     my $mask_dir = "${Base_Dir}/$image->{directories}{MASK}";
-    if( -e "${Source_Dir}/${prefix}_${dsid}_mask.mnc.gz" ) {
-      $image->{user_mask} = "${Source_Dir}/${prefix}_${dsid}_mask.mnc.gz",
+    if( -e "${Source_Dir}/${prefixid}_mask.mnc.gz" ) {
+      $image->{user_mask} = "${Source_Dir}/${prefixid}_mask.mnc.gz",
     } else {
-      $image->{user_mask} = "${Source_Dir}/${prefix}_${dsid}_mask.mnc",
+      $image->{user_mask} = "${Source_Dir}/${prefixid}_mask.mnc",
     }
-    $image->{skull_mask_native} = "${Base_Dir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_mask.mnc";
-    $image->{brain_mask} = "${mask_dir}/${prefix}_${dsid}_brain_mask.mnc";
-    $image->{skull_mask_tal} = "${mask_dir}/${prefix}_${dsid}_skull_mask.mnc";
+    $image->{skull_mask_native} = "${Base_Dir}/$image->{directories}{NATIVE}/${prefixid}_mask.mnc";
+    $image->{brain_mask} = "${mask_dir}/${prefixid}_brain_mask.mnc";
+    $image->{skull_mask_tal} = "${mask_dir}/${prefixid}_skull_mask.mnc";
 
     # Define ANIMAL segmentation files (volume).
     my $seg_dir = "${Base_Dir}/$image->{directories}{SEG}";
     unless ($image->{animal} eq "noANIMAL") {
       $image->{animal_model} = ${$models}->{AnimalModel};
       $image->{animal_nl_model} = ${$models}->{AnimalRegNLModel};
-      $image->{t1_tal_nl_animal_xfm} = "${seg_dir}/${prefix}_${dsid}_nlfit_It.xfm";
-      $image->{animal_labels} = "${seg_dir}/${prefix}_${dsid}_animal_labels.mnc";
-      $image->{lobe_volumes} = "${seg_dir}/${prefix}_${dsid}_lobes.dat";
-      $image->{animal_labels_masked} = "${seg_dir}/${prefix}_${dsid}_animal_labels_masked.mnc";
+      $image->{t1_tal_nl_animal_xfm} = "${seg_dir}/${prefixid}_nlfit_It.xfm";
+      $image->{animal_labels} = "${seg_dir}/${prefixid}_animal_labels.mnc";
+      $image->{lobe_volumes} = "${seg_dir}/${prefixid}_lobes.dat";
+      $image->{animal_labels_masked} = "${seg_dir}/${prefixid}_animal_labels_masked.mnc";
     } else {
       $image->{t1_tal_nl_animal_xfm} = undef;
       $image->{animal_labels} = undef;
@@ -221,69 +243,68 @@ sub new {
 
     unless ($image->{surface} eq "noSURFACE") {
 
-      $image->{white}{left80K} = "${surf_dir}/${prefix}_${dsid}_white_surface_left_81920.obj";
-      $image->{white}{right80K} = "${surf_dir}/${prefix}_${dsid}_white_surface_right_81920.obj";
+      $image->{white}{left80K} = "${surf_dir}/${prefixid}_white_surface_left_81920.obj";
+      $image->{white}{right80K} = "${surf_dir}/${prefixid}_white_surface_right_81920.obj";
 
-      $image->{white}{left} = "${surf_dir}/${prefix}_${dsid}_white_surface_left_${surf_res}.obj";
-      $image->{white}{right} = "${surf_dir}/${prefix}_${dsid}_white_surface_right_${surf_res}.obj";
+      $image->{white}{left} = "${surf_dir}/${prefixid}_white_surface_left_${surf_res}.obj";
+      $image->{white}{right} = "${surf_dir}/${prefixid}_white_surface_right_${surf_res}.obj";
 
-      $image->{gray}{left80K} = "${surf_dir}/${prefix}_${dsid}_gray_surface_left_81920.obj";
-      $image->{gray}{right80K} = "${surf_dir}/${prefix}_${dsid}_gray_surface_right_81920.obj";
-      $image->{gray}{left} = "${surf_dir}/${prefix}_${dsid}_gray_surface_left_${surf_res}.obj";
-      $image->{gray}{right} = "${surf_dir}/${prefix}_${dsid}_gray_surface_right_${surf_res}.obj";
+      $image->{gray}{left80K} = "${surf_dir}/${prefixid}_gray_surface_left_81920.obj";
+      $image->{gray}{right80K} = "${surf_dir}/${prefixid}_gray_surface_right_81920.obj";
+      $image->{gray}{left} = "${surf_dir}/${prefixid}_gray_surface_left_${surf_res}.obj";
+      $image->{gray}{right} = "${surf_dir}/${prefixid}_gray_surface_right_${surf_res}.obj";
 
-      $image->{mid_surface}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_left_${surf_res}.obj";
-      $image->{mid_surface}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_right_${surf_res}.obj";
+      $image->{mid_surface}{left} = "${surf_dir}/${prefixid}_mid_surface_left_${surf_res}.obj";
+      $image->{mid_surface}{right} = "${surf_dir}/${prefixid}_mid_surface_right_${surf_res}.obj";
 
       if( $image->{combinesurfaces} ) {
-        $image->{white}{full} = "${surf_dir}/${prefix}_${dsid}_white_surface.obj";
-        $image->{gray}{full} = "${surf_dir}/${prefix}_${dsid}_gray_surface.obj";
-        $image->{mid_surface}{full} = "${surf_dir}/${prefix}_${dsid}_mid_surface.obj";
+        $image->{white}{full} = "${surf_dir}/${prefixid}_white_surface.obj";
+        $image->{gray}{full} = "${surf_dir}/${prefixid}_gray_surface.obj";
+        $image->{mid_surface}{full} = "${surf_dir}/${prefixid}_mid_surface.obj";
       }
 
       if( $image->{resamplesurfaces} ) {
-        $image->{white_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_white_surface_rsl_left_${surf_res}.obj";
-        $image->{white_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_white_surface_rsl_right_${surf_res}.obj";
-        $image->{gray_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_gray_surface_rsl_left_${surf_res}.obj";
-        $image->{gray_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_gray_surface_rsl_right_${surf_res}.obj";
-        $image->{mid_surface_rsl}{left} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_left_${surf_res}.obj";
-        $image->{mid_surface_rsl}{right} = "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_right_${surf_res}.obj";
+        $image->{white_rsl}{left} = "${surf_dir}/${prefixid}_white_surface_rsl_left_${surf_res}.obj";
+        $image->{white_rsl}{right} = "${surf_dir}/${prefixid}_white_surface_rsl_right_${surf_res}.obj";
+        $image->{gray_rsl}{left} = "${surf_dir}/${prefixid}_gray_surface_rsl_left_${surf_res}.obj";
+        $image->{gray_rsl}{right} = "${surf_dir}/${prefixid}_gray_surface_rsl_right_${surf_res}.obj";
+        $image->{mid_surface_rsl}{left} = "${surf_dir}/${prefixid}_mid_surface_rsl_left_${surf_res}.obj";
+        $image->{mid_surface_rsl}{right} = "${surf_dir}/${prefixid}_mid_surface_rsl_right_${surf_res}.obj";
 
-        $image->{native_lobe_areas}{left} = "${surf_dir}/${prefix}_${dsid}_lobe_native_cortex_area_left.dat";
-        $image->{native_lobe_areas}{right} = "${surf_dir}/${prefix}_${dsid}_lobe_native_cortex_area_right.dat";
+        $image->{native_lobe_areas}{left} = "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_native_cortex_area_left.dat";
+        $image->{native_lobe_areas}{right} = "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_native_cortex_area_right.dat";
 
         $image->{surface_area_rsl}{left} = ();
         $image->{surface_area_rsl}{right} = ();
         foreach my $val (@{$image->{rsl_area_fwhm}}) {
-          push @{$image->{surface_area_rsl}{left}}, "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_left_native_area_${val}mm.txt";
-          push @{$image->{surface_area_rsl}{right}}, "${surf_dir}/${prefix}_${dsid}_mid_surface_rsl_right_native_area_${val}mm.txt";
+          push @{$image->{surface_area_rsl}{left}}, "${surf_dir}/${prefixid}_mid_surface_rsl_left_native_area_${val}mm.txt";
+          push @{$image->{surface_area_rsl}{right}}, "${surf_dir}/${prefixid}_mid_surface_rsl_right_native_area_${val}mm.txt";
         }
 
         $image->{surface_volume_rsl}{left} = ();
         $image->{surface_volume_rsl}{right} = ();
         foreach my $val (@{$image->{rsl_volume_fwhm}}) {
-          push @{$image->{surface_volume_rsl}{left}}, "${surf_dir}/${prefix}_${dsid}_surface_rsl_left_native_volume_${val}mm.txt";
-          push @{$image->{surface_volume_rsl}{right}}, "${surf_dir}/${prefix}_${dsid}_surface_rsl_right_native_volume_${val}mm.txt";
+          push @{$image->{surface_volume_rsl}{left}}, "${surf_dir}/${prefixid}_surface_rsl_left_native_volume_${val}mm.txt";
+          push @{$image->{surface_volume_rsl}{right}}, "${surf_dir}/${prefixid}_surface_rsl_right_native_volume_${val}mm.txt";
         }
       }
 
       # a bunch of associated temporary files for surface extraction (should clean this up!)
-      $image->{final_callosum} = "${tmp_dir}/${prefix}_${dsid}_final_callosum.mnc";
-      $image->{subcortical_mask} = "${tmp_dir}/${prefix}_${dsid}_subcortical_mask.mnc";
-      $image->{blood_vessels} = "${tmp_dir}/${prefix}_${dsid}_blood_vessels.mnc";
-      $image->{final_classify} = "${tmp_dir}/${prefix}_${dsid}_final_classify.mnc";
-      $image->{csf_skel} = "${tmp_dir}/${prefix}_${dsid}_csf_skel.mnc";
-      $image->{laplace} = "${tmp_dir}/${prefix}_${dsid}_clasp_field.mnc";
-      $image->{wm_left} = "${tmp_dir}/${prefix}_${dsid}_wm_left.mnc";
-      $image->{wm_right} = "${tmp_dir}/${prefix}_${dsid}_wm_right.mnc";
-      $image->{white}{left_prelim} = "${tmp_dir}/${prefix}_${dsid}_white_surface_left_${surf_res}.obj";
-      $image->{white}{right_prelim} = "${tmp_dir}/${prefix}_${dsid}_white_surface_right_${surf_res}.obj";
-      $image->{white}{right_prelim_flipped} = "${tmp_dir}/${prefix}_${dsid}_white_surface_right_flipped_${surf_res}.obj";
+      $image->{final_callosum} = "${tmp_dir}/${prefixid}_final_callosum.mnc";
+      $image->{blood_vessels} = "${tmp_dir}/${prefixid}_blood_vessels.mnc";
+      $image->{final_classify} = "${tmp_dir}/${prefixid}_final_classify.mnc";
+      $image->{csf_skel} = "${tmp_dir}/${prefixid}_csf_skel.mnc";
+      $image->{laplace} = "${tmp_dir}/${prefixid}_clasp_field.mnc";
+      $image->{wm_left} = "${tmp_dir}/${prefixid}_wm_left.mnc";
+      $image->{wm_right} = "${tmp_dir}/${prefixid}_wm_right.mnc";
+      $image->{white}{left_prelim} = "${tmp_dir}/${prefixid}_white_surface_left_${surf_res}.obj";
+      $image->{white}{right_prelim} = "${tmp_dir}/${prefixid}_white_surface_right_${surf_res}.obj";
+      $image->{white}{right_prelim_flipped} = "${tmp_dir}/${prefixid}_white_surface_right_flipped_${surf_res}.obj";
 
       # Define surface registration files.
       my $sr_dir = "${Base_Dir}/$image->{directories}{SR}";
-      $image->{surface_map}{left} = "${sr_dir}/${prefix}_${dsid}_left_surfmap.sm";
-      $image->{surface_map}{right} = "${sr_dir}/${prefix}_${dsid}_right_surfmap.sm";
+      $image->{surface_map}{left} = "${sr_dir}/${prefixid}_left_surfmap.sm";
+      $image->{surface_map}{right} = "${sr_dir}/${prefixid}_right_surfmap.sm";
 
       # Define cortical thickness files.
       my $thick_dir = "${Base_Dir}/$image->{directories}{THICK}";
@@ -297,20 +318,22 @@ sub new {
         $image->{rms_rsl}{full} = ();
         $image->{rms_rsl}{asym_full} = ();
       }
-      foreach my $val (@{$image->{tkernel}}) {
-        push @{$image->{rms}{left}}, "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_${val}mm_left.txt";
-        push @{$image->{rms}{right}}, "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_${val}mm_right.txt";
-        push @{$image->{rms_rsl}{left}}, "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_${val}mm_left.txt";
-        push @{$image->{rms_rsl}{right}}, "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_${val}mm_right.txt";
-        push @{$image->{rms_rsl}{asym_hemi}}, "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_${val}mm_asym_hemi.txt";
-        if( $image->{combinesurfaces} ) {
-          push @{$image->{rms}{full}}, "${thick_dir}/${prefix}_${dsid}_native_rms_$image->{tmethod}_${val}mm.txt";
-          push @{$image->{rms_rsl}{full}}, "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_${val}mm.txt";
-          push @{$image->{rms_rsl}{asym_full}}, "${thick_dir}/${prefix}_${dsid}_native_rms_rsl_$image->{tmethod}_${val}mm_asym.txt";
+      foreach my $tmet (@{$image->{tmethod}}) {
+        foreach my $val (@{$image->{tkernel}}) {
+          push @{$image->{rms}{left}}, "${thick_dir}/${prefixid}_native_rms_${tmet}_${val}mm_left.txt";
+          push @{$image->{rms}{right}}, "${thick_dir}/${prefixid}_native_rms_${tmet}_${val}mm_right.txt";
+          push @{$image->{rms_rsl}{left}}, "${thick_dir}/${prefixid}_native_rms_rsl_${tmet}_${val}mm_left.txt";
+          push @{$image->{rms_rsl}{right}}, "${thick_dir}/${prefixid}_native_rms_rsl_${tmet}_${val}mm_right.txt";
+          push @{$image->{rms_rsl}{asym_hemi}}, "${thick_dir}/${prefixid}_native_rms_rsl_${tmet}_${val}mm_asym_hemi.txt";
+          if( $image->{combinesurfaces} ) {
+            push @{$image->{rms}{full}}, "${thick_dir}/${prefixid}_native_rms_${tmet}_${val}mm.txt";
+            push @{$image->{rms_rsl}{full}}, "${thick_dir}/${prefixid}_native_rms_rsl_${tmet}_${val}mm.txt";
+            push @{$image->{rms_rsl}{asym_full}}, "${thick_dir}/${prefixid}_native_rms_rsl_${tmet}_${val}mm_asym.txt";
+          }
         }
       }
 
-      $image->{cerebral_volume} = "${thick_dir}/${prefix}_${dsid}_cerebral_volume.dat";
+      $image->{cerebral_volume} = "${thick_dir}/${prefixid}_cerebral_volume.dat";
 
       # Define cortical mean curvature files.
       if( $image->{meancurvature} ) {
@@ -336,43 +359,45 @@ sub new {
         $image->{mc_mid_rsl}{full} = ();
 
         foreach my $val (@{$image->{tkernel}}) {
-          push @{$image->{mc_gray}{left}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_gray_left.txt";
-          push @{$image->{mc_white}{left}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_white_left.txt";
-          push @{$image->{mc_mid}{left}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_mid_left.txt";
-          push @{$image->{mc_gray}{right}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_gray_right.txt";
-          push @{$image->{mc_white}{right}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_white_right.txt";
-          push @{$image->{mc_mid}{right}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_mid_right.txt";
-          push @{$image->{mc_gray_rsl}{left}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_gray_left.txt";
-          push @{$image->{mc_white_rsl}{left}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_white_left.txt";
-          push @{$image->{mc_mid_rsl}{left}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_mid_left.txt";
-          push @{$image->{mc_gray_rsl}{right}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_gray_right.txt";
-          push @{$image->{mc_white_rsl}{right}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_white_right.txt";
-          push @{$image->{mc_mid_rsl}{right}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_mid_right.txt";
+          push @{$image->{mc_gray}{left}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_gray_left.txt";
+          push @{$image->{mc_white}{left}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_white_left.txt";
+          push @{$image->{mc_mid}{left}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_mid_left.txt";
+          push @{$image->{mc_gray}{right}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_gray_right.txt";
+          push @{$image->{mc_white}{right}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_white_right.txt";
+          push @{$image->{mc_mid}{right}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_mid_right.txt";
+          push @{$image->{mc_gray_rsl}{left}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_gray_left.txt";
+          push @{$image->{mc_white_rsl}{left}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_white_left.txt";
+          push @{$image->{mc_mid_rsl}{left}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_mid_left.txt";
+          push @{$image->{mc_gray_rsl}{right}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_gray_right.txt";
+          push @{$image->{mc_white_rsl}{right}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_white_right.txt";
+          push @{$image->{mc_mid_rsl}{right}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_mid_right.txt";
           if( $image->{combinesurfaces} ) {
-            push @{$image->{mc_gray}{full}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_gray.txt";
-            push @{$image->{mc_white}{full}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_white.txt";
-            push @{$image->{mc_mid}{full}}, "${thick_dir}/${prefix}_${dsid}_native_mc_${val}mm_mid.txt";
-            push @{$image->{mc_gray_rsl}{full}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_gray.txt";
-            push @{$image->{mc_white_rsl}{full}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_white.txt";
-            push @{$image->{mc_mid_rsl}{full}}, "${thick_dir}/${prefix}_${dsid}_native_mc_rsl_${val}mm_mid.txt";
+            push @{$image->{mc_gray}{full}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_gray.txt";
+            push @{$image->{mc_white}{full}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_white.txt";
+            push @{$image->{mc_mid}{full}}, "${thick_dir}/${prefixid}_native_mc_${val}mm_mid.txt";
+            push @{$image->{mc_gray_rsl}{full}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_gray.txt";
+            push @{$image->{mc_white_rsl}{full}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_white.txt";
+            push @{$image->{mc_mid_rsl}{full}}, "${thick_dir}/${prefixid}_native_mc_rsl_${val}mm_mid.txt";
           }
         }
       }
 
       # Define asymmetry maps for cortical position.
       if( $image->{resamplesurfaces} ) {
-        $image->{pos_rsl}{asym_hemi} = "${surf_dir}/${prefix}_${dsid}_native_pos_rsl_asym_hemi.txt";
+        $image->{pos_rsl}{asym_hemi} = "${surf_dir}/${prefixid}_native_pos_rsl_asym_hemi.txt";
         if( $image->{combinesurfaces} ) {
-          $image->{pos_rsl}{asym_full} = "${surf_dir}/${prefix}_${dsid}_native_pos_rsl_asym_full.txt";
+          $image->{pos_rsl}{asym_full} = "${surf_dir}/${prefixid}_native_pos_rsl_asym_full.txt";
         }
       }
 
       # Define surface parcellation files.
       $image->{lobe_thickness}{left} = ();
       $image->{lobe_thickness}{right} = ();
-      foreach my $val (@{$image->{tkernel}}) {
-        push @{$image->{lobe_thickness}{left}}, "${surf_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_${val}mm_left.dat";
-        push @{$image->{lobe_thickness}{right}}, "${surf_dir}/${prefix}_${dsid}_lobe_thickness_$image->{tmethod}_${val}mm_right.dat";
+      foreach my $tmet (@{$image->{tmethod}}) {
+        foreach my $val (@{$image->{tkernel}}) {
+          push @{$image->{lobe_thickness}{left}}, "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_thickness_${tmet}_${val}mm_left.dat";
+          push @{$image->{lobe_thickness}{right}}, "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_thickness_${tmet}_${val}mm_right.dat";
+        }
       }
 
 #### Should have tkernel in here?????? which fwhm????
@@ -380,43 +405,53 @@ sub new {
         $image->{lobe_mc}{left} = ();
         $image->{lobe_mc}{right} = ();
         foreach my $val (@{$image->{tkernel}}) {
-          push @{$image->{lobe_mc}{left}}, "${surf_dir}/${prefix}_${dsid}_lobe_mc_${val}mm_left.dat";
-          push @{$image->{lobe_mc}{right}}, "${surf_dir}/${prefix}_${dsid}_lobe_mc_${val}mm_right.dat";
+          push @{$image->{lobe_mc}{left}}, "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_mc_${val}mm_left.dat";
+          push @{$image->{lobe_mc}{right}}, "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_mc_${val}mm_right.dat";
         }
       }
       if( $image->{resamplesurfaces} ) {
         $image->{rsl_lobe_areas}{left} = ();
         $image->{rsl_lobe_areas}{right} = ();
         foreach my $val (@{$image->{rsl_area_fwhm}}) {
-          push @{$image->{rsl_lobe_areas}{left}}, "${surf_dir}/${prefix}_${dsid}_lobe_areas_${val}mm_left.dat";
-          push @{$image->{rsl_lobe_areas}{right}}, "${surf_dir}/${prefix}_${dsid}_lobe_areas_${val}mm_right.dat";
+          push @{$image->{rsl_lobe_areas}{left}}, "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_areas_${val}mm_left.dat";
+          push @{$image->{rsl_lobe_areas}{right}}, "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_areas_${val}mm_right.dat";
         }
         $image->{rsl_lobe_volumes}{left} = ();
         $image->{rsl_lobe_volumes}{right} = ();
         foreach my $val (@{$image->{rsl_volume_fwhm}}) {
-          push @{$image->{rsl_lobe_volumes}{left}}, "${surf_dir}/${prefix}_${dsid}_lobe_volumes_${val}mm_left.dat";
-          push @{$image->{rsl_lobe_volumes}{right}}, "${surf_dir}/${prefix}_${dsid}_lobe_volumes_${val}mm_right.dat";
+          push @{$image->{rsl_lobe_volumes}{left}}, "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_volumes_${val}mm_left.dat";
+          push @{$image->{rsl_lobe_volumes}{right}}, "${surf_dir}/${prefixid}_$image->{surfaceatlas}_lobe_volumes_${val}mm_right.dat";
         }
       }
 
       # Define gyrification index files.
-      $image->{gyrification_index}{left} = "${surf_dir}/${prefix}_${dsid}_gi_left.dat";
-      $image->{gyrification_index}{right} = "${surf_dir}/${prefix}_${dsid}_gi_right.dat";
+      $image->{gyrification_index}{left} = "${surf_dir}/${prefixid}_gi_left.dat";
+      $image->{gyrification_index}{right} = "${surf_dir}/${prefixid}_gi_right.dat";
       if( $image->{combinesurfaces} ) {
-        $image->{gyrification_index}{full} = "${surf_dir}/${prefix}_${dsid}_gi.dat";
+        $image->{gyrification_index}{full} = "${surf_dir}/${prefixid}_gi.dat";
       }
     }
 
     # Define verification files.
     my $verify_dir = "${Base_Dir}/$image->{directories}{VER}";
-    $image->{verify} = "${verify_dir}/${prefix}_${dsid}_verify.png";
-    $image->{verify_clasp} = "${verify_dir}/${prefix}_${dsid}_clasp.png";
-    $image->{verify_atlas} = "${verify_dir}/${prefix}_${dsid}_atlas.png";
-    $image->{verify_surfsurf} = "${verify_dir}/${prefix}_${dsid}_surfsurf.png";
-    $image->{verify_laplace} = "${verify_dir}/${prefix}_${dsid}_laplace.png";
-    $image->{surface_qc} = "${verify_dir}/${prefix}_${dsid}_surface_qc.txt";
-    $image->{classify_qc} = "${verify_dir}/${prefix}_${dsid}_classify_qc.txt";
-    $image->{civet_qc} = "${verify_dir}/${prefix}_${dsid}_civet_qc.txt";
+    $image->{verify} = "${verify_dir}/${prefixid}_verify.png";
+    $image->{verify_clasp} = "${verify_dir}/${prefixid}_clasp.png";
+    $image->{verify_atlas} = "${verify_dir}/${prefixid}_atlas.png";
+    $image->{verify_surfsurf} = "${verify_dir}/${prefixid}_surfsurf.png";
+    $image->{verify_laplace} = "${verify_dir}/${prefixid}_laplace.png";
+    $image->{verify_gradient} = "${verify_dir}/${prefixid}_gradient.png";
+    $image->{verify_angles} = "${verify_dir}/${prefixid}_angles.png";
+    $image->{verify_convergence} = "${verify_dir}/${prefixid}_converg.png";
+    $image->{surface_qc} = "${verify_dir}/${prefixid}_surface_qc.txt";
+    $image->{classify_qc} = "${verify_dir}/${prefixid}_classify_qc.txt";
+    $image->{civet_qc} = "${verify_dir}/${prefixid}_civet_qc.txt";
+    unless( $surface eq "noSURFACE" ) {
+      my $log_dir = "${Base_Dir}/$image->{directories}{LOG}";
+      $image->{white_left_log} = "${log_dir}/${dsid}.extract_white_surface_left.log";
+      $image->{white_right_log} = "${log_dir}/${dsid}.extract_white_surface_right.log";
+      $image->{gray_left_log} = "${log_dir}/${dsid}.gray_surface_left.log";
+      $image->{gray_right_log} = "${log_dir}/${dsid}.gray_surface_right.log";
+    }
 
     return( $image );
 }
@@ -466,24 +501,23 @@ sub image {
   my $type = shift;
   my $sourceDir = shift;
   my $targetDir = shift;
-  my $prefix = shift;
-  my $dsid = shift;
+  my $prefixid = shift;
 
   # The source file may be zipped or not.
   my $suffix = "";
-  if( -e "${sourceDir}/${prefix}_${dsid}_${type}.mnc.gz" ) {
+  if( -e "${sourceDir}/${prefixid}_${type}.mnc.gz" ) {
     $suffix = ".gz";
   } else {
-    if( -e "${sourceDir}/${prefix}_${dsid}_${type}.mnc.Z" ) {
+    if( -e "${sourceDir}/${prefixid}_${type}.mnc.Z" ) {
       $suffix = ".Z";
     }
   }
 
-  my $h = { source   => "${sourceDir}/${prefix}_${dsid}_${type}.mnc${suffix}",
-            native   => "${targetDir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_${type}.mnc${suffix}",
-            nuc      => "${targetDir}/$image->{directories}{NATIVE}/${prefix}_${dsid}_${type}_nuc.mnc",
-            tal      => "${targetDir}/$image->{directories}{FINAL}/${prefix}_${dsid}_${type}_tal.mnc",
-            final    => "${targetDir}/$image->{directories}{FINAL}/${prefix}_${dsid}_${type}_final.mnc"
+  my $h = { source   => "${sourceDir}/${prefixid}_${type}.mnc${suffix}",
+            native   => "${targetDir}/$image->{directories}{NATIVE}/${prefixid}_${type}.mnc${suffix}",
+            nuc      => "${targetDir}/$image->{directories}{NATIVE}/${prefixid}_${type}_nuc.mnc",
+            tal      => "${targetDir}/$image->{directories}{FINAL}/${prefixid}_${type}_tal.mnc",
+            final    => "${targetDir}/$image->{directories}{FINAL}/${prefixid}_${type}_final.mnc"
           };
 
   return( $h );
@@ -541,12 +575,14 @@ sub validate_options {
   }
 
   # value of tmethod must be tlink, tlaplace, tnear or tnormal
-  if( !( $image->{tmethod} eq "tlink" ||
-       $image->{tmethod} eq "tlaplace" ||
-       $image->{tmethod} eq "tfs" ||
-       $image->{tmethod} eq "tnear" ||
-       $image->{tmethod} eq "tnormal" ) ) {
-    die "ERROR: Cortical thickness method ($image->{tmethod}) must be tlink, tlaplace, tnear, tfs, or tnormal.\n";
+  foreach my $tmet (@{$image->{tmethod}}) {
+    if( !( ${tmet} eq "tlink" ||
+         ${tmet} eq "tlaplace" ||
+         ${tmet} eq "tfs" ||
+         ${tmet} eq "tnear" ||
+         ${tmet} eq "tnormal" ) ) {
+      die "ERROR: Cortical thickness method (${tmet}) must be tlink, tlaplace, tnear, tfs, or tnormal.\n";
+    }
   }
 
   # value of tkernel must be a positive integer number or zero
@@ -610,25 +646,38 @@ sub print_options {
 
   open PIPE, "> ${Base_Dir}/$image->{directories}{LOG}/${dsid}.options";
   print PIPE "Options for CIVET-${version}:\n";
+  print PIPE "N3 distance is $image->{nuc_dist}mm\n";
+  print PIPE "N3 damping is $image->{nuc_damping}mm\n";
+  print PIPE "Head height for neck cropping is $image->{headheight}mm\n";
+  print PIPE "Linear registration type is " . 
+             (($image->{inputIsStx}) ? 'identity matrix' : $image->{lsqtype}) . "\n";
+  print PIPE "Model for linear registration is\n  $image->{linmodel}\n";
+  print PIPE "Model for non-linear registration is\n  $image->{nlinmodel}\n";
+  print PIPE "Template for image-processing is\n  $image->{template}\n";
+  print PIPE "Interpolation method from native to stereotaxic is $image->{interpMethod}\n";
+  print PIPE "Surface mask for QC verify image is\n  $image->{surfmask}\n";
+  print PIPE "Brain masking is $image->{maskType}\n";
+  print PIPE "Blood vessels will be removed\n" if( $image->{removebloodvessels} );
   print PIPE "Classification is $image->{inputType}\n";
   print PIPE "PVE iterative correction to mean and variance is ON\n"
     if( $image->{correctPVE} );
-  print PIPE "White surface gradient correction is ON\n"
-    if( $image->{calibrateWhite} );
-  print PIPE "Brain masking is $image->{maskType}\n";
-  print PIPE "Interpolation method from native to stereotaxic is $image->{interpMethod}\n";
-  print PIPE "Head height for neck cropping is $image->{headheight}mm\n";
-  print PIPE "N3 distance is $image->{nuc_dist}mm\n";
-  print PIPE "N3 damping is $image->{nuc_damping}mm\n";
-  print PIPE "Linear registration type is $image->{lsqtype}\n";
+  print PIPE "Cerebellum and brainstem will be masked during calculation of thresholds in PVE\n" 
+    if( $image->{maskcerebellum} );
+  print PIPE "Sub-cortical SC class will be created in PVE\n" if( $image->{pve_subcortical} );
+  print PIPE "Hippocampus/amygdala will be masked for surface extraction\n" 
+    if( $image->{maskhippocampus} );
   if( $image->{surface} ne "noSURFACE" ) {
+    print PIPE "White surface gradient correction is ON\n"
+      if( $image->{calibrateWhite} );
     if( $image->{surface} eq "hiResSURFACE" ) {
       print PIPE "Hi-res surface extraction\n";
     } else {
       print PIPE "Lo-res surface extraction\n";
     }
-    foreach my $val (@{$image->{tkernel}}) {
-      print PIPE "Cortical thickness using $image->{tmethod}, blurred at ${val}mm\n";
+    foreach my $tmet (@{$image->{tmethod}}) {
+      foreach my $val (@{$image->{tkernel}}) {
+        print PIPE "Cortical thickness using ${tmet}, blurred at ${val}mm\n";
+      }
     }
     if( $image->{resamplesurfaces} ) {
       foreach my $val (@{$image->{rsl_area_fwhm}}) {
@@ -638,15 +687,11 @@ sub print_options {
         print PIPE "Surface volume blurred at ${val}mm\n";
       }
     }
+    print PIPE "Model for left surface registration is\n  $image->{surfregmodel}{left}\n";
+    print PIPE "Model for right surface registration is\n  $image->{surfregmodel}{right}\n";
+    print PIPE "Left surface parcellation atlas is\n  $image->{surface_atlas}{left}\n";
+    print PIPE "Right surface parcellation atlas is\n  $image->{surface_atlas}{right}\n";
   }
-  print PIPE "Model for linear registration is\n  $image->{linmodel}\n";
-  print PIPE "Model for non-linear registration is\n  $image->{nlinmodel}\n";
-  print PIPE "Model for left surface registration is\n  $image->{surfregmodel}{left}\n";
-  print PIPE "Model for right surface registration is\n  $image->{surfregmodel}{right}\n";
-  print PIPE "Surface mask for linear registration is\n  $image->{surfmask}\n";
-  print PIPE "Left surface parcellation atlas is\n  $image->{surface_atlas}{left}\n";
-  print PIPE "Right surface parcellation atlas is\n  $image->{surface_atlas}{right}\n";
-  print PIPE "Template for image-processing is\n  $image->{template}\n";
   if( $image->{VBM} eq "VBM" ) {
     print PIPE "VBM analysis with volumetric blurring $image->{VBM_fwhm}mm,\n";
     if( $image->{VBM_symmetry} eq "Symmetry" ) {

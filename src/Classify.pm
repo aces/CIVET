@@ -10,9 +10,6 @@ use strict;
 use PMP::PMP;
 use MRI_Image;
 
-# Version of pve to use:
-my $OLD_PVE = 0;
-
 # Partial volume estimator on masked brain to obtain
 # final discrete classification.
 
@@ -21,9 +18,13 @@ sub pve {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
+    my $model_vent_cereb_mask = @_[3];
+    my $model_subcortical_mask = @_[4];
 
     my $inputType = ${$image}->{inputType};
     my $correctPVE = ${$image}->{correctPVE};
+    my $maskCerebellum = ${$image}->{maskcerebellum};
+    my $scGM_PVE = ${$image}->{pve_subcortical};
 
     my $t1_input = ${$image}->{t1}{final};
     my $t2_input = ${$image}->{t2}{final};
@@ -32,11 +33,14 @@ sub pve {
     my $t1_tal_xfm = ${$image}->{t1_tal_xfm};
     my $t1_tal_nl_xfm = ${$image}->{t1_tal_nl_xfm};
     my $model_headmask = "${$image}->{nlinmodel}_headmask.mnc";
+    my $subcortical_mask = ${$image}->{subcortical_mask};
 
     my $pve_prefix  = ${$image}->{pve_prefix};
     my $pve_gm      = ${$image}->{pve_gm};
     my $pve_wm      = ${$image}->{pve_wm};
     my $pve_csf     = ${$image}->{pve_csf};
+    my $pve_sc      = ${$image}->{pve_sc};
+    my $pve_disc    = ${$image}->{pve_disc};
 
     my $cls_clean    = ${$image}->{cls_clean};
     my $cls_correct  = ${$image}->{cls_correct};
@@ -73,7 +77,7 @@ sub pve {
     ${$pipeline_ref}->addStage( {
          name => "mask_classify",
          label => "tissue classification",
-         inputs => [$skull_mask, @classify_images],
+         inputs => [$skull_mask, @classify_images, $t1_tal_nl_xfm],
          outputs => [$cls_clean],
          args => ["classify_clean", "-clobber", "-clean_tags", "-mask_source",
                   "-mask", $skull_mask, "-mask_classified", "-mask_tag",
@@ -84,55 +88,59 @@ sub pve {
                   @classify_images, $cls_clean],
          prereqs => $Prereqs });
 
+    # Transform $model_vent_cereb_mask from the model to the subject.
+    # This is the model with the ventricles, brainstem, cerebellum.
+    # We keep the ouptut since we'll need it elsewhere later.
+    # Note: should change the name of output in MRI_Image.
+
+    ${$pipeline_ref}->addStage( {
+         name => "cereb_vent_mask",
+         label => "transform cereb+vent mask to subject",
+         inputs => [$cls_clean, $t1_tal_nl_xfm],
+         outputs => [$subcortical_mask],
+         args => ["mincresample", "-clobber", "-quiet", "-like", $cls_clean, 
+                  "-transform", $t1_tal_nl_xfm, "-nearest", "-invert", 
+                  $model_vent_cereb_mask, $subcortical_mask],
+         prereqs => ["mask_classify"] });
+
+    # Set up options for pve:
+
+    my $Classify_complete = undef;
+
     my @extraPVE = ();
     push @extraPVE, ("-iterate") if( $correctPVE );
+    push @extraPVE, ("-restrict");
+    push @extraPVE, ($skull_mask);
 
-    # Use the head mask to extend pve classification 
-    # outside brain mask. Note that cls_clean is masked,
-    # but pve_classify will not be (to avoid losing bits
-    # of classified tissue due to masking). Linear mask
-    # is ok, no need for non-linear here.
+    # For pve_outputs, make order csf, wm, gm, [sc] for discretize_pve.
+    my @pve_inputs = @classify_images;
+    my @pve_outputs = ( $pve_csf, $pve_wm, $pve_gm );
 
-    if( $OLD_PVE ) {
-      ${$pipeline_ref}->addStage( {
-           name => "pve",
-           label => "partial volume estimation",
-           inputs => [@classify_images, $cls_clean],
-           outputs => [$pve_gm, $pve_wm, $pve_csf],
-           args => ["pve_script", "-clobber", "-nosubcortical", @extraPVE,
-                    "-curve", "auto", "-mask", $model_headmask,
-                    "-image", $cls_clean, @classify_images,
-                    $pve_prefix],
-           prereqs => ["mask_classify"] });
+    # Create SC tissue class for sub-cortical gray.
 
-      # Rebinarize the final masked pve maps.
-
-      ${$pipeline_ref}->addStage(
-           { name => "reclassify",
-           label => "rebinarize PVE maps",
-           inputs => [$pve_csf, $pve_wm, $pve_gm],
-           outputs => [$cls_correct],
-           args => ["discretize_pve", "-clobber", $pve_csf,
-                    $pve_wm, $pve_gm, $cls_correct],
-           prereqs => [ "pve" ] });
-
-    } else {
-
-      ${$pipeline_ref}->addStage( {
-           name => "pve",
-           label => "partial volume estimation",
-           inputs => [@classify_images, $cls_clean],
-           outputs => [$pve_gm, $pve_wm, $pve_csf, $cls_correct],
-           args => ["pve_script", "-clobber", "-nosubcortical", @extraPVE,
-                    "-curve", "auto", "-mask", $model_headmask,
-                    "-image", $cls_clean, "-classify", @classify_images,
-                    $pve_prefix],
-           prereqs => ["mask_classify"] });
+    if( $scGM_PVE ) {
+      push @pve_outputs, ($pve_sc);
+      push @extraPVE, "-subcortical";
+      push @extraPVE, $model_subcortical_mask;
     }
 
-    # Must now set the completion condition.
+    if( $maskCerebellum ) {
+      push @extraPVE, "-noncortical_mask";
+      push @extraPVE, $subcortical_mask;  # this is model_vent_cereb_mask
+    }
 
-    my $Classify_complete = ["pve"];
+    ${$pipeline_ref}->addStage( {
+         name => "pve",
+         label => "partial volume estimation",
+         inputs => [@pve_inputs, $cls_clean, $t1_tal_nl_xfm],
+         outputs => [@pve_outputs],
+         args => ["pve_script", "-clobber", @extraPVE,
+                  "-classify", "-mask", $model_headmask,
+                  '-curve', 'auto', "-nlxfm", $t1_tal_nl_xfm, 
+                  '-image', $cls_clean, @classify_images, $pve_prefix],
+         prereqs => ["mask_classify","cereb_vent_mask"] });
+
+    $Classify_complete = ["pve"];
 
     return( $Classify_complete );
 }

@@ -85,6 +85,7 @@ sub clasp {
 
     my $title = "CLASP surfaces";
     my $tkernel = @{${$image}->{tkernel}}[0];  # fix: use first one in list
+    my $tmethod = @{${$image}->{tmethod}}[0];  # fix: use first one in list
     my $white_surface_left = ${$image}->{white}{left};
     my $white_surface_right = ${$image}->{white}{right};
     my $gray_surface_left = ${$image}->{gray}{left};
@@ -116,8 +117,8 @@ sub clasp {
         outputs => [$verify_file],
         args => [ "verify_clasp", $gray_surface_left, $gray_surface_right, 
                   $white_surface_left, $white_surface_right, $thickness_left,
-                  $thickness_right, $verify_file, "\@${native_gi_left}",
-                  "\@${native_gi_right}", "${$image}->{tmethod}\_${tkernel}mm" ],
+                  $thickness_right, $verify_file, $native_gi_left,
+                  $native_gi_right, "${tmethod}\_${tkernel}mm" ],
         prereqs => $Prereqs });
         push @Verify_CLASP_complete, ("verify_clasp");
     }
@@ -184,17 +185,15 @@ sub surfsurf {
     # Plot 3D views of surface-surface intersections.
 
     unless (${$image}->{surface} eq "noSURFACE") {
-      if( ${$image}->{resamplesurfaces} ) {
-        ${$pipeline_ref}->addStage( {
-          name => "verify_surfsurf",
-          label => "create verification image for surf-surf intersections ",
-          inputs => [ $white_left, $white_right, $gray_left, $gray_right ],
-          outputs => [$verify_file],
-          args => [ "verify_surfsurf", $white_left, $white_right, 
-                    $gray_left, $gray_right, $verify_file ],
-          prereqs => $Prereqs });
-          push @Verify_Surfsurf_complete, ("verify_surfsurf");
-      }
+      ${$pipeline_ref}->addStage( {
+        name => "verify_surfsurf",
+        label => "create verification image for surf-surf intersections ",
+        inputs => [ $white_left, $white_right, $gray_left, $gray_right ],
+        outputs => [$verify_file],
+        args => [ "verify_surfsurf", $white_left, $white_right, 
+                  $gray_left, $gray_right, $verify_file ],
+        prereqs => $Prereqs });
+        push @Verify_Surfsurf_complete, ("verify_surfsurf");
     }
 
     return( \@Verify_Surfsurf_complete );
@@ -219,20 +218,126 @@ sub laplacian {
     # Plot 3D views of Laplacian on gray surfaces.
 
     unless (${$image}->{surface} eq "noSURFACE") {
-      if( ${$image}->{resamplesurfaces} ) {
-        ${$pipeline_ref}->addStage( {
-          name => "verify_laplace",
-          label => "create verification image for Laplacian field",
-          inputs => [ $gray_left, $gray_right, $clasp_field ],
-          outputs => [$verify_file],
-          args => [ "verify_laplacian", $gray_left, $gray_right, 
-                    $clasp_field, $verify_file ],
-          prereqs => $Prereqs });
-          push @Verify_Laplace_complete, ("verify_laplace");
-      }
+      ${$pipeline_ref}->addStage( {
+        name => "verify_laplace",
+        label => "create verification image for Laplacian field",
+        inputs => [ $gray_left, $gray_right, $clasp_field ],
+        outputs => [$verify_file],
+        args => [ "verify_laplacian", $gray_left, $gray_right, 
+                  $clasp_field, $verify_file ],
+        prereqs => $Prereqs });
+        push @Verify_Laplace_complete, ("verify_laplace");
     }
 
     return( \@Verify_Laplace_complete );
+
+}
+
+
+sub gradient {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $t1_final = ${$image}->{t1}{final};
+    my $white_left = ${$image}->{white}{left};
+    my $white_right = ${$image}->{white}{right};
+    my $white_model_mask_left = ${$image}->{mc_mask}{left};
+    my $white_model_mask_right = ${$image}->{mc_mask}{right};
+
+    my $verify_file = ${$image}->{verify_gradient};
+
+    my @Verify_Gradient_complete = ( );
+
+    # Plot 3D views of t1-gradient on white surfaces.
+
+    unless (${$image}->{surface} eq "noSURFACE") {
+      ${$pipeline_ref}->addStage( {
+        name => "verify_gradient",
+        label => "create verification image for t1-gradient field",
+        inputs => [ $white_left, $white_right, $t1_final ],
+        outputs => [$verify_file],
+        args => [ "verify_gradient", $white_left, $white_right, 
+                  $white_model_mask_left, $white_model_mask_right,
+                  $t1_final, $verify_file ],
+        prereqs => $Prereqs });
+        push @Verify_Gradient_complete, ("verify_gradient");
+    }
+
+    return( \@Verify_Gradient_complete );
+
+}
+
+
+sub angles {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my $white_left = ${$image}->{white}{left};
+    my $white_right = ${$image}->{white}{right};
+    my $gray_left = ${$image}->{gray}{left};
+    my $gray_right = ${$image}->{gray}{right};
+    my $white_model_mask_left = ${$image}->{mc_mask}{left};
+    my $white_model_mask_right = ${$image}->{mc_mask}{right};
+
+    my $verify_file = ${$image}->{verify_angles};
+
+    my @Verify_Angles_complete = ( );
+
+    # Plot 3D views of distortion angles on mid surfaces.
+
+    unless (${$image}->{surface} eq "noSURFACE") {
+      ${$pipeline_ref}->addStage( {
+        name => "verify_angles",
+        label => "create verification image for distortion angles",
+        inputs => [ $white_left, $white_right, $gray_left, $gray_right ],
+        outputs => [$verify_file],
+        args => [ "verify_angles", $white_left, $white_right, 
+                  $gray_left, $gray_right, 
+                  $white_model_mask_left, $white_model_mask_right,
+                  $verify_file ],
+        prereqs => $Prereqs });
+        push @Verify_Angles_complete, ("verify_angles");
+    }
+
+    return( \@Verify_Angles_complete );
+
+}
+
+sub convergence {
+
+    my $pipeline_ref = @_[0];
+    my $Prereqs = @_[1];
+    my $image = @_[2];
+
+    my @Verify_Convergence_complete = ( );
+
+    # Plot graph of gray/white surface extraction algorithm.
+
+    unless (${$image}->{surface} eq "noSURFACE") {
+
+      my $white_left_log = ${$image}->{white_left_log};
+      my $white_right_log = ${$image}->{white_right_log};
+      my $gray_left_log = ${$image}->{gray_left_log};
+      my $gray_right_log = ${$image}->{gray_right_log};
+      my $verify_file = ${$image}->{verify_convergence};
+
+      ${$pipeline_ref}->addStage( {
+        name => "verify_convergence",
+        label => "create verification image for surface extraction",
+        inputs => [ $white_left_log, $white_right_log, 
+                    $gray_left_log, $gray_right_log ],
+        outputs => [$verify_file],
+        args => [ "verify_convergence", $white_left_log, $white_right_log, 
+                  $gray_left_log, $gray_right_log, $verify_file ],
+        prereqs => $Prereqs });
+        push @Verify_Convergence_complete, ("verify_convergence");
+    }
+
+    return( \@Verify_Convergence_complete );
 
 }
 
@@ -290,6 +395,7 @@ sub QC {
                 ${$image}->{mid_surface_rsl}{left}, ${$image}->{mid_surface_rsl}{right},
                 ${$image}->{gray}{left}, ${$image}->{white}{left}, 
                 ${$image}->{gray}{right}, ${$image}->{white}{right},
+                ${$image}->{gray_left_log}, ${$image}->{gray_right_log},
                 @{${$image}->{lobe_thickness}{left}}[0], 
                 @{${$image}->{lobe_thickness}{right}}[0],
                 ${$image}->{gyrification_index}{left}, ${$image}->{gyrification_index}{right},

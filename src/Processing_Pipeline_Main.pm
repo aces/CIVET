@@ -118,7 +118,9 @@ sub create_pipeline{
     @res = Classify::pve(
       $pipeline_ref,
       [@{$Non_Linear_Transforms_complete},@{$Skull_Masking_complete}],
-      $image
+      $image,
+      ${$models}->{SubcorticalMask},
+      ${$models}->{PVESCModel}
     );
     my $Classify_complete = $res[0];
 
@@ -187,6 +189,9 @@ sub create_pipeline{
     my $Verify_Atlas_complete = undef;
     my $Verify_Laplace_complete = undef;
     my $Verify_Surfsurf_complete = undef;
+    my $Verify_Gradient_complete = undef;
+    my $Verify_Angles_complete = undef;
+    my $Verify_Convergence_complete = undef;
     my $Verify_image_complete = undef;
     my $Verify_QC_complete = undef;
 
@@ -200,7 +205,6 @@ sub create_pipeline{
         $pipeline_ref,
         [@{$Cortex_Mask_complete},@{$Classify_complete}],
         $image,
-        ${$models}->{SubcorticalMask},
       );
       $Surface_Fit_complete = $res[0];
 
@@ -228,6 +232,27 @@ sub create_pipeline{
         $image
       );
       $Verify_Surfsurf_complete = $res[0];
+
+      @res = Verify::gradient(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $Verify_Gradient_complete = $res[0];
+
+      @res = Verify::angles(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $Verify_Angles_complete = $res[0];
+
+      @res = Verify::convergence(
+        $pipeline_ref,
+        $Surface_Fit_complete,
+        $image
+      );
+      $Verify_Convergence_complete = $res[0];
 
       ##########################################
       ##### Combine left+right hemispheres #####
@@ -412,7 +437,6 @@ sub create_pipeline{
     }
 
     my $QCPrereqs = [ @{$Classify_complete} ];
-    push @{$QCPrereqs}, @{$Verify_image_complete};
     unless (${$image}->{surface} eq "noSURFACE") {
       push @{$QCPrereqs}, @{$Surface_QC_complete};
       push @{$QCPrereqs}, @{$GyrificationIndex_complete};

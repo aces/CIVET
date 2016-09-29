@@ -23,7 +23,6 @@ my $tilesize = 240;
 my $debug = 0;
 my $quiet = 1;
 my @mont_args = ();
-my @DrawText = ( "-font", "Helvetica" );
 
 my $xpos = 1.5*$tilesize;
 my $ypos = 15;
@@ -44,7 +43,7 @@ $ret[0] =~ / Sum: (.*)/;
 my $right_inter = $1;
 
 my $title = sprintf( "Surface-surface intersections (Left=%d, Right=%d)", $left_inter, $right_inter );
-push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$title\"";
+my @DrawText = ( "-font", "Helvetica", "-annotate", "0x0+${xpos}+${ypos}", $title );
 
 my $num_rows = 2;
 # ROWS 1 - 2: surface-surface intersections on left and right wm surfaces
@@ -84,15 +83,14 @@ unlink( $wm_right_new );
 
 # do the montage
 print "Making montage\n" unless $quiet;
-my $cmd = "montage -tile 5x${num_rows} -background white " .
-          "-geometry ${tilesize}x${tilesize}+1+1 " .
-	  join(' ', @mont_args)." ${tmpdir}/mont.png";
-print "$cmd\n" if $debug; `$cmd`;
+&run( 'montage', '-tile', "5x${num_rows}", '-background', 'white',
+      '-geometry', "${tilesize}x${tilesize}+1+1", @mont_args, 
+      "${tmpdir}/mont.png" );
 
 # Add the title
 print "Adding title\n" unless $quiet;
-$cmd = "convert -box white -stroke green -pointsize 16 @DrawText ${tmpdir}/mont.png ${output}";
-print "$cmd\n" if $debug; `$cmd`;
+&run( 'convert', '-box', 'white', '-stroke', 'green', '-pointsize', 16,
+      @DrawText, "${tmpdir}/mont.png", ${output} );
 
 print "Done\n" unless $quiet;
 
@@ -125,26 +123,24 @@ sub surfsurf {
 sub make_hemi {
   my ($surface, $temp_output, $pos) = @_;
   
-  my $cmd = "";
-  my $viewdir = "";
+  my @viewdir = ();
   if ($pos eq 'default') {
-    $viewdir = "-view 0.77 -0.18 -0.6 0.55 0.6 0.55";
+    push( @viewdir, qw( -view 0.77 -0.18 -0.6 0.55 0.6 0.55 ) );
   } else {
     if ($pos eq 'flipped') {
-      $viewdir = "-view -0.77 -0.18 -0.6 -0.55 0.6 0.55";
+      push( @viewdir, qw( -view -0.77 -0.18 -0.6 -0.55 0.6 0.55 ) );
     } else {
-      $viewdir = "-$pos";
+      push( @viewdir, "-$pos" );
     }
   }
 
-  $cmd = "ray_trace -shadows -output ${temp_output} ${surface} -bg white -crop ${viewdir}";
-  print "$cmd\n" if $debug; `$cmd`;
+  &run( 'ray_trace', '-shadows', '-output', ${temp_output},
+        ${surface}, '-bg', 'white', '-crop', @{viewdir} );
 }
 
 sub make_surface {
   my ($left_hemi, $right_hemi, $temp_output, $pos) = @_;
   
-  my $cmd = "";
   my $viewdir = "";
   if ($pos eq 'default') {
     $viewdir = "";
@@ -152,9 +148,15 @@ sub make_surface {
     $viewdir = "-$pos";
   }
 
-  $cmd = "ray_trace -shadows -output ${temp_output} ${left_hemi} ${right_hemi} -bg white -crop ${viewdir}";
-  print "$cmd\n" if $debug; `$cmd`;
+  &run( 'ray_trace', '-shadows', '-output', ${temp_output}, ${left_hemi},
+        ${right_hemi}, '-bg', 'white', '-crop', ${viewdir} );
 }
 
 
+#Execute a system call.
+
+sub run {
+  print "@_\n" if( $debug );
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
 

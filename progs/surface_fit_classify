@@ -26,12 +26,11 @@ my $pve_csf = shift;
 my $pve_disc = shift;
 my $brain_mask = shift;
 my $final_callosum = shift;
-my $custom_mask = shift;
+my $subcortical_mask = shift;
 my $blood_vessels = shift;
+my $maskhippocampus = shift;
 my $final_classify = shift;
 my $skel_csf = shift;
-my $nl_transform = shift;
-my $model_mask = shift;
 
 # make tmpdir:
 my $me = &basename($0);
@@ -41,9 +40,22 @@ my $tmpdir = &tempdir( "$me-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 my $classified_wm_fixed = "${tmpdir}/classified_wm_fixed.mnc";
 my $classified_wm_gm_fixed = "${tmpdir}/classified_wm_gm_fixed.mnc";
 
-# create $custom_mask
+# modify custom_mask to mask sub-cortical gray and fill up ventricles
+# if we don't want to mask the hippocampus (label=4) and the amygdala
+# (label=5). Masking the hippocampus/amygdala means that these
+# regions will be set as WM and the cortical surfaces will ignore
+# them (if these regions are identified in the original subcortical
+# mask provided by the stereotaxic model). Not masking is like the
+# old behaviour of CIVET-1.1.12 and earlier.
 
-make_custom_mask( $cls_correct, $nl_transform, $model_mask, $custom_mask );
+my $custom_mask = "${tmpdir}/custom_mask.mnc";
+if( !$maskhippocampus ) {
+  run( "minccalc", "-clobber", "-quiet", "-expression",
+       "if(abs(A[0]-4)<0.5||abs(A[0]-5)<0.5){0}else{A[0]}",
+       $subcortical_mask, $custom_mask );
+} else {
+  run( "cp", "-f", $subcortical_mask, $custom_mask );
+}
 
 plug_ventricles( $pve_csf, $custom_mask );
 
@@ -64,6 +76,7 @@ if( 0 ) {
 
 create_midline_mask( $classified_wm_gm_fixed, $custom_mask, 
                      $brain_mask, $final_callosum );
+unlink( $custom_mask );
 
 # final classification with split hemispheres
 
@@ -163,20 +176,6 @@ sub make_csf_skel {
 }
 
 
-# create custom_mask to mask sub-cortical gray and fill up ventricles.
-
-sub make_custom_mask {
-
-  my $cls_correct = shift;
-  my $nl_transform = shift;
-  my $model_mask = shift;
-  my $custom_mask = shift;
- 
-  run( "mincresample", "-clobber", "-quiet", "-like", $cls_correct, 
-       "-invert_transformation", "-nearest_neighbour",
-       "-transform", $nl_transform, $model_mask, $custom_mask );
-}
-
 
 # fix_wm is a little bit of image processing alchemy that attempts 
 # the following:
@@ -206,7 +205,9 @@ sub fix_wm {
 
   my $wm_dil = "${tmpdir}/wm_dil.mnc";
   my $ndil = ceil( 1.0 / $iso );  # dilate 1mm
-  &run( 'dilate_volume', $classified, $wm_dil, 3, 6, $ndil );
+  &run( 'minccalc', '-quiet', '-clobber', '-expression', 'if(abs(A[0]-4)<0.5){3}else{A[0]}',
+        $classified, $wm_dil );
+  &run( 'dilate_volume', $wm_dil, $wm_dil, 3, 6, $ndil );
   &run( 'dilate_volume', $custom_mask, $custom_mask, 3, 6, $ndil, $wm_dil, 2.5, 3.5 ); #ventricle 3
   &run( 'dilate_volume', $custom_mask, $custom_mask, 4, 6, $ndil, $wm_dil, 2.5, 3.5 ); #hippocampus 4
   &run( 'dilate_volume', $custom_mask, $custom_mask, 5, 6, $ndil, $wm_dil, 2.5, 3.5 ); #amygdala 5
@@ -226,22 +227,37 @@ sub fix_wm {
   #   custom_mask=5: amygdala becomes 1
 
   # Obtain a mask of voxels containing white matter. At this point,
-  # exclude ventricles and brain-stem. We don't want any of the
-  # white skeleton inside those regions. Also, apply the brain
-  # mask.
+  # exclude ventricles, brain-stem, hippocampus and amygdala. We don't 
+  # want any of the white skeleton inside those regions. Also, apply 
+  # on an eroded brain mask to avoid mixed pve effects for WM on the 
+  # edge of the brain mask where meninges can be.
+
+  my $nerode = ceil( 3.0 / $iso );  # erode 3mm
+  my $brain_mask_eroded = "${tmpdir}/brain_mask_eroded.mnc";
+  run( 'dilate_volume', $brain_mask, $brain_mask_eroded, 0, 6, $nerode );
 
   my $pve_wm_thresh = 0.001;
   my $pve_wm_temp = "${tmpdir}/pve_plugged.mnc";
   my $pve_wm_skel = "${tmpdir}/temp_skel.mnc";
-  my $expr = "if(A[1]>0.5){if(abs(A[0]-2)<0.45||abs(A[0]-3)<0.45){0}else{if(A[2]>$pve_wm_thresh){1}else{0}}}else{0}";
+  my $expr = "if(A[1]>0.5){if(abs(A[0]-2)<0.45||abs(A[0]-3)<0.45||abs(A[0]-4)<0.45||abs(A[0]-5)<0.45){0}else{if((A[2]>0.5&&A[3]>$pve_wm_thresh)||(A[3]>0.50)){1}else{0}}}else{0}";
   run( "minccalc", "-quiet", "-unsigned", "-byte", "-clobber", "-expr", 
-       $expr, $custom_mask, $brain_mask, $pve_wm, $pve_wm_temp );
+       $expr, $custom_mask, $brain_mask, $brain_mask_eroded, $pve_wm, $pve_wm_temp );
   run( "skel", $pve_wm_temp, $pve_wm_skel );
   unlink( $pve_wm_temp );
+  unlink( $brain_mask_eroded );
 
   # Clean up the wm skeleton. 
   my $fwhm = 2.0;
-  my $thresh = 0.15 * $iso;
+
+  # The original value of the threshold used by Oliver was 0.15.
+  # JDL suggests to use a higher value like 0.30 at 0.5mm voxel size.
+  # A smaller value includes more of the blurred skeleton, so fills-in
+  # more gaps in the skeleton. A larger value (1.0) does not add 
+  # anything to the original skeleton, thus no filling. Intuitively,
+  # use a smaller value for old subjects with atrophy to reconstruct
+  # more of the missing WM.
+
+  my $thresh = 0.25 * $iso;   # a compromise between 0.3 and 0.15.
   my $iteration = 0;
   while( $iteration < 3 ) {
     my $temp_blur = "${tmpdir}/temp_blur.mnc";
@@ -262,11 +278,16 @@ sub fix_wm {
   #   custom_mask=4: hippocampus becomes wm=3
   #   custom_mask=5: amygdala becomes wm=3
   #   pve_wm_skel: white matter skeleton becomes wm=3
+  #   classified=4: SC=4 becomes wm=3
 
   my $output_tmp = "${tmpdir}/output_tmp.mnc";
-  $expr = "if(abs(A[1]-2)<0.45){out=1}else{if(A[1]>0.5||A[2]>0.5){out=3}else{out=A[0]}}";
+  $expr = "if(abs(A[1]-2)<0.45){out=1}else{if(A[1]>0.5||A[2]>0.5){out=3}else{if(abs(A[0]-4)<0.5){3}else{out=A[0]}}}";
   run( "minccalc", "-clobber", "-quiet", "-expr", $expr,
        $classified, $custom_mask, $pve_wm_skel, $output_tmp );
+  run( "mincreshape", "-clobber", "-quiet", "-valid_range", 0, 3, 
+       "-image_range", 0, 3, $output_tmp, "${tmpdir}/output_tmp_reshaped.mnc" );
+  run( "mv", "-f", "${tmpdir}/output_tmp_reshaped.mnc", $output_tmp );
+
   unlink( $pve_wm_skel );
 
   # add a defrag on gray inside dilated custom_mask only.
@@ -322,7 +343,7 @@ sub fix_gm {
   my $MINC_COMPRESS = $ENV{'MINC_COMPRESS'};
   $ENV{'MINC_COMPRESS'} = 0;
 
-  run( "minccalc", "-clobber", "-quiet", "-expr", 'out=abs(A[0]-3)<0.45;', 
+  run( "minccalc", "-clobber", "-quiet", "-expr", 'out=abs(A[0]-3)<0.45||abs(A[0]-4)<0.45;', 
        $classified, $temp_white );
   run( "mincblur", "-clobber", "-quiet", "-fwhm", "2", $temp_white, 
        $temp_white_blur_prefix );
@@ -402,7 +423,7 @@ sub create_midline_mask {
   run( "mincresample", "-clobber", "-quiet", "-xstart", 0, "-xnelements", 1,
        $custom_mask, $custom_tmp );
 
-  run( "minccalc", "-clobber", "-quiet", "-expr", "out=((A[2]>0.5)&&(abs(A[0]-3)<0.45)||(((abs(A[1]-1)<0.5)||(abs(A[1]-3)<0.5))&&(A[0]>1.5)))",
+  run( "minccalc", "-clobber", "-quiet", "-expr", "out=((A[2]>0.5)&&(abs(A[0]-3)<0.45||abs(A[0]-4)<0.45)||(((abs(A[1]-1)<0.5)||(abs(A[1]-3)<0.5))&&(A[0]>1.5)))",
        $mid_tmp, $custom_tmp, $mid_mask, $callosum_with_bits );
   unlink( $mid_mask );
   unlink( $mid_tmp );
@@ -436,8 +457,8 @@ sub create_midline_mask {
 
   # back to 3-D
   my $callosal_defrag = "${tmpdir}/callosum_defrag.mnc";
-  run( "mincresample", "-clobber", "-quiet", '-unsigned', '-byte', "-like", 
-       $classify, $callosum_with_bits, $callosal_defrag );
+  &run( "mincresample", "-clobber", "-quiet", '-unsigned', '-byte', "-like", 
+        $classify, $callosum_with_bits, $callosal_defrag );
   unlink( $callosum_with_bits );
 
   open DILX, "> ${tmpdir}/kernel.dilx";
@@ -451,7 +472,21 @@ sub create_midline_mask {
   close DILX;
   &run( 'mincmorph', '-clobber', '-unsigned', '-byte', '-successive', 'D',
         '-kernel', "${tmpdir}/kernel.dilx", $callosal_defrag, $output );
+
+  # make sure that there are no CSF voxel on the midline in direct
+  # contact with WM for the purpose of the Laplacian field.
+
+  my $callosal_dilated = "${tmpdir}/callosum_dilated.mnc";
+  my $output_tmp = "${tmpdir}/output_tmp.mnc";
+  &run( "dilate_volume", $callosal_defrag, $callosal_dilated, 1, 26, 1 );
+
+  &run( 'minccalc', '-clobber', '-quiet', '-unsigned', '-byte', '-expression',
+        "if(A[0]<0.5&&A[1]>0.5&&abs(A[2]-3)<0.5){2}else{A[2]}",
+        $callosal_defrag, $callosal_dilated, $output, $output_tmp );
+  &run( 'mv', '-f', $output_tmp, $output );
+
   unlink( $callosal_defrag );
+  unlink( $callosal_dilated );
 
 }  
 

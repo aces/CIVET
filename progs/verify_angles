@@ -1,0 +1,227 @@
+#!/usr/bin/env perl
+
+# Plot the distortion angle (1/cosine(angle)) as an error
+# multiplicative factor on the mid surface for the tlink
+# angle between white and gray surfaces relative to the 
+# normal vector to the surface. In the ideal situation,
+# with no distortion, the map is 1. 
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+use File::Temp qw/ tempdir /;
+
+my ($wm_left, $wm_right, $gm_left, $gm_right, $mask_left, $mask_right, $output) = @ARGV;
+unless($output) {
+  print "Usage: $0 <wm_left.obj> <wm_right.obj> <gm_left.obj> <gm_right.obj> <mask_left> <$mask_right> <output.png>\n";
+  print "Note that none of the inputs may be compressed!\n";
+  exit(1);
+}
+
+my $tmpdir = tempdir( CLEANUP => 1 );
+my $tilesize = 240;
+my $debug = 0;
+my $quiet = 1;
+my @mont_args = ();
+my @DrawText = ( "-font", "Helvetica" );
+
+my $xpos = 0.80*$tilesize;
+my $ypos = 15;
+
+# Compute surface angles for each hemisphere. The smoothing on 
+# the mid surface is effectively doing a smoothing on the normals,
+# because the normal vectors on the mid surface are also noisy.
+
+my $mid_left = "${tmpdir}/mid_left.obj";
+my $angles_left = "${tmpdir}/angles_left.txt";
+`average_objects $mid_left $wm_left $gm_left`;
+`adapt_object_mesh $mid_left $mid_left 0 10 0 0`;
+`surface_angles $wm_left $mid_left $gm_left $angles_left`;
+
+my $mid_right = "${tmpdir}/mid_right.obj";
+my $angles_right = "${tmpdir}/angles_right.txt";
+`average_objects $mid_right $wm_right $gm_right`;
+`adapt_object_mesh $mid_right $mid_right 0 10 0 0`;
+`surface_angles $wm_right $mid_right $gm_right $angles_right`;
+
+# Apply the mask on the medial plane. Values become 1 (angle=0).
+
+my $mask = "${tmpdir}/medial_mask.txt";
+my $size = `wc -l $angles_left |cut -d ' ' -f1`;
+chomp( $size );
+`head -$size $mask_left > ${tmpdir}/medial_mask.txt`;
+`vertstats_math -old_style_file -mult $mask $angles_left $angles_left`;
+`vertstats_math -old_style_file -const2 -0.5 0.5 -seg $mask $mask`;
+`vertstats_math -old_style_file -add $angles_left $mask $angles_left`;
+unlink( $mask );
+
+$size = `wc -l $angles_right |cut -d ' ' -f1`;
+chomp( $size );
+`head -$size $mask_right > ${tmpdir}/medial_mask.txt`;
+`vertstats_math -old_style_file -mult $mask $angles_right $angles_right`;
+`vertstats_math -old_style_file -const2 -0.5 0.5 -seg $mask $mask`;
+`vertstats_math -old_style_file -add $angles_right $mask $angles_right`;
+unlink( $mask );
+
+# Clamp values before blurring.
+
+my $angles_min = 0.95;
+my $angles_max = 1.30;
+my $fwhm = 10;
+
+&clamp_values( $angles_min, $angles_max, $angles_left );
+&clamp_values( $angles_min, $angles_max, $angles_right );
+
+# Remember the extreme values.
+my $bad_left = "${tmpdir}/bad_left.txt";
+my $bad_right = "${tmpdir}/bad_right.txt";
+`vertstats_math -old_style_file -seg -const2 $angles_min $angles_max $angles_left $bad_left`;
+`vertstats_math -old_style_file -seg -const2 $angles_min $angles_max $angles_right $bad_right`;
+
+# Perform a bit of smoothing.
+`depth_potential -smooth $fwhm $angles_left $mid_left $angles_left`;
+`depth_potential -smooth $fwhm $angles_right $mid_right $angles_right`;
+
+# Restore extreme values to RED colour after blurring for easy identification.
+my $hot_colour = $angles_max - 0.05;  # want to show high values in RED!
+`vertstats_math -old_style_file -mult $bad_left $angles_left $angles_left`;
+`vertstats_math -old_style_file -mult $bad_right $angles_right $angles_right`;
+`vertstats_math -old_style_file -seg -const2 -0.5 0.5 $bad_left $bad_left`;
+`vertstats_math -old_style_file -seg -const2 -0.5 0.5 $bad_right $bad_right`;
+`vertstats_math -old_style_file -mult -const $hot_colour $bad_left $bad_left`;
+`vertstats_math -old_style_file -mult -const $hot_colour $bad_right $bad_right`;
+`vertstats_math -old_style_file -add $bad_left $angles_left $angles_left`;
+`vertstats_math -old_style_file -add $bad_right $angles_right $angles_right`;
+unlink( $bad_left );
+unlink( $bad_right );
+
+# Title: Write min/max/mean/stdev of distortion angles on mid surfaces.
+# Note: Ideally, vertstats_stats should use the mask (not implemented).
+
+my $title = sprintf( "Distortion 1/cos(angles) on mid surfaces (Min=%4.2f, Max=%4.2f, fwhm=%4.2fmm)", $angles_min, $angles_max, $fwhm );
+push @DrawText, ( '-annotate', "0x0+${xpos}+${ypos}", $title );
+
+my $num_rows = 2;
+# ROWS 1 - 2 Distortion angle field on mid surfaces.
+
+my $mid_left_clr = "${tmpdir}/mid_angles_left.obj";
+my $mid_right_clr = "${tmpdir}/mid_angles_right.obj";
+
+`colour_object $mid_left $angles_left $mid_left_clr spectral $angles_min $angles_max`;
+`colour_object $mid_right $angles_right $mid_right_clr spectral $angles_min $angles_max`;
+
+unlink( $mid_left );
+unlink( $mid_right );
+unlink( $angles_left );
+unlink( $angles_right );
+  
+foreach my $pos ('default', 'left', 'right') {
+  print "Making left mid ${pos} surface\n" unless $quiet;
+  make_hemi($mid_left_clr, "${tmpdir}/mid_left_$pos.rgb", $pos);
+  push(@mont_args, "${tmpdir}/mid_left_$pos.rgb");
+}
+foreach my $pos ('top', 'bottom') {
+  print "Making left/right mid ${pos} surface\n" unless $quiet;
+  make_surface( $mid_left_clr, $mid_right_clr, "${tmpdir}/mid_${pos}.rgb", $pos );
+  push(@mont_args, "${tmpdir}/mid_${pos}.rgb");
+}
+
+foreach my $pos ('flipped', 'right', 'left') {
+  print "Making right mid ${pos} surface\n" unless $quiet;
+  make_hemi($mid_right_clr, "${tmpdir}/mid_right_$pos.rgb", $pos);
+  push(@mont_args, "${tmpdir}/mid_right_$pos.rgb");
+}
+foreach my $pos ('front', 'back') {
+  print "Making left/right mid ${pos} surface\n" unless $quiet;
+  make_surface( $mid_left_clr, $mid_right_clr, "${tmpdir}/mid_${pos}.rgb", $pos );
+  push(@mont_args, "${tmpdir}/mid_${pos}.rgb");
+}
+
+unlink( $mid_left_clr );
+unlink( $mid_right_clr );
+
+# do the montage
+print "Making montage\n" unless $quiet;
+&run( 'montage', '-tile', "5x${num_rows}", '-background', 'white',
+      '-geometry', "${tilesize}x${tilesize}+1+1", @mont_args,
+      "${tmpdir}/mont.png" );
+
+# Add the title
+print "Adding title\n" unless $quiet;
+&run( 'convert', '-box', 'white', '-stroke', 'green', '-pointsize', 16,
+      @DrawText, "${tmpdir}/mont.png", ${output} );
+
+print "Done\n" unless $quiet;
+
+# end of function
+
+# clamp values to range [vmin,vmax]. This is as clumsy as
+# it gets with vertstats_math.
+
+sub clamp_values {
+
+  my $vmin = shift;
+  my $vmax = shift;
+  my $vals = shift;
+
+  my $tmp1 = "${tmpdir}/vals1.txt";
+  my $tmp2 = "${tmpdir}/vals2.txt";
+
+  `vertstats_math -old_style_file -seg -const2 $vmin $vmax $vals $tmp1`;
+  `vertstats_math -old_style_file -mult $vals $tmp1 $tmp2`;
+
+  `vertstats_math -old_style_file -seg -const2 $vmax 1.0e10 $vals $tmp1`;
+  `vertstats_math -old_style_file -mult -const $vmax $tmp1 $tmp1`;
+  `vertstats_math -old_style_file -add $tmp1 $tmp2 $tmp2`;
+
+  `vertstats_math -old_style_file -seg -const2 -1.0e10 $vmin $vals $tmp1`;
+  `vertstats_math -old_style_file -mult -const $vmin $tmp1 $tmp1`;
+  `vertstats_math -old_style_file -add $tmp1 $tmp2 $vals`;
+  unlink( $tmp1 );
+  unlink( $tmp2 );
+}
+
+sub make_hemi {
+  my ($surface, $temp_output, $pos) = @_;
+  
+  my @viewdir = ();
+  if ($pos eq 'default') {
+    push( @viewdir, qw( -view 0.77 -0.18 -0.6 0.55 0.6 0.55 ) );
+  } else {
+    if ($pos eq 'flipped') {
+      push( @viewdir, qw( -view -0.77 -0.18 -0.6 -0.55 0.6 0.55 ) );
+    } else {
+      push( @viewdir, "-$pos" );
+    }
+  }
+
+  &run( 'ray_trace', '-noshadows', '-output', ${temp_output}, ${surface},
+        '-bg', 'white', '-crop', @{viewdir} );
+}
+
+sub make_surface {
+  my ($left_hemi, $right_hemi, $temp_output, $pos) = @_;
+  
+  my $viewdir = "";
+  if ($pos eq 'default') {
+    $viewdir = "";
+  } else {
+    $viewdir = "-$pos";
+  }
+
+  &run( 'ray_trace', '-noshadows', '-output', ${temp_output}, ${left_hemi}, 
+        ${right_hemi}, '-bg', 'white', '-crop', ${viewdir} );
+}
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n" if( $debug );
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

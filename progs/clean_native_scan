@@ -87,55 +87,11 @@ sub make_regular {
   # bypass symbolic link, if any, or .mnc.gz, and convert to minc2
   # in the process.
   &run( 'minccalc', '-clobber', '-quiet', '-expr', 'A[0]', $input, 
-        "${tmpdir}/regular.mnc" );
-
-# # convert to minc2 since minc_modify_header can crash on 
-# # minc1 files (don't know why).
-# my $ret = `file ${tmpdir}/regular.mnc`;
-# chomp( $ret ) ;
-# if( $ret =~ m/NetCDF/ ) {
-#   &run( 'mincconvert', '-2', "${tmpdir}/regular.mnc", 
-#         "${tmpdir}/regular_v2.mnc" );
-#   &run( 'mv', '-f', "${tmpdir}/regular_v2.mnc", "${tmpdir}/regular.mnc" );
-# }
-
-  # make sure image is centered in field of view
-  my $dx = `mincinfo -attvalue xspace:step $input`; chomp( $dx );
-  my $dy = `mincinfo -attvalue yspace:step $input`; chomp( $dy );
-  my $dz = `mincinfo -attvalue zspace:step $input`; chomp( $dz );
-  my $nx = `mincinfo -dimlength xspace $input`; chomp( $nx );
-  my $ny = `mincinfo -dimlength yspace $input`; chomp( $ny );
-  my $nz = `mincinfo -dimlength zspace $input`; chomp( $nz );
-  my $sx = `mincinfo -attvalue xspace:start $input`; chomp( $sx );
-  my $sy = `mincinfo -attvalue yspace:start $input`; chomp( $sy );
-  my $sz = `mincinfo -attvalue zspace:start $input`; chomp( $sz );
-  my $xc = $sx + 0.5 * $dx * $nx;
-  my $yc = $sy + 0.5 * $dy * $ny;
-  my $zc = $sz + 0.5 * $dz * $nz;
-  if( abs( $xc ) > 100.0 || abs( $yc ) > 100.0 || abs( $zc ) > 100.0 ) {
-    if( $CENTER_IMAGE ) {
-      $sx = -0.5 * $nx * $dx if( abs( $xc ) > 100.0 );
-      $sy = -0.5 * $ny * $dy if( abs( $yc ) > 100.0 );
-      $sz = -0.5 * $nz * $dz if( abs( $zc ) > 100.0 );
-      &run( 'minc_modify_header', '-sinsert', 'xspace:start=$sx',
-            '-sinsert', 'yspace:start=$sy', '-sinsert',
-            'zspace:start=$sz', "${tmpdir}/regular.mnc" );
-      print "Image $input has been translated closer to the center of the field of view.\n";
-    } else {
-      die "Image $input is not centered in field of view. Have you used the -usecoordinates option with dcm2mnc?\n";
-    }
-  }
+        $output );
 
   &run( 'minc_modify_header', '-sinsert', 'xspace:spacing=regular__',
         '-sinsert', 'yspace:spacing=regular__', '-sinsert',
-        'zspace:spacing=regular__', "${tmpdir}/regular.mnc" );
-  &run( 'mincreshape', '-quiet', '-clobber', '+direction', '-dimorder', 
-        'zspace,yspace,xspace', '-dimsize', 'xspace=-1', '-dimsize', 'yspace=-1',
-        '-dimsize', 'zspace=-1', "${tmpdir}/regular.mnc", $output );
-  &run( 'minc_modify_header', '-dinsert', 'xspace:direction_cosines=1,0,0',
-        '-dinsert', 'yspace:direction_cosines=0,1,0', '-dinsert', 
-        'zspace:direction_cosines=0,0,1', $output );
-  unlink( "${tmpdir}/regular.mnc" );
+        'zspace:spacing=regular__', $output );
 }
 
 # Mask the background of the mp2rage image using its associated t1 image.

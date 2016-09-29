@@ -25,7 +25,6 @@ my $tilesize = 240;
 my $debug = 0;
 my $quiet = 1;
 my @mont_args = ();
-my @DrawText = ( "-font", "Helvetica" );
 
 my $xpos = 1.15*$tilesize;
 my $ypos = 15;
@@ -53,15 +52,15 @@ if( $ret[1] =~ m/self_intersecting/ ) {      # little legacy typo
 my $title = ( $key eq "lobes" ) ? "Lobar" : $key;
 $title = sprintf( "$title surface parcellation (self-intersections Left=%d, Right=%d)", 
                   $left_inter, $right_inter );
-push @DrawText, "-annotate 0x0+${xpos}+${ypos} \"$title\"";
+my @DrawText = ( "-font", "Helvetica", "-annotate", "0x0+${xpos}+${ypos}", $title );
 
 my $num_rows = 2;
 # ROWS 1 - 2: surface atlas on left and right mid-surfaces
 
 my $min_label_left = `sort -n -u $atlas_labels_left |head -1`; 
 my $max_label_left = `sort -n -u $atlas_labels_left | tail -1`;
-my $min_label_right = `sort -n -u $atlas_labels_right | tail -1`;
-my $max_label_right = `sort -n -u $atlas_labels_right | head -1`;
+my $min_label_right = `sort -n -u $atlas_labels_right | head -1`;
+my $max_label_right = `sort -n -u $atlas_labels_right | tail -1`;
 chomp( $min_label_left );
 chomp( $max_label_left );
 chomp( $min_label_right );
@@ -72,7 +71,6 @@ my $code = "spectral";
 
 if( $max_label > 16 ) {  # use spectral with few labels
   $min_label = 0;
-  $max_label = 255;
   $code = "label";
 }
 
@@ -112,22 +110,11 @@ if( $gyri_labels_left ne "none" && -e $gyri_labels_left &&
 
   # ROWS 3 - 4: surface gyri on left and right mid-surfaces
 
-  my $min_label_left = `sort -n -u $gyri_labels_left |head -1`; 
-  my $max_label_left = `sort -n -u $gyri_labels_left | tail -1`;
-  my $min_label_right = `sort -n -u $gyri_labels_right | tail -1`;
-  my $max_label_right = `sort -n -u $gyri_labels_right | head -1`;
-  chomp( $min_label_left );
-  chomp( $max_label_left );
-  chomp( $min_label_right );
-  chomp( $max_label_right );
-  my $min_label = ( ( $min_label_left < $min_label_right ) ? $min_label_left : $min_label_right );
-  my $max_label = ( ( $max_label_left > $max_label_right ) ? $max_label_left : $max_label_right ) + 1;
-  
   my $mid_rsl_labels_left = "${tmpdir}/mid_rsl_labels_left.obj";
   my $mid_rsl_labels_right = "${tmpdir}/mid_rsl_labels_right.obj";
-  
-  `colour_object $mid_rsl_left $gyri_labels_left $mid_rsl_labels_left spectral $min_label $max_label $min_label $max_label 0.5`;
-  `colour_object $mid_rsl_right $gyri_labels_right $mid_rsl_labels_right spectral $min_label $max_label $min_label $max_label 0.5`;
+
+  `colour_object $mid_rsl_left $gyri_labels_left $mid_rsl_labels_left label 0 255`;
+  `colour_object $mid_rsl_right $gyri_labels_right $mid_rsl_labels_right label 0 255`;
     
   foreach my $pos ('default', 'left', 'right') {
     print "Making left mid ${pos} surface\n" unless $quiet;
@@ -154,16 +141,14 @@ if( $gyri_labels_left ne "none" && -e $gyri_labels_left &&
 
 # do the montage
 print "Making montage\n" unless $quiet;
-my $cmd = "montage -tile 5x${num_rows} -background white " .
-          "-geometry ${tilesize}x${tilesize}+1+1 " .
-	  join(' ', @mont_args)." ${tmpdir}/mont.png";
-print "$cmd\n" if $debug; `$cmd`;
-
+&run( 'montage', '-tile', "5x${num_rows}", '-background', 'white',
+      '-geometry', "${tilesize}x${tilesize}+1+1", @mont_args,
+      "${tmpdir}/mont.png" );
 
 # Add the title
 print "Adding title\n" unless $quiet;
-$cmd = "convert -box white -stroke green -pointsize 16 @DrawText ${tmpdir}/mont.png ${output}";
-print "$cmd\n" if $debug; `$cmd`;
+&run( 'convert', '-box', 'white', '-stroke', 'green', '-pointsize', 16,
+      @DrawText, "${tmpdir}/mont.png", ${output} );
 
 print "Done\n" unless $quiet;
 
@@ -172,26 +157,24 @@ print "Done\n" unless $quiet;
 sub make_hemi {
   my ($surface, $temp_output, $pos) = @_;
   
-  my $cmd = "";
-  my $viewdir = "";
+  my @viewdir = ();
   if ($pos eq 'default') {
-    $viewdir = "-view 0.77 -0.18 -0.6 0.55 0.6 0.55";
+    push( @viewdir, qw( -view 0.77 -0.18 -0.6 0.55 0.6 0.55 ) );
   } else {
     if ($pos eq 'flipped') {
-      $viewdir = "-view -0.77 -0.18 -0.6 -0.55 0.6 0.55";
+      push( @viewdir, qw( -view -0.77 -0.18 -0.6 -0.55 0.6 0.55 ) );
     } else {
-      $viewdir = "-$pos";
+      push( @viewdir, "-$pos" );
     }
   }
 
-  $cmd = "ray_trace -shadows -output ${temp_output} ${surface} -bg white -crop ${viewdir}";
-  print "$cmd\n" if $debug; `$cmd`;
+  &run( 'ray_trace', '-shadows', '-output', ${temp_output},
+        ${surface}, '-bg', 'white', '-crop', @{viewdir} );
 }
 
 sub make_surface {
   my ($left_hemi, $right_hemi, $temp_output, $pos) = @_;
   
-  my $cmd = "";
   my $viewdir = "";
   if ($pos eq 'default') {
     $viewdir = "";
@@ -199,9 +182,16 @@ sub make_surface {
     $viewdir = "-$pos";
   }
 
-  $cmd = "ray_trace -shadows -output ${temp_output} ${left_hemi} ${right_hemi} -bg white -crop ${viewdir}";
-  print "$cmd\n" if $debug; `$cmd`;
+  &run( 'ray_trace', '-shadows', '-output', ${temp_output}, ${left_hemi},
+        ${right_hemi}, '-bg', 'white', '-crop', ${viewdir} );
 }
 
+
+#Execute a system call.
+
+sub run {
+  print "@_\n" if( $debug );
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
 
 

@@ -1,0 +1,59 @@
+#!/usr/bin/env perl
+
+# Plot the convergence for the extraction of the white/gray 
+# left/right surfaces.
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+use File::Temp qw/ tempdir /;
+
+my ($wm_left_log, $wm_right_log, $gm_left_log, $gm_right_log, $output) = @ARGV;
+unless($output) {
+  print "Usage: $0 <wm_left.log> <wm_right.log> <gm_left.log> <gm_right.log> <output.png>\n";
+  print "Note that none of the inputs may be compressed!\n";
+  exit(1);
+}
+
+my $tmpdir = tempdir( CLEANUP => 1 );
+
+my $wml = "${tmpdir}/wml.dat";
+my $wmr = "${tmpdir}/wmr.dat";
+my $gml = "${tmpdir}/gml.dat";
+my $gmr = "${tmpdir}/gmr.dat";
+
+`grep 'Iter  ' $wm_left_log \> $wml`;
+`grep 'Iter  ' $wm_right_log \> $wmr`;
+`grep phi_res $gm_left_log \> $gml`;
+`grep phi_res $gm_right_log \> $gmr`;
+
+my $gnu = "${tmpdir}/converg.gnu";
+open GNU, "> $gnu";
+print GNU "set grid\n";
+print GNU "set log y\n";
+print GNU "set yrange [0.01:100.0]\n";
+print GNU "set xlabel \"iterations\"\n";
+print GNU "set ylabel \"residual\"\n";
+print GNU "set title \"convergence history\"\n";
+print GNU "set output \"${output}\"\n";
+print GNU "set terminal png\n";
+print GNU "plot \"${wml}\" u 3 t \"white left\" w li, " .
+          "\"${wmr}\" u 3 t \"white right\" w li, " .
+          "\"${gml}\" u 3 t \"gray left\" w li, " .
+          "\"${gmr}\" u 3 t \"gray right\" w li\n";
+close GNU;
+
+`gnuplot < $gnu`;
+unlink( $gnu );
+
+#Execute a system call.
+
+sub run {
+  print "@_\n";
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

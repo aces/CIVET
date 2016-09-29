@@ -67,6 +67,8 @@ use MNI::Startup;
 use MNI::PathUtilities qw(split_path);
 use MNI::FileUtilities qw(check_output_dirs check_output_path);
 use MNI::DataDir;
+use lib "$FindBin::Bin";
+$PATH = "$FindBin::Bin/progs:${PATH}";
 
 ############# Some directories that the user will need to specify
 my $dir = undef;
@@ -77,6 +79,7 @@ my $outdir;
 my $iterations_n = undef;
 my $sym = 1;                  # 1 is "sym", 0 is "asym"
 my $geom = 1;                 # 1 is geomsurfreg, 0 is bestsurfreg
+my $nonlinear = 0;
 my @hemi = ("left","right");
 my $numvertices = 81920;
 my $surfType = "mid";
@@ -104,6 +107,7 @@ my @argTbl = (
            "Number of iterations?", "<num>"],
 ["-sym|-no-sym", "boolean", 1, \$sym, "Symmetrical or asymmetrical?" ],
 ["-geom|-no-geom", "boolean", 1, \$geom, "geom_surfreg or bestsurfreg?" ],
+["-non-linear|-no-non-linear", "boolean", 1, \$nonlinear, "apply non-linear transform before averaging" ],
 ["-numvertices", "string", 1,  \$numvertices,
            "Number of vertices (e.g., 81920).", "<num>"],
 ["-marching-cubes|-no-marching-cubes", "boolean", 1, \$marchingCubes, 
@@ -118,6 +122,7 @@ my @argTbl = (
           );
 
 GetOptions(\@argTbl, \@ARGV, \@leftOverArgs) or die "\n";
+
 
 #SETUP PIPELINES
 
@@ -186,11 +191,17 @@ chomp (@subjectlist);
 $dir =~ s#/+$##;      # remove trailing / at end of directory name, if any
 $dir = abs_path( $dir );
 $outdir =~ s#/+$##;      # remove trailing / at end of directory name, if any
-$outdir = abs_path( $outdir );
 `mkdir -p $outdir`;
+$outdir = abs_path( $outdir );
 
 my $tmpdir = "${outdir}/tmp";
 `mkdir -p $tmpdir`;
+
+if( !defined( $prefix ) ) {
+  $prefix = "";
+} else {
+  $prefix = "${prefix}_";
+}
 
 # Specific mask for calibration of white surface. This mask must be supplied
 # from the outside after a few iterations to establish a starting white surface.
@@ -237,6 +248,7 @@ for(my $n = 0; $n < $iterations_n; $n++){
   foreach my $subj (@subjectlist){
     print "Processing subject $subj...\n";
     `mkdir -p "$outdir/${n}/${subj}"`;
+    my $civet_dir = "${dir}/${study}/${subj}";
     foreach my $hemi (@hemi) {
       my $pipeline = init_pipeline( "ASB2-$subj-it$n-$hemi", $logdir, 0 );
       my $surf = undef;
@@ -245,9 +257,9 @@ for(my $n = 0; $n < $iterations_n; $n++){
         $surf = "${outdir}/${n}/${subj}/${surfType}_${hemi}.obj";
         if( ! (-e $surf ) ) {
 
-          my $t1 = "$dir/$study/$subj/final/${prefix}_${subj}_t1_final.mnc";
-          my $cls = "$dir/$study/$subj/temp/${prefix}_${subj}_final_classify.mnc";
-          my $wm_mask = "$dir/$study/$subj/temp/${prefix}_${subj}_wm_${hemi}.mnc";
+          my $t1 = "${civet_dir}/final/${prefix}${subj}_t1_final.mnc";
+          my $cls = "${civet_dir}/temp/${prefix}${subj}_final_classify.mnc";
+          my $wm_mask = "${civet_dir}/temp/${prefix}${subj}_wm_${hemi}.mnc";
           if( -e $wm_mask ) {
 
             my @calibrate = ();
@@ -271,13 +283,14 @@ for(my $n = 0; $n < $iterations_n; $n++){
           }
         }
       } else {
-        $surf = "$dir/$study/$subj/surfaces/${prefix}_${subj}_${surfType}_surface_${hemi}_${numvertices}.obj";
+        $surf = "${civet_dir}/surfaces/${prefix}${subj}_${surfType}_surface_${hemi}_${numvertices}.obj";
         $surf = undef if( !( -e $surf ) );
       }
 
       if( defined( $surf ) ) {
 
         my $surf_rsl = "${outdir}/${n}/${subj}/${surfType}_rsl_${hemi}.obj";
+        my $surf_nl = "${outdir}/${n}/${subj}/${surfType}_nl_${hemi}.obj";
 
         if( !( -e $surf_rsl ) ) {
           if( $surfreg_model{$hemi} ne "none" ) {
@@ -290,7 +303,7 @@ for(my $n = 0; $n < $iterations_n; $n++){
                   label => "register $hemi $surf surface nonlinearly",
                   inputs => [$surf],
                   outputs => [$surfmap],
-                  args => ["geom_surfreg.pl", "-clobber", "-min_control_mesh", "320",
+                  args => ["geom_surfreg.pl", "-clobber", "-min_control_mesh", "5120",
                            "-max_control_mesh", 81920, "-blur_coef", "1.25",
                            "-neighbourhood_radius", "1.8", "-target_spacing", "1.9",
                            $surfreg_model{$hemi}, $surf, $surfmap],
@@ -301,9 +314,9 @@ for(my $n = 0; $n < $iterations_n; $n++){
                   label => "register $hemi $surf surface nonlinearly",
                   inputs => [$surf],
                   outputs => [$surfmap],
-                  args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "320",
+                  args => ["bestsurfreg.pl", "-clobber", "-min_control_mesh", "5120",
                            "-max_control_mesh", 81920, "-blur_coef", "1.25",
-                           "-neighbourhood_radius", "2.8", "-target_spacing", "1.9",
+                           "-neighbourhood_radius", "2.8",
                            $surfreg_model{$hemi}, $surf, $surfmap],
                   prereqs => $prereqs });
             }
@@ -317,18 +330,35 @@ for(my $n = 0; $n < $iterations_n; $n++){
                           $surfmap, $surf_rsl ],
                 prereqs => ["surface_registration_${subj}_${hemi}"] });
 
+            if( $nonlinear ) {
+              my $nlxfm = "${civet_dir}/transforms/nonlinear/${prefix}${subj}_nlfit_It.xfm";
+              $pipeline->addStage( {
+                  name => "surface_nonlinear_${subj}_${hemi}",
+                  label => "non-linear transform $hemi $surf surface",
+                  inputs => [$surf_rsl],
+                  outputs => [$surf_nl],
+                  args => [ "transform_objects", $surf_rsl,
+                            $nlxfm, $surf_nl ],
+                  prereqs => ["surface_resample_${subj}_${hemi}"] });
+              $prereqs = [ "surface_nonlinear_${subj}_${hemi}" ];
+            } else {
+              $surf_nl = $surf_rsl;
+              $prereqs = [ "surface_resample_${subj}_${hemi}" ];
+            }
+
             my $output = "${outdir}/${n}/${subj}/diff_${surfType}_${hemi}.txt";
             $pipeline->addStage( {
                 name => "diff_surfs_${subj}_${hemi}",
                 label => "diff_surfaces between each subjects' $surfType surf and this iteration's avg surf",
-                inputs => [$surf_rsl],
+                inputs => [$surf_nl],
                 outputs => [$output],
-                args => ["diff_surfaces", $surfreg_model{$hemi}, $surf_rsl, 
+                args => ["diff_surfaces", $surfreg_model{$hemi}, $surf_nl, 
                          "link", $output],
-                prereqs => ["surface_resample_${subj}_${hemi}"] });
+                prereqs => $prereqs });
 
           } else {
-            # This needs to be a stage, sadly. Need to wait for creation of $surf (white mc).
+            # This needs to be a stage, sadly. Need to wait for 
+            # creation of $surf (white mc).
             if( $surfType eq "white" && $marchingCubes ) {
               $pipeline->addStage( {
                   name => "surface_resample_${subj}_${hemi}",
@@ -337,9 +367,24 @@ for(my $n = 0; $n < $iterations_n; $n++){
                   outputs => [$surf_rsl],
                   args => [ "ln", "-sf", $surf, $surf_rsl ],
                   prereqs => $prereqs });
-             } else {
-               `ln -sf $surf $surf_rsl`;
-             }
+              $prereqs = [ "surface_resample_${subj}_${hemi}" ];
+            } else {
+              `ln -sf $surf $surf_rsl`;
+            }
+
+            if( $nonlinear ) {
+              my $nlxfm = "${civet_dir}/transforms/nonlinear/${prefix}${subj}_nlfit_It.xfm";
+              $pipeline->addStage( {
+                  name => "surface_nonlinear_${subj}_${hemi}",
+                  label => "non-linear transform $hemi $surf surface",
+                  inputs => [$surf_rsl],
+                  outputs => [$surf_nl],
+                  args => [ "transform_objects", $surf_rsl,
+                            $nlxfm, $surf_nl ],
+                  prereqs => $prereqs });
+            } else {
+              `ln -sf $surf_rsl $surf_nl`;
+            }
           }
         }
       }
@@ -375,19 +420,23 @@ for(my $n = 0; $n < $iterations_n; $n++){
     foreach my $hemi (@hemi) {
 
       # Create a list of extracted surfaces.
-      my @surfList;
+      my @surfList = ();
 
       foreach my $subj (@subjectlist){
         my $failed_file = "${logdir}/ASB2-$subj-it$n-$hemi.extract_white_surface_${subj}_${hemi}.failed";
-        my $surf = "${outdir}/${n}/${subj}/${surfType}_rsl_${hemi}.obj";
+        my $surf = "${outdir}/${n}/${subj}/${surfType}_nl_${hemi}.obj";
         if( -e $surf && !( -e $failed_file ) ) {
-          push @surfList, $surf; 
           my @ret = `check_self_intersect $surf`;
           $ret[0] =~ /distance = (.*)/;
           my $dist = $1;
           $ret[1] =~ /triangles = (\d+)/;
           my $num = $1;
-          print "resampled ${subj} ${surfType} ${hemi}: self-inter = $num ($dist)\n";
+          if( $num <= 100 ) {  ## should adjust threshold for hires surfaces
+            push @surfList, $surf; 
+            print "resampled ${subj} ${surfType} ${hemi}: self-inter = $num\n";
+          } else {
+            print "resampled ${subj} ${surfType} ${hemi}: self-inter = $num (REJECTED)\n";
+          }
         }
       }
 
@@ -426,14 +475,15 @@ for(my $n = 0; $n < $iterations_n; $n++){
                            "average_surfaces_rsl_left"] });
 
       # Equidistribution of the nodes on the average surface to
-      # obtain equal-area triangles.
+      # obtain equal-area triangles using Taubin smoothing.
 
       $pipeline->addStage( {
           name => "average_surfaces_rsl_iso_sym",
-          label => "equidistribute triangles on sym average surface",
+          label => "smooth triangles on sym average surface",
           inputs => [$new_model{left}],
           outputs => [$new_model{left}],
-          args => ["equidistribute_object.pl", $new_model{left}, $new_model{left}],
+          args => ["adapt_object_mesh", $new_model{left}, $new_model{left},
+                   0, 20, 0, 0 ],
           prereqs => ["average_surfaces_rsl_sym"] });
 
       $pipeline->addStage( {
@@ -449,12 +499,14 @@ for(my $n = 0; $n < $iterations_n; $n++){
       # obtain equal-area triangles (left and right sides separately).
 
       foreach my $hemi (@hemi) {
+
         $pipeline->addStage( {
             name => "average_surfaces_rsl_iso_${hemi}",
-            label => "equidistribute triangles on $hemi average surface",
+            label => "smooth triangles on $hemi average surface",
             inputs => [$new_model{$hemi}],
             outputs => [$new_model{$hemi}],
-            args => ["equidistribute_object.pl", $new_model{$hemi}, $new_model{$hemi}],
+            args => ["adapt_object_mesh", $new_model{$hemi}, $new_model{$hemi},
+                     0, 20, 0, 0 ],
             prereqs => ["average_surfaces_rsl_${hemi}"] });
       }
     }

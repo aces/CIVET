@@ -1,0 +1,193 @@
+#!/usr/bin/env perl
+
+# Plot the t1-gradient field on the white surfaces. This
+# shows how good the white surface calibration is. Ideally,
+# we would need this on the non-calibrated white surface as
+# well (not available). Note that the maximum gradient used
+# in marching-cubes is in the direction normal to the white
+# surface, whereas here it is a basic 3-D isotropic gradient
+# of the t1 image. It's not quite the same, but it's close
+# enough to give a representative indication of the gradient
+# correction.
+#
+# Copyright Alan C. Evans
+# Professor of Neurology
+# McGill University
+#
+
+use strict;
+use warnings "all";
+use File::Temp qw/ tempdir /;
+
+my ($wm_left, $wm_right, $mask_left, $mask_right, $t1, $output) = @ARGV;
+unless($output) {
+  print "Usage: $0 <wm_left.obj> <wm_right.obj> <mask_left.txt> <mask_right.txt> <t1.mnc> <output.png>\n";
+  print "Note that none of the inputs may be compressed!\n";
+  exit(1);
+}
+
+my $tmpdir = tempdir( CLEANUP => 1 );
+my $tilesize = 240;
+my $debug = 0;
+my $quiet = 1;
+my @mont_args = ();
+my @DrawText = ( "-font", "Helvetica" );
+
+my $xpos = 0.80*$tilesize;
+my $ypos = 15;
+
+# Compute the t1 gradient.
+
+`mincblur -quiet -clobber -fwhm 2.0 -no_apodize -gradient $t1 ${tmpdir}/t1`;
+unlink( "${tmpdir}/t1_blur.mnc" );
+my $t1_grad = "${tmpdir}/t1_dxyz.mnc";
+
+# Intersect white surfaces with gradient field and apply the
+# mask on the medial plane.
+
+my $mask = "${tmpdir}/medial_mask.txt";
+my $grad_left = "${tmpdir}/grad_left.txt";
+`volume_object_evaluate -linear $t1_grad $wm_left $grad_left`;
+my $size = `wc -l $grad_left |cut -d ' ' -f1`;
+chomp( $size );
+`head -$size $mask_left > $mask`;
+`vertstats_math -old_style_file -mult $mask $grad_left $grad_left`;
+unlink( $mask );
+
+my $grad_right = "${tmpdir}/grad_right.txt";
+`volume_object_evaluate -linear $t1_grad $wm_right $grad_right`;
+$size = `wc -l $grad_right |cut -d ' ' -f1`;
+chomp( $size );
+`head -$size $mask_right > $mask`;
+`vertstats_math -old_style_file -mult $mask $grad_right $grad_right`;
+unlink( $mask );
+
+unlink( $t1_grad );
+
+# Perform a bit of smoothing.
+`depth_potential -smooth 10.0 $grad_left $wm_left $grad_left`;
+`depth_potential -smooth 10.0 $grad_right $wm_right $grad_right`;
+
+# Title: Write min/max/mean/stdev of gradient field on white surfaces.
+# Note: Ideally, vertstats_stats should use the mask (not implemented).
+
+my $grad_full = "${tmpdir}/grad_full.txt";
+`cp $grad_left $grad_full`;
+`cat $grad_right >> $grad_full`;
+my @ret = `vertstats_stats $grad_full |grep Minimum`;
+$ret[0] =~ / Minimum: (.*)/;
+my $grad_min = $1;
+
+@ret = `vertstats_stats $grad_full |grep Maximum`;
+$ret[0] =~ / Maximum: (.*)/;
+my $grad_max = $1;
+
+@ret = `vertstats_stats $grad_full |grep Mean`;
+$ret[0] =~ / Mean: (.*)/;
+my $grad_mean = $1;
+
+@ret = `vertstats_stats $grad_full |grep Stdev`;
+$ret[0] =~ / Stdev: (.*)/;
+my $grad_stdev = $1;
+
+unlink( $grad_full );
+
+my $title = sprintf( "Gradient field on white surfaces (Min=%5.1f, Max=%6.1f, Mean=%6.1f, Stdev=%6.1f)", 
+                     $grad_min, $grad_max, $grad_mean, $grad_stdev );
+push @DrawText, ( '-annotate', "0x0+${xpos}+${ypos}", $title );
+
+my $num_rows = 2;
+# ROWS 1 - 2 Gradient field on white surfaces.
+
+my $wm_left_clr = "${tmpdir}/wm_grad_left.obj";
+my $wm_right_clr = "${tmpdir}/wm_grad_right.obj";
+
+my $gmin = ( $grad_mean - 2*$grad_stdev > $grad_min ) ? 
+           $grad_mean - 2*$grad_stdev : $grad_min;
+my $gmax = $grad_mean + 2*$grad_stdev;
+
+`colour_object $wm_left $grad_left $wm_left_clr spectral $gmin $gmax`;
+`colour_object $wm_right $grad_right $wm_right_clr spectral $gmin $gmax`;
+unlink( $grad_left );
+unlink( $grad_right );
+  
+foreach my $pos ('default', 'left', 'right') {
+  print "Making left wm ${pos} surface\n" unless $quiet;
+  make_hemi($wm_left_clr, "${tmpdir}/wm_left_$pos.rgb", $pos);
+  push(@mont_args, "${tmpdir}/wm_left_$pos.rgb");
+}
+foreach my $pos ('top', 'bottom') {
+  print "Making left/right wm ${pos} surface\n" unless $quiet;
+  make_surface( $wm_left_clr, $wm_right_clr, "${tmpdir}/wm_${pos}.rgb", $pos );
+  push(@mont_args, "${tmpdir}/wm_${pos}.rgb");
+}
+
+foreach my $pos ('flipped', 'right', 'left') {
+  print "Making right wm ${pos} surface\n" unless $quiet;
+  make_hemi($wm_right_clr, "${tmpdir}/wm_right_$pos.rgb", $pos);
+  push(@mont_args, "${tmpdir}/wm_right_$pos.rgb");
+}
+foreach my $pos ('front', 'back') {
+  print "Making left/right wm ${pos} surface\n" unless $quiet;
+  make_surface( $wm_left_clr, $wm_right_clr, "${tmpdir}/wm_${pos}.rgb", $pos );
+  push(@mont_args, "${tmpdir}/wm_${pos}.rgb");
+}
+
+unlink( $wm_left_clr );
+unlink( $wm_right_clr );
+
+# do the montage
+print "Making montage\n" unless $quiet;
+&run( 'montage', '-tile', "5x${num_rows}", '-background', 'white',
+      '-geometry', "${tilesize}x${tilesize}+1+1", @mont_args,
+      "${tmpdir}/mont.png" );
+
+# Add the title
+print "Adding title\n" unless $quiet;
+&run( 'convert', '-box', 'white', '-stroke', 'green', '-pointsize', 16,
+      @DrawText, "${tmpdir}/mont.png", ${output} );
+
+print "Done\n" unless $quiet;
+
+# end of function
+
+sub make_hemi {
+  my ($surface, $temp_output, $pos) = @_;
+  
+  my @viewdir = ();
+  if ($pos eq 'default') {
+    push( @viewdir, qw( -view 0.77 -0.18 -0.6 0.55 0.6 0.55 ) );
+  } else {
+    if ($pos eq 'flipped') {
+      push( @viewdir, qw( -view -0.77 -0.18 -0.6 -0.55 0.6 0.55 ) );
+    } else {
+      push( @viewdir, "-$pos" );
+    }
+  }
+
+  &run( 'ray_trace', '-noshadows', '-output', ${temp_output}, ${surface},
+        '-bg', 'white', '-crop', @{viewdir} );
+}
+
+sub make_surface {
+  my ($left_hemi, $right_hemi, $temp_output, $pos) = @_;
+  
+  my $viewdir = "";
+  if ($pos eq 'default') {
+    $viewdir = "";
+  } else {
+    $viewdir = "-$pos";
+  }
+
+  &run( 'ray_trace', '-noshadows', '-output', ${temp_output}, ${left_hemi}, 
+        ${right_hemi}, '-bg', 'white', '-crop', ${viewdir} );
+}
+
+
+#Execute a system call.
+
+sub run {
+  print "@_\n" if( $debug );
+  system(@_)==0 or die "Command @_ failed with status: $?";
+}
+

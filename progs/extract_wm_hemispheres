@@ -118,10 +118,10 @@ $xlen = ( $xlen + 1 ) / 2;
 
 # retain only white matter in left and right hemispheres.
 
-&do_cmd( "minccalc", "-clobber", "-byte", "-expr", "out=(abs(A[0]-3)<0.45)&&A[1];",
+&do_cmd( "minccalc", "-clobber", "-byte", "-expr", "out=(abs(A[0]-3)<0.45||abs(A[0]-4)<0.45)&&A[1];",
          $classify_masked, $hemi_left_mask, $wm_crop_left );
 
-&do_cmd( "minccalc", "-clobber", "-byte", "-expr", "out=(abs(A[0]-3)<0.45)&&A[1];",
+&do_cmd( "minccalc", "-clobber", "-byte", "-expr", "out=(abs(A[0]-3)<0.45||abs(A[0]-4)<0.45)&&A[1];",
          $classify_masked, $hemi_right_mask, $wm_crop_right );
 
 # remove loose bits of disconnected white matter.

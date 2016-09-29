@@ -59,8 +59,11 @@ progs_SCRIPTS = \
         progs/surf_qc_image \
         progs/talto6 \
         progs/talto7 \
+        progs/verify_angles \
         progs/verify_atlas \
         progs/verify_clasp \
+        progs/verify_convergence \
+        progs/verify_gradient \
         progs/verify_image \
         progs/verify_laplacian \
         progs/verify_surfsurf
@@ -87,10 +90,17 @@ samirdktdir = $(bindir)/models/samir/DKT/
 samirlobesdir = $(bindir)/models/samir/lobes/
 samirgyridir = $(bindir)/models/samir/gyri/
 
+ibisv24dir = $(bindir)/models/ibis/
+ibisv24aaldir = $(bindir)/models/ibis/AAL/
+ibisv24dktdir = $(bindir)/models/ibis/DKT/
+ibisv24lobesdir = $(bindir)/models/ibis/lobes/
+ibisv24gyridir = $(bindir)/models/ibis/gyri/
+
 models_DATA = \
         models/Cerebellum_Ventricles_SubCortical_Mask-VI.mnc \
         models/Cerebellum_Ventricles_SubCortical_Mask-2009s.mnc \
         models/Cerebellum_Ventricles_SubCortical_Mask-ADNIhi.mnc \
+        models/Cerebellum_Ventricles_SubCortical_Mask-IBISv24.mnc \
         models/Cerebellum_Ventricles_SubCortical_Mask.mnc \
         models/flip_right.xfm \
         models/hemi_left_mask.mnc \
@@ -115,7 +125,9 @@ icbmaal_DATA = \
         models/icbm/AAL/AAL_license.txt \
         models/icbm/AAL/AAL_README.txt \
         models/icbm/AAL/icbm_avg_mid_mc_AAL_left.txt \
-        models/icbm/AAL/icbm_avg_mid_mc_AAL_right.txt
+        models/icbm/AAL/icbm_avg_mid_mc_AAL_right.txt \
+        models/icbm/AAL/icbm_avg_mid_mc_AAL.txt \
+        models/icbm/AAL/icbm_avg_mid_mc_AAL_lowres.txt
 icbmdkt_DATA = \
         models/icbm/DKT/DKTatlas40.labels \
         models/icbm/DKT/icbm_avg_mid_mc_dkt40_left.txt \
@@ -167,6 +179,23 @@ samirlobes_DATA = \
         models/samir/lobes/surface_atlas_samir_mc_left.txt \
         models/samir/lobes/surface_atlas_samir_mc_right.txt
 
+# not ready yet for ibis-v24
+#       models/ibis/ibis-v24_mid_mc_left_hires.obj \
+#       models/ibis/ibis-v24_mid_mc_left.obj \
+#       models/ibis/ibis-v24_mid_mc_right_hires.obj \
+#       models/ibis/ibis-v24_mid_mc_right.obj
+
+ibisv24_DATA = \
+        models/ibis/ibis-v24_white_sym_left_hires.obj \
+        models/ibis/ibis-v24_white_sym_left.obj \
+        models/ibis/ibis-v24_white_sym_mask_left.txt \
+        models/ibis/ibis-v24_white_sym_mask_right.txt \
+        models/ibis/ibis-v24_white_sym_right_hires.obj \
+        models/ibis/ibis-v24_white_sym_right.obj
+ibisv24aal_DATA =
+ibisv24gyri_DATA =
+ibisv24lobes_DATA =
+
 EXTRA_DIST = \
         $(bin_SCRIPTS) \
         $(progs_SCRIPTS) \
@@ -186,6 +215,10 @@ EXTRA_DIST = \
         $(samirdkt_DATA) \
         $(samirgyri_DATA) \
         $(samirlobes_DATA) \
+        $(ibisv24_DATA) \
+        $(ibisv24aal_DATA) \
+        $(ibisv24gyri_DATA) \
+        $(ibisv24lobes_DATA) \
 	epm-header.in
 
 # gunzip rule

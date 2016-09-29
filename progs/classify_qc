@@ -1,6 +1,6 @@
 #! /usr/bin/env perl
 #
-# Compute the percentages of classified CSF, WM, GM.
+# Compute the percentages of classified CSF, WM, GM, SC.
 # 
 # Note: This is for the whole head, including brain stem and cerebellum,
 #       so not ideal to represent the WM and GM we want.
@@ -60,20 +60,35 @@ chomp( $gm_vol = `mincstats -quiet -count -mask $cls -mask_binvalue 2 $cls` );
 my $wm_vol;
 chomp( $wm_vol = `mincstats -quiet -count -mask $cls -mask_binvalue 3 $cls` );
 
-my $total_vol = $csf_vol + $gm_vol + $wm_vol;
+my $sc_vol;
+chomp( $sc_vol = `mincstats -quiet -count -mask $cls -mask_binvalue 4 $cls` );
+
+
+my $total_vol = $csf_vol + $gm_vol + $wm_vol + $sc_vol;
 
 my $csf_pct = 100.0 * $csf_vol / $total_vol;
 my $gm_pct = 100.0 * $gm_vol / $total_vol;
 my $wm_pct = 100.0 * $wm_vol / $total_vol;
+my $sc_pct = 100.0 * $sc_vol / $total_vol;
 
 if( defined $info_file ) {
   open PIPE, ">$info_file";
-  print PIPE sprintf( "classified image CSF %5.2f%%  GM %5.2f%%  WM %5.2f%%\n", 
-                      $csf_pct, $gm_pct, $wm_pct );
+  if( $sc_vol > 0 ) {
+    print PIPE sprintf( "classified image CSF %5.2f%%  GM %5.2f%%  WM %5.2f%%  SC %5.2f%%\n", 
+                        $csf_pct, $gm_pct, $wm_pct, $sc_pct );
+  } else {
+    print PIPE sprintf( "classified image CSF %5.2f%%  GM %5.2f%%  WM %5.2f%%\n", 
+                        $csf_pct, $gm_pct, $wm_pct );
+  }
   close PIPE;
 } else {
-  print sprintf( "classified image CSF %5.2f%%  GM %5.2f%%  WM %5.2f%%\n", 
-                 $csf_pct, $gm_pct, $wm_pct );
+  if( $sc_vol > 0 ) {
+    print sprintf( "classified image CSF %5.2f%%  GM %5.2f%%  WM %5.2f%%  SC %5.2f%%\n", 
+                   $csf_pct, $gm_pct, $wm_pct, $sc_pct );
+  } else {
+    print sprintf( "classified image CSF %5.2f%%  GM %5.2f%%  WM %5.2f%%\n", 
+                   $csf_pct, $gm_pct, $wm_pct );
+  }
 }
 
 

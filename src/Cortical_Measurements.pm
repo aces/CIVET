@@ -16,8 +16,6 @@ sub thickness {
     my $Prereqs = @_[1];
     my $image = @_[2];
 
-    my $tmethod = ${$image}->{tmethod};
-
     my $white_left = ${$image}->{white}{left};
     my $white_right = ${$image}->{white}{right};
     my $gray_left = ${$image}->{gray}{left};
@@ -35,133 +33,136 @@ sub thickness {
 
     my @Cortical_Thickness_complete = ();
     my $count = 0;
-    foreach my $tkernel (@{${$image}->{tkernel}}) {
+    foreach my $tmethod (@{${$image}->{tmethod}}) {
 
-      my $native_rms_left = @{${$image}->{rms}{left}}[$count];
-      my $native_rms_right = @{${$image}->{rms}{right}}[$count];
+      foreach my $tkernel (@{${$image}->{tkernel}}) {
 
-      ###########################
-      ##### Left hemisphere #####
-      ###########################
+        my $native_rms_left = @{${$image}->{rms}{left}}[$count];
+        my $native_rms_right = @{${$image}->{rms}{right}}[$count];
 
-      ${$pipeline_ref}->addStage( {
-           name => "thickness_${tmethod}_${tkernel}mm_left",
-           label => "native thickness ${tmethod} ${tkernel}mm",
-           inputs => [$white_left, $gray_left, $t1_tal_xfm],
-           outputs => [$native_rms_left],
-           args => ["cortical_thickness", "-${tmethod}", "-fwhm", ${tkernel}, 
-                    "-transform", $t1_tal_xfm,
-                    $white_left, $gray_left, $native_rms_left],
-           prereqs => $Prereqs });
+        ###########################
+        ##### Left hemisphere #####
+        ###########################
 
-      ############################
-      ##### Right hemisphere #####
-      ############################
-
-      ${$pipeline_ref}->addStage( {
-           name => "thickness_${tmethod}_${tkernel}mm_right",
-           label => "native thickness ${tmethod} ${tkernel}mm",
-           inputs => [$white_right, $gray_right, $t1_tal_xfm],
-           outputs => [$native_rms_right],
-           args => ["cortical_thickness", "-${tmethod}", "-fwhm", ${tkernel}, 
-                    "-transform", $t1_tal_xfm,
-                    $white_right, $gray_right, $native_rms_right],
-           prereqs => $Prereqs });
-
-      ################################################
-      ##### Resampling of the cortical thickness #####
-      ################################################
-
-      my $rsl_left_thickness = @{${$image}->{rms_rsl}{left}}[$count];
-      my $rsl_right_thickness = @{${$image}->{rms_rsl}{right}}[$count];
-
-      ${$pipeline_ref}->addStage( {
-            name => "resample_left_thickness_${tmethod}_${tkernel}mm",
-            label => "surface resample left thickness ${tmethod} ${tkernel}mm",
-            inputs => [$native_rms_left, $left_surfmap, $left_mid_surface],
-            outputs => [$rsl_left_thickness],
-            args => ["surface-resample", ${$image}->{surfregmodel}{left},
-                     $left_mid_surface, $native_rms_left, $left_surfmap, 
-                     $rsl_left_thickness],
-            prereqs => ["thickness_${tmethod}_${tkernel}mm_left"] });
-
-      # Important note: The surfmap file is always left-oriented, so the
-      #                 mid_surface must also be left-oriented. Only the
-      #                 connectivity is read, so pass the left_mid_surface,
-      #                 as opposed to flipping the right_mid_surface. CL.
-      ${$pipeline_ref}->addStage( {
-            name => "resample_right_thickness_${tmethod}_${tkernel}mm",
-            label => "surface resample right thickness ${tmethod} ${tkernel}mm",
-            inputs => [$native_rms_right, $right_surfmap, $left_mid_surface],
-            outputs => [$rsl_right_thickness],
-            args => ["surface-resample", ${$image}->{surfregmodel}{right}, 
-                     $left_mid_surface, $native_rms_right, $right_surfmap, 
-                     $rsl_right_thickness],
-            prereqs => [ @$Prereqs, "thickness_${tmethod}_${tkernel}mm_right"] });
-
-      push @Cortical_Thickness_complete, "resample_left_thickness_${tmethod}_${tkernel}mm";
-      push @Cortical_Thickness_complete, "resample_right_thickness_${tmethod}_${tkernel}mm";
-
-      ############################################################################
-      ##### Combine fields for cortical thickness for left+right hemispheres #####
-      ############################################################################
-
-      if( ${$image}->{combinesurfaces} ) {
-
-        my $native_rms_full = @{${$image}->{rms}{full}}[$count];
         ${$pipeline_ref}->addStage( {
-             name => "thickness_${tmethod}_${tkernel}mm",
-             label => "native full thickness ${tmethod} ${tkernel}mm",
-             inputs => [$left_mid_surface, $right_mid_surface, 
-                        $native_rms_left, $native_rms_right],
-             outputs => [$native_rms_full],
-             args => ["objconcat", $left_mid_surface, $right_mid_surface,
-                      $native_rms_left, $native_rms_right, "none", $native_rms_full],
-             prereqs => ["thickness_${tmethod}_${tkernel}mm_left",
-                         "thickness_${tmethod}_${tkernel}mm_right"] });
+             name => "thickness_${tmethod}_${tkernel}mm_left",
+             label => "native thickness ${tmethod} ${tkernel}mm",
+             inputs => [$white_left, $gray_left, $t1_tal_xfm],
+             outputs => [$native_rms_left],
+             args => ["cortical_thickness", "-${tmethod}", "-fwhm", ${tkernel}, 
+                      "-transform", $t1_tal_xfm,
+                      $white_left, $gray_left, $native_rms_left],
+             prereqs => $Prereqs });
 
-        push @Cortical_Thickness_complete, ("thickness_${tmethod}_${tkernel}mm");
+        ############################
+        ##### Right hemisphere #####
+        ############################
 
-        my $native_rms_rsl_full = @{${$image}->{rms_rsl}{full}}[$count];
         ${$pipeline_ref}->addStage( {
-             name => "resample_full_thickness_${tmethod}_${tkernel}mm",
-             label =>"resampled full thickness ${tmethod} ${tkernel}mm",
-             inputs => [$left_mid_surface, $right_mid_surface, 
-                        $rsl_left_thickness, $rsl_right_thickness],
-             outputs => [$native_rms_rsl_full],
-             args => ["objconcat", $left_mid_surface, $right_mid_surface,
-                      $rsl_left_thickness, $rsl_right_thickness, "none", 
-                      $native_rms_rsl_full],
+             name => "thickness_${tmethod}_${tkernel}mm_right",
+             label => "native thickness ${tmethod} ${tkernel}mm",
+             inputs => [$white_right, $gray_right, $t1_tal_xfm],
+             outputs => [$native_rms_right],
+             args => ["cortical_thickness", "-${tmethod}", "-fwhm", ${tkernel}, 
+                      "-transform", $t1_tal_xfm,
+                      $white_right, $gray_right, $native_rms_right],
+             prereqs => $Prereqs });
+
+        ################################################
+        ##### Resampling of the cortical thickness #####
+        ################################################
+
+        my $rsl_left_thickness = @{${$image}->{rms_rsl}{left}}[$count];
+        my $rsl_right_thickness = @{${$image}->{rms_rsl}{right}}[$count];
+
+        ${$pipeline_ref}->addStage( {
+              name => "resample_left_thickness_${tmethod}_${tkernel}mm",
+              label => "surface resample left thickness ${tmethod} ${tkernel}mm",
+              inputs => [$native_rms_left, $left_surfmap, $left_mid_surface],
+              outputs => [$rsl_left_thickness],
+              args => ["surface-resample", ${$image}->{surfregmodel}{left},
+                       $left_mid_surface, $native_rms_left, $left_surfmap, 
+                       $rsl_left_thickness],
+              prereqs => ["thickness_${tmethod}_${tkernel}mm_left"] });
+
+        # Important note: The surfmap file is always left-oriented, so the
+        #                 mid_surface must also be left-oriented. Only the
+        #                 connectivity is read, so pass the left_mid_surface,
+        #                 as opposed to flipping the right_mid_surface. CL.
+        ${$pipeline_ref}->addStage( {
+              name => "resample_right_thickness_${tmethod}_${tkernel}mm",
+              label => "surface resample right thickness ${tmethod} ${tkernel}mm",
+              inputs => [$native_rms_right, $right_surfmap, $left_mid_surface],
+              outputs => [$rsl_right_thickness],
+              args => ["surface-resample", ${$image}->{surfregmodel}{right}, 
+                       $left_mid_surface, $native_rms_right, $right_surfmap, 
+                       $rsl_right_thickness],
+              prereqs => [ @$Prereqs, "thickness_${tmethod}_${tkernel}mm_right"] });
+
+        push @Cortical_Thickness_complete, "resample_left_thickness_${tmethod}_${tkernel}mm";
+        push @Cortical_Thickness_complete, "resample_right_thickness_${tmethod}_${tkernel}mm";
+
+        ############################################################################
+        ##### Combine fields for cortical thickness for left+right hemispheres #####
+        ############################################################################
+
+        if( ${$image}->{combinesurfaces} ) {
+
+          my $native_rms_full = @{${$image}->{rms}{full}}[$count];
+          ${$pipeline_ref}->addStage( {
+               name => "thickness_${tmethod}_${tkernel}mm",
+               label => "native full thickness ${tmethod} ${tkernel}mm",
+               inputs => [$left_mid_surface, $right_mid_surface, 
+                          $native_rms_left, $native_rms_right],
+               outputs => [$native_rms_full],
+               args => ["objconcat", $left_mid_surface, $right_mid_surface,
+                        $native_rms_left, $native_rms_right, "none", $native_rms_full],
+               prereqs => ["thickness_${tmethod}_${tkernel}mm_left",
+                           "thickness_${tmethod}_${tkernel}mm_right"] });
+
+          push @Cortical_Thickness_complete, ("thickness_${tmethod}_${tkernel}mm");
+
+          my $native_rms_rsl_full = @{${$image}->{rms_rsl}{full}}[$count];
+          ${$pipeline_ref}->addStage( {
+               name => "resample_full_thickness_${tmethod}_${tkernel}mm",
+               label =>"resampled full thickness ${tmethod} ${tkernel}mm",
+               inputs => [$left_mid_surface, $right_mid_surface, 
+                          $rsl_left_thickness, $rsl_right_thickness],
+               outputs => [$native_rms_rsl_full],
+               args => ["objconcat", $left_mid_surface, $right_mid_surface,
+                        $rsl_left_thickness, $rsl_right_thickness, "none", 
+                        $native_rms_rsl_full],
+               prereqs => ["resample_left_thickness_${tmethod}_${tkernel}mm", 
+                           "resample_right_thickness_${tmethod}_${tkernel}mm"] });
+   
+          push @Cortical_Thickness_complete, ("resample_full_thickness_${tmethod}_${tkernel}mm");
+
+        }
+
+        ##############################################################
+        ##### Mid surface, with cortical thickness asymmetry map #####
+        ##### (using resampled thickness)                        #####
+        ##############################################################
+
+        my $rsl_left_thickness = @{${$image}->{rms_rsl}{left}}[$count];
+        my $rsl_right_thickness = @{${$image}->{rms_rsl}{right}}[$count];
+  
+        my @outputs = ( @{${$image}->{rms_rsl}{asym_hemi}}[$count] );
+        push @outputs, ( @{${$image}->{rms_rsl}{asym_full}}[$count] ) if( ${$image}->{combinesurfaces} );
+
+        ${$pipeline_ref}->addStage( {
+             name => "asymmetry_rms_${tmethod}_${tkernel}mm",
+             label => "asymmetry cortical thickness map ${tmethod} ${tkernel}mm",
+             inputs => [$rsl_left_thickness, $rsl_right_thickness],
+             outputs => [@outputs],
+             args => ["asymmetry_cortical_thickness", "-clobber", $rsl_left_thickness, 
+                      $rsl_right_thickness, @outputs],
              prereqs => ["resample_left_thickness_${tmethod}_${tkernel}mm", 
                          "resample_right_thickness_${tmethod}_${tkernel}mm"] });
- 
-        push @Cortical_Thickness_complete, ("resample_full_thickness_${tmethod}_${tkernel}mm");
 
+        push @Cortical_Thickness_complete, ("asymmetry_rms_${tmethod}_${tkernel}mm");
+        $count++;
       }
-
-      ##############################################################
-      ##### Mid surface, with cortical thickness asymmetry map #####
-      ##### (using resampled thickness)                        #####
-      ##############################################################
-
-      my $rsl_left_thickness = @{${$image}->{rms_rsl}{left}}[$count];
-      my $rsl_right_thickness = @{${$image}->{rms_rsl}{right}}[$count];
-
-      my @outputs = ( @{${$image}->{rms_rsl}{asym_hemi}}[$count] );
-      push @outputs, ( @{${$image}->{rms_rsl}{asym_full}}[$count] ) if( ${$image}->{combinesurfaces} );
-
-      ${$pipeline_ref}->addStage( {
-           name => "asymmetry_rms_${tmethod}_${tkernel}mm",
-           label => "asymmetry cortical thickness map ${tmethod} ${tkernel}mm",
-           inputs => [$rsl_left_thickness, $rsl_right_thickness],
-           outputs => [@outputs],
-           args => ["asymmetry_cortical_thickness", "-clobber", $rsl_left_thickness, 
-                    $rsl_right_thickness, @outputs],
-           prereqs => ["resample_left_thickness_${tmethod}_${tkernel}mm", 
-                       "resample_right_thickness_${tmethod}_${tkernel}mm"] });
-
-      push @Cortical_Thickness_complete, ("asymmetry_rms_${tmethod}_${tkernel}mm");
-      $count++;
     }
 
     return( \@Cortical_Thickness_complete );
@@ -655,92 +656,95 @@ sub lobe_features {
 
     my @Lobe_complete = ();
     my $count = 0;
-    foreach my $tkernel (@{${$image}->{tkernel}}) {
+    foreach my $tmethod (@{${$image}->{tmethod}}) {
+      foreach my $tkernel (@{${$image}->{tkernel}}) {
 
-      ###################################################
-      ##### Lobe parcellation of cortical thickness #####
-      ###################################################
+        ###################################################
+        ##### Lobe parcellation of cortical thickness #####
+        ###################################################
 
-      my $lobe_thickness_left = @{${$image}->{lobe_thickness}{left}}[$count];
-      my $lobe_thickness_right = @{${$image}->{lobe_thickness}{right}}[$count];
-      my $native_rms_rsl_left = @{${$image}->{rms_rsl}{left}}[$count];
-      my $native_rms_rsl_right = @{${$image}->{rms_rsl}{right}}[$count];
+        my $lobe_thickness_left = @{${$image}->{lobe_thickness}{left}}[$count];
+        my $lobe_thickness_right = @{${$image}->{lobe_thickness}{right}}[$count];
+        my $native_rms_rsl_left = @{${$image}->{rms_rsl}{left}}[$count];
+        my $native_rms_rsl_right = @{${$image}->{rms_rsl}{right}}[$count];
 
-      ###########################
-      ##### Left hemisphere #####
-      ###########################
+        ###########################
+        ##### Left hemisphere #####
+        ###########################
 
-      ${$pipeline_ref}->addStage( {
-           name => "lobe_thickness_left_${tkernel}mm",
-           label => "native lobe thickness left ${tkernel}mm",
-           inputs => [$native_rms_rsl_left],
-           outputs => [$lobe_thickness_left],
-           args => ["lobe_stats", "-norm", $native_rms_rsl_left,
-                    $surface_labels_left, "average cortical thickness", 
-                    $lobe_thickness_left],
-           prereqs => $Prereqs });
+        ${$pipeline_ref}->addStage( {
+             name => "${$image}->{surfaceatlas}_lobe_thickness_left_${tmethod}_${tkernel}mm",
+             label => "native lobe thickness left ${tkernel}mm",
+             inputs => [$native_rms_rsl_left],
+             outputs => [$lobe_thickness_left],
+             args => ["lobe_stats", "-norm", $native_rms_rsl_left,
+                      $surface_labels_left, "average cortical thickness", 
+                      $lobe_thickness_left],
+             prereqs => $Prereqs });
 
-      ############################
-      ##### Right hemisphere #####
-      ############################
+        ############################
+        ##### Right hemisphere #####
+        ############################
 
-      ${$pipeline_ref}->addStage( {
-           name => "lobe_thickness_right_${tkernel}mm",
-           label => "native lobe thickness right ${tkernel}mm",
-           inputs => [$native_rms_rsl_right],
-           outputs => [$lobe_thickness_right],
-           args => ["lobe_stats", "-norm", $native_rms_rsl_right,
-                    $surface_labels_right, "average cortical thickness", 
-                    $lobe_thickness_right],
-           prereqs => $Prereqs });
-
-      push @Lobe_complete, "lobe_thickness_left_${tkernel}mm";
-      push @Lobe_complete, "lobe_thickness_right_${tkernel}mm";
-
-      ###############################################
-      ##### Lobe parcellation of mean curvature #####
-      ###############################################
+        ${$pipeline_ref}->addStage( {
+             name => "${$image}->{surfaceatlas}_lobe_thickness_right_${tmethod}_${tkernel}mm",
+             label => "native lobe thickness right ${tkernel}mm",
+             inputs => [$native_rms_rsl_right],
+             outputs => [$lobe_thickness_right],
+             args => ["lobe_stats", "-norm", $native_rms_rsl_right,
+                      $surface_labels_right, "average cortical thickness", 
+                      $lobe_thickness_right],
+             prereqs => $Prereqs });
+  
+        push @Lobe_complete, "${$image}->{surfaceatlas}_lobe_thickness_left_${tmethod}_${tkernel}mm";
+        push @Lobe_complete, "${$image}->{surfaceatlas}_lobe_thickness_right_${tmethod}_${tkernel}mm";
+  
+        ###############################################
+        ##### Lobe parcellation of mean curvature #####
+        ###############################################
 #
 # Note quite ready: need to repeat on gray, white, mid surfaces. CL.
+####### IMPORTANT: Take this out of tmethod loop. CL.
 #
-#     if( ${$image}->{meancurvature} ) {
+#       if( ${$image}->{meancurvature} ) {
 
-#       my $native_mc_rsl_left = @{${$image}->{mc_rsl}{left}}[$count];
-#       my $native_mc_rsl_right = @{${$image}->{mc_rsl}{right}}[$count];
-#       my $lobe_mc_left = @{${$image}->{lobe_mc}{left}}[$count];
-#       my $lobe_mc_right = @{${$image}->{lobe_mc}{right}}[$count];
+#         my $native_mc_rsl_left = @{${$image}->{mc_rsl}{left}}[$count];
+#         my $native_mc_rsl_right = @{${$image}->{mc_rsl}{right}}[$count];
+#         my $lobe_mc_left = @{${$image}->{lobe_mc}{left}}[$count];
+#         my $lobe_mc_right = @{${$image}->{lobe_mc}{right}}[$count];
 
-#       ###########################
-#       ##### Left hemisphere #####
-#       ###########################
+#         ###########################
+#         ##### Left hemisphere #####
+#         ###########################
 
-#       ${$pipeline_ref}->addStage( {
-#            name => "lobe_mean_curvature_left_${tkernel}mm",
-#            label => "native lobe mean curvature left ${tkernel}mm",
-#            inputs => [$native_rms_rsl_left],
-#            outputs => [$lobe_mc_left],
-#            args => ["lobe_stats", "-norm", $native_mc_rsl_left,
-#                     $surface_labels_left, "average absolute mean curvature", 
-#                     $lobe_mc_left],
-#            prereqs => $Prereqs });
+#         ${$pipeline_ref}->addStage( {
+#              name => "${$image}->{surfaceatlas}_lobe_mean_curvature_left_${tkernel}mm",
+#              label => "native lobe mean curvature left ${tkernel}mm",
+#              inputs => [$native_rms_rsl_left],
+#              outputs => [$lobe_mc_left],
+#              args => ["lobe_stats", "-norm", $native_mc_rsl_left,
+#                       $surface_labels_left, "average absolute mean curvature", 
+#                       $lobe_mc_left],
+#              prereqs => $Prereqs });
 
-#       ############################
-#       ##### Right hemisphere #####
-#       ############################
+#         ############################
+#         ##### Right hemisphere #####
+#         ############################
 # 
-#       ${$pipeline_ref}->addStage( {
-#            name => "lobe_mean_curvature_right_${tkernel}mm",
-#            label => "native lobe mean curvature right ${tkernel}mm",
-#            inputs => [$native_rms_rsl_right],
-#            outputs => [$lobe_mc_right],
-#            args => ["lobe_stats", "-norm", $native_mc_rsl_right,
-#                     $surface_labels_right, "average absolute mean curvature", $lobe_mc_right],
-#            prereqs => $Prereqs });
+#         ${$pipeline_ref}->addStage( {
+#              name => "${$image}->{surfaceatlas}_lobe_mean_curvature_right_${tkernel}mm",
+#              label => "native lobe mean curvature right ${tkernel}mm",
+#              inputs => [$native_rms_rsl_right],
+#              outputs => [$lobe_mc_right],
+#              args => ["lobe_stats", "-norm", $native_mc_rsl_right,
+#                       $surface_labels_right, "average absolute mean curvature", $lobe_mc_right],
+#              prereqs => $Prereqs });
 
-#       push @Lobe_complete, ("lobe_mean_curvature_left_${tkernel}mm");
-#       push @Lobe_complete, ("lobe_mean_curvature_right_${tkernel}mm");
-#     }
-      $count++;
+#         push @Lobe_complete, ("${$image}->{surfaceatlas}_lobe_mean_curvature_left_${tkernel}mm");
+#         push @Lobe_complete, ("${$image}->{surfaceatlas}_lobe_mean_curvature_right_${tkernel}mm");
+#       }
+        $count++;
+      }
     }
 
     if( ${$image}->{resamplesurfaces} ) {
@@ -758,7 +762,7 @@ sub lobe_features {
       ###########################
 
       ${$pipeline_ref}->addStage( {
-         name => "lobe_native_area_left",
+         name => "${$image}->{surfaceatlas}_lobe_native_area_left",
          label => "native lobe area left",
          inputs => [$gray_rsl_left, $t1_tal_xfm],
          outputs => [${$image}->{native_lobe_areas}{left}],
@@ -772,7 +776,7 @@ sub lobe_features {
       ############################
 
       ${$pipeline_ref}->addStage( {
-         name => "lobe_native_area_right",
+         name => "${$image}->{surfaceatlas}_lobe_native_area_right",
          label => "native lobe area right",
          inputs => [$gray_rsl_right, $t1_tal_xfm],
          outputs => [${$image}->{native_lobe_areas}{right}],
@@ -781,8 +785,8 @@ sub lobe_features {
                   ${$image}->{native_lobe_areas}{right} ],
          prereqs => $Prereqs });
 
-      push @Lobe_complete, ("lobe_native_area_left");
-      push @Lobe_complete, ("lobe_native_area_right");
+      push @Lobe_complete, ("${$image}->{surfaceatlas}_lobe_native_area_left");
+      push @Lobe_complete, ("${$image}->{surfaceatlas}_lobe_native_area_right");
 
       #################################################################
       ##### Lobe parcellation of resampled elementary cortex area #####
@@ -802,7 +806,7 @@ sub lobe_features {
         ###########################
 
         ${$pipeline_ref}->addStage( {
-           name => "lobe_area_left_${akernel}mm",
+           name => "${$image}->{surfaceatlas}_lobe_area_left_${akernel}mm",
            label => "native lobe features left ${akernel}mm",
            inputs => [$native_areas_rsl_left],
            outputs => [$lobe_area_left],
@@ -816,7 +820,7 @@ sub lobe_features {
         ############################
   
         ${$pipeline_ref}->addStage( {
-           name => "lobe_area_right_${akernel}mm",
+           name => "${$image}->{surfaceatlas}_lobe_area_right_${akernel}mm",
            label => "native lobe area ${akernel}mm",
            inputs => [$native_areas_rsl_right],
            outputs => [$lobe_area_right],
@@ -825,8 +829,8 @@ sub lobe_features {
                     $lobe_area_right],
            prereqs => $Prereqs });
 
-        push @Lobe_complete, ("lobe_area_left_${akernel}mm");
-        push @Lobe_complete, ("lobe_area_right_${akernel}mm");
+        push @Lobe_complete, ("${$image}->{surfaceatlas}_lobe_area_left_${akernel}mm");
+        push @Lobe_complete, ("${$image}->{surfaceatlas}_lobe_area_right_${akernel}mm");
 
         $count++;
       }
@@ -849,7 +853,7 @@ sub lobe_features {
         ###########################
 
         ${$pipeline_ref}->addStage( {
-             name => "lobe_volume_left_${vkernel}mm",
+             name => "${$image}->{surfaceatlas}_lobe_volume_left_${vkernel}mm",
              label => "native lobe vertex-volumes left ${vkernel}mm",
              inputs => [$native_volume_rsl_left],
              outputs => [$lobe_volume_left],
@@ -862,7 +866,7 @@ sub lobe_features {
         ############################
 
         ${$pipeline_ref}->addStage( {
-             name => "lobe_volume_right_${vkernel}mm",
+             name => "${$image}->{surfaceatlas}_lobe_volume_right_${vkernel}mm",
              label => "native lobe vertex-volumes right ${vkernel}mm",
              inputs => [$native_volume_rsl_right],
              outputs => [$lobe_volume_right],
@@ -870,8 +874,8 @@ sub lobe_features {
                       $surface_labels_right, "total cortical volume", $lobe_volume_right],
              prereqs => $Prereqs });
 
-        push @Lobe_complete, ("lobe_volume_left_${vkernel}mm");
-        push @Lobe_complete, ("lobe_volume_right_${vkernel}mm");
+        push @Lobe_complete, ("${$image}->{surfaceatlas}_lobe_volume_left_${vkernel}mm");
+        push @Lobe_complete, ("${$image}->{surfaceatlas}_lobe_volume_right_${vkernel}mm");
 
         $count++;
       }

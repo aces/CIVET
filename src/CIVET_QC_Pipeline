@@ -34,8 +34,6 @@ use MNI::FileUtilities qw(check_output_dirs check_output_path);
 use MNI::DataDir;
 
 use lib "$FindBin::Bin";
-use MRI_Image;
-
 $PATH = "$FindBin::Bin/progs:${PATH}";
 
 # Set interrupt handler (for cleaning of lock files)
@@ -45,8 +43,8 @@ $SIG{'TERM'} = 'CLEANUP';
 # Create tmp dir.
 my $tmpdir = tempdir( CLEANUP => 1 );
 
-my $version = "2.0.0";
-my $versionDate= "September, 2014";
+my $version = "2.1.0";
+my $versionDate= "September, 2016";
 my $authors= "Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile>\n 
 ALTERNATIVE USAGE:\n
@@ -55,6 +53,14 @@ $ProgramName -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <l
 my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
+
+    1 - Added sub-cortical class, surface area, gray surface convergence
+        levels
+    2 - Study prefix is optional.
+    3 - Compute median of each metric.
+
+    *************************************************************************
+    New in Oct-2014 quarantine, version 2.0.0
 
     1 - Re-organization of the QC info to make it independent of CIVET versions
         going onwards. The info is parsed from one global file produced by CIVET.
@@ -123,10 +129,16 @@ for my $id (@long_dsids) {
   push @dsids, split( /:/, $id );
 }
 
-unless ($prefix && $target) {
+if( !defined( $prefix ) ) {
+  $prefix = "";
+} else {
+  $prefix = "${prefix}_";
+}
+
+unless( defined( $target) ) {
     die "\n\n" .
         "*************************** ERROR ****************************: \n" .
-        "     You must specify -prefix and -targetdir \n" .
+        "     You must specify -targetdir \n" .
         "**************************************************************\n\n\n";
 }
 $target =~ s#/+$##;      # remove trailing / at end of directory name, if any
@@ -165,6 +177,7 @@ my @QcFactor = ( 0, 1, 2, 5, 1 );
 
 my @fields = ( { 'name' => 'XSTEP',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -176,6 +189,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "x-voxel size in native space." },
                { 'name' => 'YSTEP',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -187,6 +201,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "y-voxel size in native space." },
                { 'name' => 'ZSTEP',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -198,6 +213,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "z-voxel size in native space." },
                { 'name' => 'MASK_ERROR',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -209,6 +225,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Brain mask error in stereotaxic space." },
                { 'name' => 'WM_PERCENT',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -220,6 +237,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Percentage of the classified WM in the brain (masked)." },
                { 'name' => 'GM_PERCENT',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -231,6 +249,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Percentage of the classified GM in the brain (masked)." },
                { 'name' => 'CSF_PERCENT',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -240,8 +259,21 @@ my @fields = ( { 'name' => 'XSTEP',
                  'ylabel' => "CSF %",
                  'format' => "%5.2f",
                  'caption' => "Percentage of the classified CSF in the brain (masked)." },
+               { 'name' => 'SC_PERCENT',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Percentage of the classified SC in the brain (masked)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "SC %",
+                 'format' => "%5.2f",
+                 'caption' => "Percentage of the classified SC in the brain (masked)." },
                { 'name' => 'BRAIN_VOL',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -253,6 +285,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Total brain volume including cerebrum, cerebellum and brainstem." },
                { 'name' => 'CEREBRUM_VOL',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -261,9 +294,10 @@ my @fields = ( { 'name' => 'XSTEP',
                  'xlabel' => "Subjects",
                  'ylabel' => "Volume (cc)",
                  'format' => "%6.2f",
-                 'caption' => "Volume of the cerebrum only (should equal CORTICAL_GM + WHITE_VOL + SUBGM_VOL + CSF_VENT_VOL)." },
+                 'caption' => "Volume of the cerebrum only (should equal CORTICAL_GM + WHITE_VOL + SUBGM_VOL + SC_VOL + CSF_VENT_VOL)." },
                { 'name' => 'CORTICAL_GM',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -275,6 +309,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume of the cortical GM only." },
                { 'name' => 'WHITE_VOL',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -286,17 +321,31 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume of the WM inside the cerebrum." },
                { 'name' => 'SUBGM_VOL',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
                  'function' => \&check_stdev_centered,
-                 'title' => "Volume of sub-cortical GM (cc)",
+                 'title' => "Volume of classified GM inside white surface (cc)",
                  'xlabel' => "Subjects",
                  'ylabel' => "Volume (cc)",
                  'format' => "%6.2f",
-                 'caption' => "Volume of the sub-cortical GM inside the cerebrum." },
+                 'caption' => "Volume of classified GM inside the white surface." },
+               { 'name' => 'SC_VOL',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Volume of classified SC inside white surface (cc)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Volume (cc)",
+                 'format' => "%6.2f",
+                 'caption' => "Volume of classified SC inside the white surface (if SC option is active)." },
                { 'name' => 'CSF_VENT_VOL',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -306,8 +355,81 @@ my @fields = ( { 'name' => 'XSTEP',
                  'ylabel' => "Volume (cc)",
                  'format' => "%6.2f",
                  'caption' => "Volume of the ventricles (CSF) inside the cerebrum." },
+               { 'name' => 'LEFT_WM_AREA',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Total surface area for left white surface (mm^2)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Area (mm^2)",
+                 'format' => "%7.2f",
+                 'caption' => "Total surface area for left white surface in native space." },
+               { 'name' => 'LEFT_MID_AREA',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Total surface area for left mid surface (mm^2)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Area (mm^2)",
+                 'format' => "%7.2f",
+                 'caption' => "Total surface area for left mid surface in native space." },
+               { 'name' => 'LEFT_GM_AREA',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Total surface area for left gray surface (mm^2)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Area (mm^2)",
+                 'format' => "%7.2f",
+                 'caption' => "Total surface area for left gray surface in native space." },
+               { 'name' => 'RIGHT_WM_AREA',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Total surface area for right white surface (mm^2)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Area (mm^2)",
+                 'format' => "%7.2f",
+                 'caption' => "Total surface area for right white surface in native space." },
+               { 'name' => 'RIGHT_MID_AREA',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Total surface area for right mid surface (mm^2)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Area (mm^2)",
+                 'format' => "%7.2f",
+                 'caption' => "Total surface area for right mid surface in native space." },
+               { 'name' => 'RIGHT_GM_AREA',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_centered,
+                 'title' => "Total surface area for right gray surface (mm^2)",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Area (mm^2)",
+                 'format' => "%7.2f",
+                 'caption' => "Total surface area for right gray surface in native space." },
                { 'name' => 'GI_LEFT',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -319,6 +441,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Gyrification index for left pial surface." },
                { 'name' => 'GI_RIGHT',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -330,10 +453,11 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Gyrification index for right pial surface." },
                { 'name' => 'LEFT_INTER',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
-                 'function' => \&check_intersections,,
+                 'function' => \&check_intersections,
                  'title' => "Number of self-intersections in resampled left mid surface",
                  'xlabel' => "Subjects",
                  'ylabel' => "Number of self-intersections",
@@ -341,10 +465,11 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Number of self-intersections in resampled left mid surface as a result of surface registration." },
                { 'name' => 'RIGHT_INTER',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
-                 'function' => \&check_intersections,,
+                 'function' => \&check_intersections,
                  'title' => "Number of self-intersections in resampled right mid surface",
                  'xlabel' => "Subjects",
                  'ylabel' => "Number of self-intersections",
@@ -352,10 +477,11 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Number of self-intersections in resampled right mid surface as a result of surface registration." },
                { 'name' => 'LEFT_SURF_SURF',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
-                 'function' => \&check_intersections,,
+                 'function' => \&check_intersections,
                  'title' => "Number of surface-surface intersections between left wm-gm surfaces",
                  'xlabel' => "Subjects",
                  'ylabel' => "Number of intersections",
@@ -363,10 +489,11 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Number of surface-surface intersections between left wm-gm surfaces." },
                { 'name' => 'RIGHT_SURF_SURF',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
-                 'function' => \&check_intersections,,
+                 'function' => \&check_intersections,
                  'title' => "Number of surface-surface intersections between right wm-gm surfaces",
                  'xlabel' => "Subjects",
                  'ylabel' => "Number of intersections",
@@ -374,6 +501,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Number of surface-surface intersections between right wm-gm surfaces." },
                { 'name' => 'LAPLACIAN_MIN',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -385,6 +513,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Minimum Laplacian value in gray surface convergence (should be close to 10)." },
                { 'name' => 'LAPLACIAN_MAX',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -396,6 +525,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Maximum Laplacian value in gray surface convergence (should be close to 10)." },
                { 'name' => 'LAPLACIAN_MEAN',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -405,9 +535,34 @@ my @fields = ( { 'name' => 'XSTEP',
                  'ylabel' => "Laplacian value",
                  'format' => "%5.3f",
                  'caption' => "Mean Laplacian value in gray surface convergence (should be close to 10)." },
+               { 'name' => 'GRAY_LEFT_RES',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_above,
+                 'title' => "Final residual for convergence of left gray surface",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Residual",
+                 'format' => "%8.5f",
+                 'caption' => "Final residual for convergence of left gray surface." },
+               { 'name' => 'GRAY_RIGHT_RES',
+                 'mean' => 0,
+                 'median' => 0,
+                 'stdev' => 0,
+                 'stdev_long' => 0,
+                 'count' => 0,
+                 'function' => \&check_stdev_above,
+                 'title' => "Final residual for convergence of right gray surface",
+                 'xlabel' => "Subjects",
+                 'ylabel' => "Residual",
+                 'format' => "%8.5f",
+                 'caption' => "Final residual for convergence of right gray surface." },
                ## ANIMAL Lobar Segmentation
                { 'name' => 'ANIMAL_2',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -419,6 +574,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of GM parietal (right)." },
                { 'name' => 'ANIMAL_6',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -430,6 +586,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of GM parietal (left)." },
                { 'name' => 'ANIMAL_105',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -441,6 +598,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of WM parietal (right)." },
                { 'name' => 'ANIMAL_57',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -452,6 +610,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of WM parietal (left)." },
                { 'name' => 'ANIMAL_219',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -463,6 +622,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of GM temporal (right)." },
                { 'name' => 'ANIMAL_218',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -474,6 +634,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of GM temporal (left)." },
                { 'name' => 'ANIMAL_59',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -485,6 +646,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of WM temporal (right)." },
                { 'name' => 'ANIMAL_83',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -496,6 +658,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of WM temporal (left)." },
                { 'name' => 'ANIMAL_211',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -507,6 +670,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of GM frontal (right)." },
                { 'name' => 'ANIMAL_210',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -518,6 +682,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of GM frontal (left)." },
                { 'name' => 'ANIMAL_17',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -529,6 +694,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of WM frontal (right)." },
                { 'name' => 'ANIMAL_30',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -540,6 +706,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of WM frontal (left)." },
                { 'name' => 'ANIMAL_4',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -551,6 +718,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of GM occipital (right)." },
                { 'name' => 'ANIMAL_8',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -562,6 +730,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of GM occipital (left)." },
                { 'name' => 'ANIMAL_45',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -573,6 +742,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of WM occipital (right)." },
                { 'name' => 'ANIMAL_73',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -584,6 +754,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of WM occipital (left)." },
                { 'name' => 'ANIMAL_76',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -595,6 +766,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of cerebellum (right)." },
                { 'name' => 'ANIMAL_67',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -606,6 +778,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of cerebellum (left)." },
                { 'name' => 'ANIMAL_20',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -617,6 +790,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of brainstem." },
                { 'name' => 'ANIMAL_53',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -628,6 +802,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of caudate (right)." },
                { 'name' => 'ANIMAL_39',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -639,6 +814,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of caudate (left)." },
                { 'name' => 'ANIMAL_16',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -650,6 +826,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of putamen (right)." },
                { 'name' => 'ANIMAL_14',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -661,6 +838,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of putamen (left)." },
                { 'name' => 'ANIMAL_203',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -672,6 +850,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of thalamus (right)." },
                { 'name' => 'ANIMAL_102',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -683,6 +862,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of thalamus (left)." },
                { 'name' => 'ANIMAL_23',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -694,6 +874,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of subthalamic nucleus (right)." },
                { 'name' => 'ANIMAL_33',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -705,6 +886,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of subthalamic nucleus (left)." },
                { 'name' => 'ANIMAL_11',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -716,6 +898,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of globus pallidus (right)." },
                { 'name' => 'ANIMAL_12',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -727,6 +910,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of globus pallidus (left)." },
                { 'name' => 'ANIMAL_254',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -738,6 +922,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of fornix (right)." },
                { 'name' => 'ANIMAL_29',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -749,6 +934,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of fornix (left)." },
                { 'name' => 'ANIMAL_9',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -760,6 +946,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of lateral ventricle (right)." },
                { 'name' => 'ANIMAL_3',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -771,6 +958,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of lateral ventricle (left)." },
                { 'name' => 'ANIMAL_232',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -782,6 +970,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of 3rd ventricle." },
                { 'name' => 'ANIMAL_233',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -793,6 +982,7 @@ my @fields = ( { 'name' => 'XSTEP',
                  'caption' => "Volume (cc) of 4th ventricle." },
                { 'name' => 'ANIMAL_255',
                  'mean' => 0,
+                 'median' => 0,
                  'stdev' => 0,
                  'stdev_long' => 0,
                  'count' => 0,
@@ -808,10 +998,43 @@ my @fields = ( { 'name' => 'XSTEP',
 # Collect data for each subject.
 #########################################################
 
-# On the first pass, compute the mean and stdev only in order to use
-# these values in the auto-QC.
+#########################################################
+# Compute the global median. Must read the QC data over
+# and over again, once per field, to minimize memory 
+# used. Don't worry, this is still quite fast.
+#########################################################
 
-print "Computing mean and stdev for all fields...\n";
+print "Computing mean, median, and stdev for all fields...\n";
+
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  my $key = $fields[$j]{name};
+
+  my @raw_list = ();
+  foreach my $id (@long_dsids) {
+    my @local_dsids = split( /:/, $id );
+    foreach my $dsid (@local_dsids) {
+      my $civet_qc_file = "${target}/${dsid}/verify/${prefix}${dsid}_civet_qc.txt";
+      if( -e $civet_qc_file ) {
+        my %list = &parse_qc_file( $civet_qc_file );
+        if( defined( $list{$key} ) ) {
+          push @raw_list, $list{$key};
+        }
+      }
+    }
+  }
+  my @sorted_list = sort {$a <=> $b} @raw_list;  # numeric sort
+  my $count = $#sorted_list + 1;
+  my $mid1 = int( ( $count - 1 ) / 2 );
+  my $mid2 = int( $count / 2 );
+
+  $fields[$j]{median} = 0.5 * ( $sorted_list[$mid1] + $sorted_list[$mid2] );
+
+}
+
+# On this pass, compute the mean and stdev only in 
+# order to use these values in the auto-QC. Compute
+# the stdev based on the median, not the mean.
+
 
 foreach my $id (@long_dsids) {
 
@@ -826,7 +1049,7 @@ foreach my $id (@long_dsids) {
 
   foreach my $dsid (@local_dsids) {
 
-    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}_${dsid}_civet_qc.txt";
+    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}${dsid}_civet_qc.txt";
     if( -e $civet_qc_file ) {
       my %list = &parse_qc_file( $civet_qc_file );
 
@@ -860,6 +1083,10 @@ for( my $j = 0; $j <= $#fields; $j++ ) {
     $fields[$j]{stdev_long} = sqrt( abs( $fields[$j]{stdev} - $fields[$j]{stdev_long} ) /
                                     $fields[$j]{count} );
     $fields[$j]{mean} /= $fields[$j]{count};
+
+    # Stdev computed relative to the arithmetic mean. Computing the
+    # stdev around the median would make it larger, thus maybe not
+    # as good to detect outliers with median +/- stdev.
     $fields[$j]{stdev} = sqrt( abs( $fields[$j]{stdev} / $fields[$j]{count} -
                                     $fields[$j]{mean} * $fields[$j]{mean} ) );
   }
@@ -925,7 +1152,7 @@ foreach my $id (@long_dsids) {
     $subject_mean[$j] = 0;
   }
   foreach my $dsid (@local_dsids) {
-    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}_${dsid}_civet_qc.txt";
+    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}${dsid}_civet_qc.txt";
     my %list = ( -e $civet_qc_file ) ? &parse_qc_file( $civet_qc_file ) : undef;
     for( my $j = 0; $j <= $#fields; $j++ ) {
       if( $fields[$j]{count} > 0 ) {
@@ -950,7 +1177,7 @@ foreach my $id (@long_dsids) {
 
     $count++;
 
-    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}_${dsid}_civet_qc.txt";
+    my $civet_qc_file = "${target}/${dsid}/verify/${prefix}${dsid}_civet_qc.txt";
     my %list = ( -e $civet_qc_file ) ? &parse_qc_file( $civet_qc_file ) : undef;
 
     my $csvline = "${dsid},";
@@ -965,7 +1192,7 @@ foreach my $id (@long_dsids) {
           my $str = sprintf( $fields[$j]{format}, $list{$key} );
           $csvline .= "${str},";
           my $code = ( defined( $fields[$j]{function} ) ) ? 
-                     $fields[$j]{function}->( $list{$key}, $fields[$j]{mean}, $fields[$j]{stdev} ) : 
+                     $fields[$j]{function}->( $list{$key}, $fields[$j]{median}, $fields[$j]{stdev} ) : 
                      $Qc_good;
           if( !$code ) {
             $code = ( defined( $fields[$j]{function} ) ) ? 
@@ -988,7 +1215,9 @@ foreach my $id (@long_dsids) {
       }
     }
 
-    if( !(-e $civet_qc_file ) ) {
+
+    if( !(-e $civet_qc_file ) || 
+        check_civet_completion( "${target}/${dsid}/logs" ) ) {
       $qc_code = $Qc_incomplete;
     } else {
       $qc_code = ( $qc_code > 1 ) ? ( $qc_code > 5 ? $Qc_danger : $Qc_warning ) : $Qc_good;
@@ -1003,13 +1232,13 @@ foreach my $id (@long_dsids) {
     die "Cannot file options file $options_file." if( !( -e $options_file ) );
     my ($thickness_options,$area_options,$volume_options) = parse_civet_options( $options_file, $version );
 
-    $csvline .= "${dsid}/thickness/${prefix}_${dsid}_native_rms_rsl_@${thickness_options[0]}\_left.txt" .",";
-    $csvline .= "${dsid}/thickness/${prefix}_${dsid}_native_rms_rsl_@${thickness_options[0]}\_right.txt" .",";
-    $csvline .= "${dsid}/surfaces/${prefix}_${dsid}_mid_surface_rsl_left_native_area_@${area_options[0]}.txt" .",";
-    $csvline .= "${dsid}/surfaces/${prefix}_${dsid}_mid_surface_rsl_right_native_area_@${area_options[0]}.txt" .",";
-    $csvline .= "${dsid}/surfaces/${prefix}_${dsid}_surface_rsl_left_native_volume_@${volume_options[0]}.txt" .",";
-    $csvline .= "${dsid}/surfaces/${prefix}_${dsid}_surface_rsl_right_native_volume_@${volume_options[0]}.txt" .",";
-    $csvline .= "${dsid}/thickness/${prefix}_${dsid}_native_rms_rsl_@${thickness_options[0]}\_asym_hemi.txt";  # last line without a trailing comma
+    $csvline .= "${dsid}/thickness/${prefix}${dsid}_native_rms_rsl_@${thickness_options[0]}\_left.txt" .",";
+    $csvline .= "${dsid}/thickness/${prefix}${dsid}_native_rms_rsl_@${thickness_options[0]}\_right.txt" .",";
+    $csvline .= "${dsid}/surfaces/${prefix}${dsid}_mid_surface_rsl_left_native_area_@${area_options[0]}.txt" .",";
+    $csvline .= "${dsid}/surfaces/${prefix}${dsid}_mid_surface_rsl_right_native_area_@${area_options[0]}.txt" .",";
+    $csvline .= "${dsid}/surfaces/${prefix}${dsid}_surface_rsl_left_native_volume_@${volume_options[0]}.txt" .",";
+    $csvline .= "${dsid}/surfaces/${prefix}${dsid}_surface_rsl_right_native_volume_@${volume_options[0]}.txt" .",";
+    $csvline .= "${dsid}/thickness/${prefix}${dsid}_native_rms_rsl_@${thickness_options[0]}\_asym_hemi.txt";  # last line without a trailing comma
 
     $csvline .= "\n";
     $csv .= $csvline;
@@ -1020,11 +1249,14 @@ foreach my $id (@long_dsids) {
 
     open FILE, ">${qc_dir}/${dsid}.html";
     print FILE "<table>\n";
-    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_verify.png\"></td></tr>\n";
-    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_clasp.png\"></td></tr>\n";
-    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_atlas.png\"></td></tr>\n";
-    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_surfsurf.png\"></td></tr>\n";
-    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}_${dsid}_laplace.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}${dsid}_verify.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}${dsid}_clasp.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}${dsid}_atlas.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}${dsid}_surfsurf.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}${dsid}_laplace.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}${dsid}_gradient.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}${dsid}_angles.png\"></td></tr>\n";
+    print FILE "<tr><td><image src=\"../${dsid}/verify/${prefix}${dsid}_converg.png\"></td></tr>\n";
     print FILE "</table>\n";
     close FILE;
   }
@@ -1063,6 +1295,18 @@ $html .= "<tr bgcolor=\"#dddddd\">" .
 for( my $j = 0; $j <= $#fields; $j++ ) {
   if( $fields[$j]{count} > 0 ) {
     my $str = sprintf( $fields[$j]{format}, $fields[$j]{mean} );
+    $html .= "<th>$str</th>";
+  }
+}
+$html .= "</tr>\n";
+
+$html .= "<tr> </tr> ";
+$html .= "<tr bgcolor=\"#dddddd\">" .
+         "<th></th>" .
+         "<th>Median</th> ";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  if( $fields[$j]{count} > 0 ) {
+    my $str = sprintf( $fields[$j]{format}, $fields[$j]{median} );
     $html .= "<th>$str</th>";
   }
 }
@@ -1114,7 +1358,7 @@ $html .= "<tr><td bgcolor=\"$QcColours[$Qc_good]\"> Good </td></tr>\n";
 $html .= "<tr><td bgcolor=\"$QcColours[$Qc_warning]\"> Warning (inter subject)</td></tr>\n";
 $html .= "<tr><td bgcolor=\"$QcColours[$Qc_danger]\"> Severe warning, likely a processing error (inter subject)</td></tr>\n";
 $html .= "<tr><td bgcolor=\"$QcColours[$Qc_local]\"> Warning on longitudinal QC (intra subject)</td></tr>\n";
-$html .= "<tr><td bgcolor=\"$QcColours[$Qc_incomplete]\"> Incomplete result </td></tr>\n";
+$html .= "<tr><td bgcolor=\"$QcColours[$Qc_incomplete]\"> Incomplete/failed result </td></tr>\n";
 $html .= "</table>\n";
 
 #########################################################
@@ -1151,18 +1395,23 @@ for( my $i = 0; $i <= $#fields; $i++ ) {
     print FILE "set title \"$fields[$i]{title}\"\n";
     print FILE "set xlabel \"$fields[$i]{xlabel}\"\n";
     print FILE "set ylabel \"$fields[$i]{ylabel}\"\n";
+    if( $key eq "GRAY_LEFT_RES" || $key eq "GRAY_RIGHT_RES" ) {
+      print FILE "set log y\n";
+    } else {
+      print FILE "unset log y\n";
+    }
     print FILE "set terminal png\n";
     print FILE "set output \"${qc_dir}/$key.png\"\n";
     print FILE "plot \"${qc_dir}/civet_${prefix}.csv\" u $column w lp, " .
-               "$fields[$i]{mean} w li $lc 2, " .
-               sprintf("%f",$fields[$i]{mean}-$fields[$i]{stdev}) . " w li $lc 3, " .
-               sprintf("%f",$fields[$i]{mean}+$fields[$i]{stdev}) . " w li $lc 3\n";
+               "$fields[$i]{median} w li $lc 2, " .
+               sprintf("%f",$fields[$i]{median}-$fields[$i]{stdev}) . " w li $lc 3, " .
+               sprintf("%f",$fields[$i]{median}+$fields[$i]{stdev}) . " w li $lc 3\n";
 
     my $figure = $column - 1;
     $html .= "<table>\n" .
              "<tr> <td></td> <td> <img src=\"$key.png\"> </td></tr>\n" .
              "<tr> <td> Figure $figure: </td> <td> $fields[$i]{caption} </td></tr>\n" .
-             "<tr> <td></td> <td>Green line is the mean; blue lines are mean +/- 1 stddev. </td></tr>";
+             "<tr> <td></td> <td>Green line is the median; blue lines are median +/- 1 stddev. </td></tr>";
              "</table>\n";
   }
 }
@@ -1397,6 +1646,19 @@ sub check_laplacian_max {
   }
 }
 
+# QC function to check the completion status of CIVET. Are
+# there .lock, .failed, .running files in the logs?
+
+sub check_civet_completion {
+
+  my $dir = shift;
+
+  return( 0 );
+
+  ## my $ret = `ls -1 ${dir}/*.failed ${dir}/*.lock ${dir}/*.running |wc -l`;
+  ## chomp( $ret );
+  ## return( $ret > 0 );
+}
 
 # Set interrupt handler (for cleaning of lock files)
 

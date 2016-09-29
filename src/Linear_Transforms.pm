@@ -152,49 +152,73 @@ sub stx_register {
     #            Note that multispectral_stx_registration does not save
     #            t2pd_t1_xfm but saves only t2pd_tal_xfm.
 
-    my @registerInputs = ($t1_input);
-    push @registerInputs, ($t2_input) if (-e ${$image}->{t2}{source} && $multi );
-    push @registerInputs, ($pd_input) if (-e ${$image}->{pd}{source} && $multi );
+    if( ${$image}->{inputIsStx} ) {
 
-    my @registerOutputs = ($t1_tal_xfm);
-    if ( $multi && ( (-e ${$image}->{t2}{source}) or (-e ${$image}->{pd}{source}) ) ) {
-      push @registerOutputs, ($t2pd_tal_xfm);
+      ${$pipeline_ref}->addStage( {
+           name => "stx_register",
+           label => "compute identity transform to stx space",
+           inputs => [],
+           outputs => [$t1_tal_xfm],
+           args => ["param2xfm", "-clobber", $t1_tal_xfm],
+           prereqs => [] } );
+
+      if ( $multi && ( (-e ${$image}->{t2}{source}) or (-e ${$image}->{pd}{source}) ) ) {
+        ${$pipeline_ref}->addStage( {
+             name => "stx_register_t2pd",
+             label => "compute identity transform to stx space for t2/pd",
+             inputs => [$t2pd_t1_xfm],
+             outputs => [$t2pd_tal_xfm],
+             args => ["cp", "-f", $t2pd_t1_xfm, $t2pd_tal_xfm],
+             prereqs => $Coregister_complete } );
+      }
+
+    } else {
+
+      my @registerInputs = ($t1_input);
+      push @registerInputs, ($t2_input) if (-e ${$image}->{t2}{source} && $multi );
+      push @registerInputs, ($pd_input) if (-e ${$image}->{pd}{source} && $multi );
+
+      my @registerOutputs = ($t1_tal_xfm);
+      if ( $multi && ( (-e ${$image}->{t2}{source}) or (-e ${$image}->{pd}{source}) ) ) {
+        push @registerOutputs, ($t2pd_tal_xfm);
+      }
+
+      # Note: no more need for a mask with new bestlinreg.pl using -nmi.
+      ${$pipeline_ref}->addStage( {
+           name => "stx_register",
+           label => "compute transforms to stx space",
+           inputs => \@registerInputs,
+           outputs => \@registerOutputs,
+           args => ["multispectral_stx_registration", "-nothreshold",
+                    "-clobber", @extraTransform, ${$image}->{lsqtype},
+                    "-modeldir", $regModelDir, "-model", $regModelName,
+                    "-source_mask", "targetOnly", $t1_input, $t2_input, 
+                    $pd_input, $t1_tal_xfm, $t2pd_tal_xfm ],
+           prereqs => $Coregister_complete } );
     }
 
-    # Note: no more need for a mask with new bestlinreg.pl using -nmi.
-    ${$pipeline_ref}->addStage(
-       { name => "stx_register",
-         label => "compute transforms to stx space",
-         inputs => \@registerInputs,
-         outputs => \@registerOutputs,
-         args => ["multispectral_stx_registration", "-nothreshold",
-                  "-clobber", @extraTransform, ${$image}->{lsqtype},
-                  "-modeldir", $regModelDir, "-model", $regModelName,
-                  "-source_mask", "targetOnly", $t1_input, $t2_input, 
-                  $pd_input, $t1_tal_xfm, $t2pd_tal_xfm ],
-         prereqs => $Coregister_complete } );
+    # Must now set the completion condition. We don't care about stx_tal_to_6
+    # and stx_tal_to_7.
 
-   ############## Generate the tal to 6 and 7 space transforms (only on t1)
+    my $Linear_Transforms_complete = ["stx_register"];
 
-    ${$pipeline_ref}->addStage(
-         { name => "stx_tal_to_6",
+    ############## Generate the tal to 6 and 7 space transforms (only on t1)
+
+    ${$pipeline_ref}->addStage( {
+         name => "stx_tal_to_6",
          label => "compute transforms to 6 param space from Tal.",
          inputs => [$t1_tal_xfm ],
          outputs => [$tal_to_6_xfm],
          args => ["talto6", $t1_tal_xfm, $tal_to_6_xfm],
          prereqs => ["stx_register"] });
 
-    ${$pipeline_ref}->addStage(
-         { name => "stx_tal_to_7",
+    ${$pipeline_ref}->addStage( {
+         name => "stx_tal_to_7",
          label => "compute transforms to 7 param space from Tal",
          inputs => [$t1_tal_xfm],
          outputs => [$tal_to_7_xfm],
          args => ["talto7", $t1_tal_xfm, $tal_to_7_xfm],
          prereqs => ["stx_register"] });
-
-    #Must now set the completion condition.
-
-    my $Linear_Transforms_complete = ["stx_tal_to_6", "stx_tal_to_7"];
 
     return( $Linear_Transforms_complete );    
 }   

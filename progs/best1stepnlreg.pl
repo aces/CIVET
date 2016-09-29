@@ -173,8 +173,8 @@ my $original_source = $source;
 if( $opt{normalize} ) {
   my $inorm_source = "$tmpdir/${s_base}_inorm.mnc";
   my $inorm_target = "$tmpdir/${t_base}_inorm.mnc";
-  &do_cmd( "mincresample", "-clobber", "-like", $source, $target, $inorm_target );
-  &do_cmd( 'inormalize', '-clobber', '-model', $inorm_target, $source, $inorm_source );
+  &do_cmd( "mincresample", "-quiet", "-clobber", "-like", $source, $target, $inorm_target );
+  &do_cmd( 'inormalize', '-quiet', '-clobber', '-model', $inorm_target, $source, $inorm_source );
   &do_cmd( 'rm', '-rf', $inorm_target );
   $source = $inorm_source;
 }
@@ -182,13 +182,13 @@ if( $opt{normalize} ) {
 # mask the images before fitting only if both masks exists.
 if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
   my $source_masked = "$tmpdir/${s_base}_masked.mnc";
-  &do_cmd( 'minccalc', '-clobber',
+  &do_cmd( 'minccalc', '-quiet', '-clobber',
            '-expression', 'if(A[1]>0.5){out=A[0];}else{0;}',
            $source, $opt{source_mask}, $source_masked );
   $source = $source_masked;
 
   my $target_masked = "$tmpdir/${t_base}_masked.mnc";
-  &do_cmd( 'minccalc', '-clobber',
+  &do_cmd( 'minccalc', '-quiet', '-clobber',
            '-expression', 'if(A[1]>0.5){out=A[0];}else{0;}',
            $target, $opt{target_mask}, $target_masked );
   $target = $target_masked;
@@ -306,7 +306,7 @@ for ($i=0; $i<=$#conf; $i++){
 # resample if required
 if(defined($outfile)){
    print STDOUT "-+- creating $outfile using $outxfm\n".
-   &do_cmd('mincresample', '-clobber', '-like', $target, '-trilinear',
+   &do_cmd('mincresample', '-quiet', '-clobber', '-like', $target, '-trilinear',
            '-transformation', $outxfm, $original_source, $outfile);
 }
 

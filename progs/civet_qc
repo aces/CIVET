@@ -44,6 +44,8 @@ my $gm_left = shift;
 my $wm_left = shift;
 my $gm_right = shift;
 my $wm_right = shift;
+my $gm_left_log = shift;
+my $gm_right_log = shift;
 my $meanct_left_file = shift;
 my $meanct_right_file = shift;
 my $gi_left = shift;
@@ -66,10 +68,25 @@ my $mask_error = get_brain_mask_error( $skull_mask, $model_mask );
 print FILE "MASK_ERROR=$mask_error\n";
 
 # Percentages of CSF, GM, WM tissue in brain.
-my ($csf, $gm, $wm) = get_tissue_classes( $classify_qc );
+my ($csf, $gm, $wm, $sc) = get_tissue_classes( $classify_qc );
 print FILE "CSF_PERCENT=$csf\n";
 print FILE "GM_PERCENT=$gm\n";
 print FILE "WM_PERCENT=$wm\n";
+print FILE "SC_PERCENT=$sc\n";
+
+# Total surfaces of GM, WM, MID surfaces in native space (non-resampled).
+my ($white_area, $mid_area, $gray_area) = get_cortical_native_areas( $wm_left, 
+                                                                     $gm_left, 
+                                                                     $t1_tal_xfm );
+print FILE "LEFT_WM_AREA=$white_area\n";
+print FILE "LEFT_MID_AREA=$mid_area\n";
+print FILE "LEFT_GM_AREA=$gray_area\n";
+($white_area, $mid_area, $gray_area) = get_cortical_native_areas( $wm_right, 
+                                                                  $gm_right, 
+                                                                  $t1_tal_xfm );
+print FILE "RIGHT_WM_AREA=$white_area\n";
+print FILE "RIGHT_MID_AREA=$mid_area\n";
+print FILE "RIGHT_GM_AREA=$gray_area\n";
 
 # Volume of cortical gray between white and gray surfaces, native space, in cc.
 my $cortical_gm = get_cortical_gray_volume( $wm_left, $gm_left, $t1_tal_xfm ) +
@@ -89,11 +106,12 @@ print FILE "BRAIN_VOL=$brain_vol\n";
 
 # Total volume of white matter defined as the volume inside left+right white 
 # surfaces, native space, in cc. (No cerebellum, no brainstem.)
-my ($csf_vol, $subgm_vol, $white_vol) = get_white_volume( $cls, $wm_left, 
-                                                          $wm_right, $t1_tal_xfm );
+my ($csf_vol, $subgm_vol, $white_vol, $sc_vol) = get_white_volume( $cls, $wm_left, 
+                                                                   $wm_right, $t1_tal_xfm );
 print FILE "CSF_VENT_VOL=$csf_vol\n";
 print FILE "SUBGM_VOL=$subgm_vol\n";
 print FILE "WHITE_VOL=$white_vol\n";
+print FILE "SC_VOL=$sc_vol\n";
 
 # Error in wm surface and gm surface.
 my ($wm_err, $gm_err) = get_surface_error( $surface_qc );
@@ -106,6 +124,12 @@ my ($laplacian_min, $laplacian_max, $laplacian_mean) =
 print FILE "LAPLACIAN_MIN=$laplacian_min\n";
 print FILE "LAPLACIAN_MAX=$laplacian_max\n";
 print FILE "LAPLACIAN_MEAN=$laplacian_mean\n";
+
+# Gray surface convergence: final residuals.
+my $gray_left_res = get_gray_residual( $gm_left_log );
+my $gray_right_res = get_gray_residual( $gm_right_log );
+print FILE "GRAY_LEFT_RES=$gray_left_res\n";
+print FILE "GRAY_RIGHT_RES=$gray_right_res\n";
 
 # Number of self-intersections on resampled left/right mid surfaces
 my $left_intersects = get_self_intersects( $mid_rsl_left );
@@ -206,8 +230,48 @@ sub get_tissue_classes {
     open (IDFILE, $classify_qc);
     my $idline = <IDFILE>;
     close (IDFILE);
-    $idline =~ /classified image CSF (.*)\%  GM (.*)\%  WM (.*)\%/;
-    return( $1, $2, $3 );
+    $idline =~ /classified image CSF (.*)\%  GM (.*)\%  WM (.*)\%  SC (.*)\%/;
+    return( $1, $2, $3, $4 );
+  } else {
+    return( 0, 0, 0, 0 );
+  }
+}
+
+sub get_cortical_native_areas {
+
+  my $white = shift;
+  my $gray = shift;
+  my $t1_tal_xfm = shift;
+
+  if( -e $t1_tal_xfm && -e $white && -e $gray ) {
+
+    # Invert transformation from stereotaxic to native space.
+    my $inv_trans = "${tmpdir}/inv_trans.xfm";
+    &run( "xfminvert", $t1_tal_xfm, $inv_trans );
+
+    # Transform white/gray surfaces from stereotaxic to native space.
+    my $white_native = "${tmpdir}/white_native.obj";
+    my $gray_native = "${tmpdir}/gray_native.obj";
+    &run( "transform_objects", $white, $inv_trans, $white_native );
+    &run( "transform_objects", $gray, $inv_trans, $gray_native );
+    unlink( $inv_trans );
+
+    my $mid_native = "${tmpdir}/mid_native.obj";
+    &run( "average_objects", $mid_native, $white_native, $gray_native );
+
+    # Compute total areas in native space.
+    my $white_area = `measure_surface_area $white_native`;
+    my $gray_area = `measure_surface_area $gray_native`;
+    my $mid_area = `measure_surface_area $mid_native`;
+    $white_area =~ /Area: (.*)/; $white_area = $1; chomp( $white_area );
+    $gray_area =~ /Area: (.*)/; $gray_area = $1; chomp( $gray_area );
+    $mid_area =~ /Area: (.*)/; $mid_area = $1; chomp( $mid_area );
+
+    unlink( $white_native );
+    unlink( $gray_native );
+    unlink( $mid_native );
+
+    return( $white_area, $mid_area, $gray_area );
   } else {
     return( 0, 0, 0 );
   }
@@ -265,7 +329,8 @@ sub get_cerebrum_volume {
           "${tmpdir}/cerebrum_volume_stx.mnc" );
 
     # surface and labels must be in stx space, then use xfm to scale
-    # back to native space. This assume stx volume at 1mm.
+    # back to native space. The new compute_icbm_vols accounts for
+    # voxel size based on the volume image.
     &run( "compute_icbm_vols", "-clobber", "-transform", $t1_tal_xfm,
           "-invert", "-surface_mask", $gray_full_stx,
           "${tmpdir}/cerebrum_volume_stx.mnc", "${tmpdir}/cerebrum_vol.dat" );
@@ -279,12 +344,6 @@ sub get_cerebrum_volume {
     $idline =~ s/^\s+//;
     my ($lbl, $vol) = split(/\s+/, $idline); chomp( $vol );
     $vol /= 1000.0;    # convert from mm^3 to cc
-
-    # Account for unit voxel size in stx space.
-    my $dx = `mincinfo $t1 -attvalue xspace:step`; chomp( $dx );
-    my $dy = `mincinfo $t1 -attvalue yspace:step`; chomp( $dy );
-    my $dz = `mincinfo $t1 -attvalue zspace:step`; chomp( $dz );
-    $vol *= $dx * $dy * $dz;
 
     return( $vol );
   } else {
@@ -312,12 +371,6 @@ sub get_brain_volume {
     my ($lbl, $vol) = split(/\s+/, $idline); chomp( $vol );
     $vol /= 1000.0;    # convert from mm^3 to cc
 
-    # Account for unit voxel size in stx space.
-    my $dx = `mincinfo $skull_mask -attvalue xspace:step`; chomp( $dx );
-    my $dy = `mincinfo $skull_mask -attvalue yspace:step`; chomp( $dy );
-    my $dz = `mincinfo $skull_mask -attvalue zspace:step`; chomp( $dz );
-    $vol *= $dx * $dy * $dz;
-
     return( $vol );
   } else {
     return( 0 );
@@ -340,6 +393,9 @@ sub get_white_volume {
 
     &run( 'surface_mask2', '-binary_mask', $cls, $white_full_stx, 
           "${tmpdir}/white_volume_stx.mnc" );
+    # erode mask one voxel only for line thickness (same at 0.5mm and 1.0mm)
+    &run( 'dilate_volume', "${tmpdir}/white_volume_stx.mnc",
+          "${tmpdir}/white_volume_stx.mnc", 0, 6, 1 );
 
     # surface and labels must be in stx space, then use xfm to scale
     # back to native space. This assume stx volume at 1mm.
@@ -358,22 +414,20 @@ sub get_white_volume {
     my $idline = <IDFILE>;
     $idline =~ s/^\s+//;
     my ($lbl, $white_vol) = split(/\s+/, $idline); chomp( $white_vol );
+    my $idline = <IDFILE>;
+    $idline =~ s/^\s+//;
+    my ($lbl, $sc_vol) = split(/\s+/, $idline); chomp( $sc_vol );
     close (IDFILE);
     unlink( "${tmpdir}/white_vol.dat" );
 
-    # Account for unit voxel size in stx space.
-    my $dx = `mincinfo $cls -attvalue xspace:step`; chomp( $dx );
-    my $dy = `mincinfo $cls -attvalue yspace:step`; chomp( $dy );
-    my $dz = `mincinfo $cls -attvalue zspace:step`; chomp( $dz );
-    my $scale = $dx * $dy * $dz / 1000.0;
+    $csf_vol /= 1000.0;      # convert from mm^3 to cc
+    $subgm_vol /= 1000.0;    # convert from mm^3 to cc
+    $white_vol /= 1000.0;    # convert from mm^3 to cc
+    $sc_vol /= 1000.0;       # convert from mm^3 to cc
 
-    $csf_vol *= $scale;      # convert from mm^3 to cc
-    $subgm_vol *= $scale;    # convert from mm^3 to cc
-    $white_vol *= $scale;    # convert from mm^3 to cc
-
-    return( $csf_vol, $subgm_vol, $white_vol );
+    return( $csf_vol, $subgm_vol, $white_vol, $sc_vol );
   } else {
-    return( 0, 0, 0 );
+    return( 0, 0, 0, 0 );
   }
 }
 
@@ -441,6 +495,19 @@ sub get_laplacian_fit_error {
     return( 0, 0, 0 );
   }
 
+}
+
+sub get_gray_residual {
+
+  my $logfile = shift;
+
+  if( -e $logfile ) {
+    my $ret = `grep phi_res $logfile | tail -1`;
+    $ret =~ /phi_res(.*) = (.*) min(.*)/;
+    return( $2 );
+  } else {
+    return( 10.0 );
+  }
 }
 
 sub get_self_intersects {

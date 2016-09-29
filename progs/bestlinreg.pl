@@ -191,6 +191,19 @@ if( defined($opt{source_mask}) and defined($opt{target_mask}) ) {
 $prev_xfm = ( defined $opt{init_xfm} && -e $opt{init_xfm} ) ?
             $opt{init_xfm} : undef;
 
+# do a centering of the image first. Somehow, I think that minctracc should
+# be able to do this on its own.
+
+if( !defined( $prev_xfm ) ) {
+  my ($sxc,$syc,$szc) = split( ' ', `mincstats -quiet -com -world_only $source` );
+  my ($txc,$tyc,$tzc) = split( ' ', `mincstats -quiet -com -world_only $target` );
+  my $dx = $txc - $sxc;
+  my $dy = $tyc - $syc;
+  my $dz = $tzc - $szc;
+  $prev_xfm = "${tmpdir}/${s_base}_init.xfm";
+  `param2xfm -clobber -translation $dx $dy $dz $prev_xfm`;
+}
+
 # a fitting we shall go...
 for ($i=0; $i<=$#conf; $i++){
 
@@ -251,12 +264,15 @@ for ($i=0; $i<=$#conf; $i++){
             '-step', @{$conf[$i]{steps}}, '-simplex', $conf[$i]{simplex},
             '-tol', $conf[$i]{tolerance});
 
-   # Initial transformation will be computed from the from Principal axis 
-   # transformation (PAT).
-   push(@args, @{$conf[$i]{trans}}) if( defined $conf[$i]{trans} );
-
-   # Current transformation at this step
-   push(@args, '-transformation', $prev_xfm ) if( defined $prev_xfm );
+   # If there is an initial transform, ignore the -est_translation.
+   if( defined $prev_xfm ) {
+     # Current transformation at this step
+     push(@args, '-transformation', $prev_xfm ) 
+   } else {
+     # Initial transformation will be computed from the from Principal axis 
+     # transformation (PAT).
+     push(@args, @{$conf[$i]{trans}}) if( defined $conf[$i]{trans} );
+   }
 
    # masks (even if the blurred image is masked, it's still preferable
    # to use the mask in minctracc)

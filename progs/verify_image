@@ -163,16 +163,21 @@ if( -e $stx_labels ) {
 
 if( -e $cls_correct ) {
   &run( 'classify_qc', $cls_correct, $skull_mask_stx, $classify_info_file );
+  my $str = `cat $classify_info_file`;
 
-  push @verifyRows, ("-row", "color:gray:0:3",
-                     "title:\@${classify_info_file}", $cls_correct );
+  my $cls_min = `mincstats -quiet -min $cls_correct`; chomp( $cls_min );
+  my $cls_max = `mincstats -quiet -max $cls_correct`; chomp( $cls_max );
+
+  push @verifyRows, ("-row", "color:gray:${cls_min}:${cls_max}",
+                     "title:${str}", $cls_correct );
 
   # Row 5: Cortical white and gray surfaces.
 
   if( -e $white_surface_left && -e $gray_surface_left &&
       -e $white_surface_right && -e $gray_surface_right ) {
-    push @verifyRows, ( "-row", "color:gray:0:3",
-                        "title:\@${surface_info_file}",
+    my $str = `cat $surface_info_file`;
+    push @verifyRows, ( "-row", "color:gray:${cls_min}:${cls_max}",
+                        "title:${str}",
                         "overlay:${white_surface_left}:blue:0.5",
                         "overlay:${gray_surface_left}:red:0.5",
                         "overlay:${white_surface_right}:blue:0.5",

@@ -24,6 +24,7 @@ sub create_pipeline {
     my $smooth_wm = ${$image}->{VBM_smooth_wm};
     my $smooth_gm = ${$image}->{VBM_smooth_gm};
     my $smooth_csf = ${$image}->{VBM_smooth_csf};
+    my $smooth_sc = ${$image}->{VBM_smooth_sc};
 
     my $volumeFWHM = ${$image}->{VBM_fwhm};
     my $cerebellum = ${$image}->{VBM_cerebellum};
@@ -79,18 +80,40 @@ sub create_pipeline {
                   $volumeFWHM, "-mask", $mask, $cls_masked, $smooth_gm],
          prereqs => $Prereqs });
 
-    my $VBM_complete = ["VBM_smooth_${volumeFWHM}_wm", 
-                        "VBM_smooth_${volumeFWHM}_gm", 
-                        "VBM_smooth_${volumeFWHM}_csf"];
+    if( ${$image}->{pve_subcortical} ) {
+      ${$pipeline_ref}->addStage( {
+           name => "VBM_smooth_${volumeFWHM}_sc",
+           label => "SC map for VBM",
+           inputs => [$cls_masked, $mask],
+           outputs => [$smooth_sc],
+           args => ["smooth_mask", "-clobber", "-binvalue", 4, "-fwhm",
+                    $volumeFWHM, "-mask", $mask, $cls_masked, $smooth_sc],
+           prereqs => $Prereqs });
+    }
 
     # Construct symmetric maps.
+    my @VBM_complete = ( "VBM_smooth_${volumeFWHM}_wm", 
+                         "VBM_smooth_${volumeFWHM}_gm", 
+                         "VBM_smooth_${volumeFWHM}_csf" );
+    push @VBM_complete, "VBM_smooth_${volumeFWHM}_sc" if( ${$image}->{pve_subcortical} );
 
     my $symmetry = ${$image}->{VBM_symmetry};
 
     if( $symmetry eq "Symmetry" ) {
+      my $smooth_sc_sym = ${$image}->{VBM_smooth_sc_sym};
       my $smooth_wm_sym = ${$image}->{VBM_smooth_wm_sym};
       my $smooth_gm_sym = ${$image}->{VBM_smooth_gm_sym};
       my $smooth_csf_sym = ${$image}->{VBM_smooth_csf_sym};
+
+      if( ${$image}->{pve_subcortical} ) {
+        ${$pipeline_ref}->addStage( {
+             name => "VBM_smooth_${volumeFWHM}_sc_sym",
+             label => "CSF symmetry map for VBM",
+             inputs => [$smooth_sc],
+             outputs => [$smooth_sc_sym],
+             args => ["asymmetry_vbm_map", "-clobber", $smooth_sc, $smooth_sc_sym],
+             prereqs => ["VBM_smooth_${volumeFWHM}_sc"] });
+      }
 
       ${$pipeline_ref}->addStage( {
            name => "VBM_smooth_${volumeFWHM}_wm_sym",
@@ -98,7 +121,7 @@ sub create_pipeline {
            inputs => [$smooth_wm],
            outputs => [$smooth_wm_sym],
            args => ["asymmetry_vbm_map", "-clobber", $smooth_wm, $smooth_wm_sym],
-           prereqs => $VBM_complete });
+           prereqs => ["VBM_smooth_${volumeFWHM}_wm"] });
 
       ${$pipeline_ref}->addStage( {
            name => "VBM_smooth_${volumeFWHM}_gm_sym",
@@ -106,7 +129,7 @@ sub create_pipeline {
            inputs => [$smooth_gm],
            outputs => [$smooth_gm_sym],
            args => ["asymmetry_vbm_map", "-clobber", $smooth_gm, $smooth_gm_sym],
-           prereqs => $VBM_complete });
+           prereqs => ["VBM_smooth_${volumeFWHM}_gm"] });
 
       ${$pipeline_ref}->addStage( {
            name => "VBM_smooth_${volumeFWHM}_csf_sym",
@@ -114,14 +137,16 @@ sub create_pipeline {
            inputs => [$smooth_csf],
            outputs => [$smooth_csf_sym],
            args => ["asymmetry_vbm_map", "-clobber", $smooth_csf, $smooth_csf_sym],
-           prereqs => $VBM_complete });
+           prereqs => ["VBM_smooth_${volumeFWHM}_csf"] });
 
-      $VBM_complete = ["VBM_smooth_${volumeFWHM}_wm_sym", 
-                       "VBM_smooth_${volumeFWHM}_gm_sym", 
-                       "VBM_smooth_${volumeFWHM}_csf_sym"];
+      @VBM_complete = ( "VBM_smooth_${volumeFWHM}_wm_sym", 
+                        "VBM_smooth_${volumeFWHM}_gm_sym", 
+                        "VBM_smooth_${volumeFWHM}_csf_sym" );
+      push @VBM_complete, "VBM_smooth_${volumeFWHM}_sc_sym" if( ${$image}->{pve_subcortical} );
+
     }
 
-    return( $VBM_complete );
+    return( \@VBM_complete );
 }
 
 

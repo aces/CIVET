@@ -33,15 +33,15 @@ sub create_pipeline {
     my $pipeline_ref = @_[0];
     my $Prereqs = @_[1];
     my $image = @_[2];
-    my $model_mask = @_[3];
 
+    my $pve_gm  = ${$image}->{pve_gm};
     my $pve_wm  = ${$image}->{pve_wm};
     my $pve_csf = ${$image}->{pve_csf};
     my $pve_disc = ${$image}->{pve_disc};
 
     my $cls_correct    = ${$image}->{cls_correct};
     my $t1_tal_mnc     = ${$image}->{t1}{final};
-    my $nl_transform   = ${$image}->{t1_tal_nl_xfm};
+    my $skull_mask     = ${$image}->{skull_mask_tal};
     my $final_callosum = ${$image}->{final_callosum};
     my $subcortical_mask = ${$image}->{subcortical_mask};
     my $blood_vessels  = ${$image}->{removebloodvessels} ? ${$image}->{blood_vessels} : "none";
@@ -61,9 +61,6 @@ sub create_pipeline {
     my $gray_surface_right = ${$image}->{gray}{right};
     my $mid_surface_left = ${$image}->{mid_surface}{left};
     my $mid_surface_right = ${$image}->{mid_surface}{right};
-
-    # a bunch of temporary files that should be cleaned up.
-
     my $wm_left = ${$image}->{wm_left};
     my $wm_right = ${$image}->{wm_right};
 
@@ -80,13 +77,14 @@ sub create_pipeline {
           name => "surface_classify",
           label => "fix the classification for surface extraction",
           inputs => [$t1_tal_mnc, $cls_correct, $pve_wm, $pve_csf, 
-                     $pve_disc, $brain_mask, $nl_transform ],
+                     $pve_disc, $brain_mask ],
           outputs => [$final_callosum, $subcortical_mask, @bloodOutput,
                       $final_classify, $skel_csf],
           args => ["surface_fit_classify", $t1_tal_mnc, $cls_correct, 
                    $pve_wm, $pve_csf, $pve_disc, $brain_mask, 
                    $final_callosum, $subcortical_mask, $blood_vessels,
-                   $final_classify, $skel_csf, $nl_transform, $model_mask ],
+                   ${$image}->{maskhippocampus}, $final_classify, 
+                   $skel_csf ],
           prereqs => $Prereqs }
           );
 
@@ -122,10 +120,10 @@ sub create_pipeline {
     ${$pipeline_ref}->addStage( {
           name => "extract_white_surface_left",
           label => "extract marching-cubes white left surface in Talairach",
-          inputs => [$t1_tal_mnc, $final_classify, $wm_left], 
+          inputs => [$t1_tal_mnc, $cls_correct, $skull_mask, $wm_left], 
           outputs => [$left_hemi_white80K, $left_hemi_white],
           args => ["marching_cubes.pl", '-left', @mc_opts,
-                   $t1_tal_mnc, $final_classify, $wm_left,
+                   $t1_tal_mnc, $cls_correct, $skull_mask, $wm_left,
                    $left_hemi_white80K, ${$image}->{mc_model}{left},
                    ${$image}->{mc_mask}{left} ],
           prereqs => ["create_wm_hemispheres"] }
@@ -134,10 +132,10 @@ sub create_pipeline {
     ${$pipeline_ref}->addStage( {
           name => "extract_white_surface_right",
           label => "extract marching-cubes white right surface in Talairach",
-          inputs => [$t1_tal_mnc, $final_classify, $wm_right], 
+          inputs => [$t1_tal_mnc, $cls_correct, $skull_mask, $wm_right], 
           outputs => [$right_hemi_white80K, $right_hemi_white],
           args => ["marching_cubes.pl", '-right', @mc_opts,
-                   $t1_tal_mnc, $final_classify, $wm_right,
+                   $t1_tal_mnc, $cls_correct, $skull_mask, $wm_right,
                    $right_hemi_white80K, ${$image}->{mc_model}{right},
                    ${$image}->{mc_mask}{right} ],
           prereqs => ["create_wm_hemispheres"] }
@@ -148,16 +146,21 @@ sub create_pipeline {
 #          outer boundary of gray matter
 # ---------------------------------------------------------------------------
 
-    ${$pipeline_ref}->addStage(
-          { name => "laplace_field",
+    ## NOTE: this should use ${$image}->{user_mask} if one exists.
+    ##       This way, the user could paint the offending pieces of
+    ##       classified WM in the skull, if any. CL.
+
+    ${$pipeline_ref}->addStage( {
+          name => "laplace_field",
           label => "create laplacian field in the cortex",
-          inputs => [$t1_tal_mnc, $skel_csf, $left_hemi_white,
+          inputs => [$t1_tal_mnc, $brain_mask, $skel_csf, $left_hemi_white,
                      $right_hemi_white, $final_classify,
-                     $pve_wm, $final_callosum],
+                     $pve_gm, $pve_disc, $final_callosum],
           outputs => [$laplace_field],
-          args => ["make_asp_grid", $t1_tal_mnc, $skel_csf, $left_hemi_white,
-                  $right_hemi_white, $final_classify, $pve_wm,
-                  $final_callosum, $laplace_field],
+          args => ["make_asp_grid", $t1_tal_mnc, $brain_mask, 
+                   $skel_csf, $left_hemi_white,
+                   $right_hemi_white, $final_classify, $pve_gm,
+                   $pve_disc, $final_callosum, $laplace_field],
           prereqs => ["extract_white_surface_left","extract_white_surface_right"] }
           );
 
@@ -177,7 +180,6 @@ sub create_pipeline {
                    $gray_surface_left80K, $laplace_field ],
           prereqs => ["laplace_field"] }
           );
-
     ${$pipeline_ref}->addStage( {
           name => "gray_surface_right",
           label => "expand to right pial surface in Talairach",
@@ -258,7 +260,7 @@ sub surface_qc {
     my $white_surf_right = ${$image}->{white}{right};
     my $gray_surface_left = ${$image}->{gray}{left};
     my $gray_surface_right = ${$image}->{gray}{right};
-    my $brain_mask = ${$image}->{skull_mask_tal};
+    my $skull_mask = ${$image}->{skull_mask_tal};
 
     my $surface_qc = ${$image}->{surface_qc};
 
@@ -267,12 +269,12 @@ sub surface_qc {
           label => "surface fit error measurement",
           inputs => [$final_classify, $wm_left, $wm_right,
                      $white_surf_left, $white_surf_right, 
-                     $gray_surface_left, $gray_surface_right, $brain_mask],
+                     $gray_surface_left, $gray_surface_right, $skull_mask],
           outputs => [$surface_qc],
           args => ["surface_qc", $final_classify, $wm_left, 
                    $wm_right, $white_surf_left, 
                    $white_surf_right, $gray_surface_left, 
-                   $gray_surface_right, $brain_mask, $surface_qc ],
+                   $gray_surface_right, $skull_mask, $surface_qc ],
           prereqs => $Prereqs } );
 
     my @Surface_QC_complete = ( "surface_fit_error" );

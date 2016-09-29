@@ -27,7 +27,7 @@
 # take to run. Accuracy is not free. For 1.5T scans, d=200 is used but this
 # can created hot spots in the corrected 3T images when the spline is not able 
 # to represent non-uniformities at a smaller wavelength. (This likely depends
-# on the scanner too.) For 3T scans, d=50 to 100 seems to give reliable
+# on the scanner too.) For 3T scans, d=100 to 125 seems to give reliable
 # results. 
 #
 # Copyright Alan C. Evans
@@ -113,7 +113,7 @@ if ( -e $input ) {
     my $dx = `mincinfo -attvalue xspace:step $tmp_input`; chomp( $dx );
     my $dy = `mincinfo -attvalue yspace:step $tmp_input`; chomp( $dy );
     my $dz = `mincinfo -attvalue zspace:step $tmp_input`; chomp( $dz );
-    my $shrink_factor = $shrink / ( ( $dx + $dy + $dz ) / 3.0 );
+    my $shrink_factor = $shrink / ( ( abs($dx) + abs($dy) + abs($dz) ) / 3.0 );
 
     # Important note: Because of the way nu_correct converges, it is better to
     # do a few sets of 100 iterations rather than a total number of iterations

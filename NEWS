@@ -1,3 +1,20 @@
+        New in Release 2.1.0
+* allow native scans in stereotaxic space without linear transformation
+* pve with iterative correction of thresholds, masking of cerebellum
+  and brainstem, sub-cortical tissue class
+* sub-cortical tissue class to VBM
+* study prefix is optional
+* preserve true native space with direction cosines and field of view
+* compute several thickess methods at once
+* increase search radius for white surface gradient correction and
+  use Taubin smoothing on white surface
+* add partial volume estimates to Laplacian field for gray surface
+  expansion
+* start IBIS v24 model
+* implement parallelization of subjects via mpirun
+* QC: add gradient, distortion and convergence graphs
+* average_surface_builder: allow non-linear mode, add Taubin smoothing
+
         New in Release 2.0.0
 * -mpi option for filling compute nodes on HPCs
 * Marching-cubes algorithm for white surface extraction
