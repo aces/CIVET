@@ -1,14 +1,3 @@
-The AAL labeling was originally proposed in:
-
-Tzourio-Mazoyer N, Landeau B, Papathanassiou D, Crivello F, Etard O,
-Delcroix N, Mazoyer B, Joliot M. 2002. Automated anatomical labeling
-of activations in SPM using a macroscopic anatomical parcellation of
-the MNI MRI single-subject brain. Neuroimage. 15: 273-289.
-
-Copyright Gaolang Gong and Alan C. Evans, Montreal Neurological
-Institute, McGill University. Permission to use, copy, modify, and
-distribute these labeling files for any purpose and without fee is
-hereby granted, provided that this copyright notice and the citation
-above appear in all copies. The authors and McGill University make no
-representations about the suitability of these data for any purpose.
-It is provided "as is" without express or implied warranty.
+version https://git-lfs.github.com/spec/v1
+oid sha256:b1feacd5f7af6d77a98a62863777e83106fe68fa34e787f773d81e3192aa7b55
+size 778
