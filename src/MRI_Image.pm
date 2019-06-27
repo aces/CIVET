@@ -726,11 +726,14 @@ sub make_references {
 
   print PIPE "CIVET Pipeline\n";
   print PIPE "==============\n";
-  print PIPE "  Y. Ad-Dab\'bagh et al., \"The CIVET image-processing environment: A\n";
-  print PIPE "  fully automated comprehensive pipeline for anatomical neuroimaging\n";
-  print PIPE "  research\", in \"Proceedings of the 12th Annual Meeting of the\n";
-  print PIPE "  Organization for Human Brain Mapping\", M. Corbetta, ed. (Florence,\n";
-  print PIPE "  Italy, NeuroImage), 2006\n\n";
+  print PIPE "  C.Y. Lepage et al., \"Human MR Evaluation of Cortical Thickness\n";
+  print PIPE "  Using CIVET v2.1\", OHBM (poster 4166), Vancouver, 2017\n\n";
+
+# print PIPE "  Y. Ad-Dab\'bagh et al., \"The CIVET image-processing environment: A\n";
+# print PIPE "  fully automated comprehensive pipeline for anatomical neuroimaging\n";
+# print PIPE "  research\", in \"Proceedings of the 12th Annual Meeting of the\n";
+# print PIPE "  Organization for Human Brain Mapping\", M. Corbetta, ed. (Florence,\n";
+# print PIPE "  Italy, NeuroImage), 2006\n\n";
 
   print PIPE "Non-uniformity corrections\n";
   print PIPE "==========================\n";
@@ -778,7 +781,7 @@ sub make_references {
   print PIPE "    vol. 9, pp. 58-66, 2006.\n\n";
   print PIPE "  If icbm152 non-linear 2009 model is used, cite [5]:\n";
   print PIPE "  ---------------------------------------------------\n";
-  print PIPE "    [5] V.S., Evans, A.C., McKinstry, R.C., Almli, C.R., and Collins, D.L.,\n";
+  print PIPE "    [5] V.S. Fonov, Evans, A.C., McKinstry, R.C., Almli, C.R., and Collins, D.L.,\n";
   print PIPE "    \"Unbiased nonlinear average age-appropriate brain templates from birth \n";
   print PIPE "    to adulthood,\" NeuroImage, Volume 47, Supplement 1, July 2009, Page S102\n";
   print PIPE "    Organization for Human Brain Mapping 2009 Annual Meeting. \n";

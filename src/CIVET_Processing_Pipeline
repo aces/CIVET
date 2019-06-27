@@ -34,6 +34,7 @@ use Getopt::Tabular;
 use PMP::PMP;
 use PMP::pbs;
 use PMP::sge;
+use PMP::slurm;
 use PMP::spawn;
 use PMP::Array;
 use MNI::Startup;
@@ -51,8 +52,8 @@ $PATH = "$FindBin::Bin/progs:${PATH}";
 $SIG{'INT'} = 'CLEANUP';
 $SIG{'TERM'} = 'CLEANUP';
 
-my $version = "2.1.0";
-my $versionDate= "September, 2016";
+my $version = "2.1.1";
+my $versionDate= "December, 2018";
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
 $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile> &\n\n";
@@ -60,7 +61,15 @@ $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile
 my $whatsnew = <<NEW;
     *************************************************************************
     New in $versionDate quarantine, version $version
+      - SLURM job scheduler for Compute Canada (new PMP lib)
+      - compilation on Ubuntu 16, Ubuntu 18 and CentOS 7 (this required fixing
+        some PERL syntax in many places)
+      - normalization of image, within N3, during non-uniformity corrections
+        (this may affect results)
+      - addition of mrisim as a tool to CIVET quarantine
 
+    *************************************************************************
+    New in Oct, 2016 quarantine, version 2.1.0
       - allow native scans in stereotaxic space without linear transformation
       - pve with iterative correction of thresholds, masking of cerebellum
         and brainstem, sub-cortical tissue class
@@ -369,11 +378,18 @@ my %PMPconf = ( 'DEFAULT' => { 'type' => "spawn",
                                'queue' => "all.q",
                                'hosts' => undef,
                                'opts' => undef },
-               'ZEALOUS'  => { 'type' => "sge",
+                 'NOEL'   => { 'type' => "sge",
                                'maxqueued' => 1000,
                                'granularity' => 1,
                                'command' => "qsub",
-                               'queue' => "all.q",
+                               'queue' => "noel.q",
+                               'hosts' => undef,
+                               'opts' => undef },
+               'ZEALOUS'  => { 'type' => "pbs",
+                               'maxqueued' => 500,
+                               'granularity' => 1,
+                               'command' => "qsub",
+                               'queue' => "batch",
                                'hosts' => undef,
                                'opts' => undef },
                 'ZLAB'    => { 'type' => "sge",
@@ -404,6 +420,27 @@ my %PMPconf = ( 'DEFAULT' => { 'type' => "spawn",
                                'queue' => "qwork\@ms",
                                'hosts' => undef,
                                'opts' => "-l walltime=20:00:00 -l nodes=1:ppn=1" },
+                'GRAHAM'  => { 'type' => "slurm",
+                               'maxqueued' => 800,
+                               'granularity' => 1,
+                               'command' => "sbatch",
+                               'queue' => undef,
+                               'hosts' => undef,
+                               'opts' => "--account=rpp-aevans-ab --time=20:00:00 --cpus-per-task=1 --nodes=1 --mem-per-cpu=4G" },
+                'MP2B'    => { 'type' => "slurm",
+                               'maxqueued' => 800,
+                               'granularity' => 1,
+                               'command' => "sbatch",
+                               'queue' => undef,
+                               'hosts' => undef,
+                               'opts' => "--account=rpp-aevans-ab --time=20:00:00 --cpus-per-task=1 --nodes=1 --mem-per-cpu=4G" },
+                'CEDAR'   => { 'type' => "slurm",
+                               'maxqueued' => 800,
+                               'granularity' => 1,
+                               'command' => "sbatch",
+                               'queue' => undef,
+                               'hosts' => undef,
+                               'opts' => "--account=rpp-aevans-ab --time=20:00:00 --cpus-per-task=1 --nodes=1 --mem-per-cpu=4G" },
                 'KISTI'   => { 'type' => "pbs",
                                'maxqueued' => 100,
                                'granularity' => 1,
@@ -794,6 +831,7 @@ my $MeanCurvature = 0;
 my $CombineSurfaces = 0;
 my $SurfaceAtlas = "lobes";
 
+my $AnimalSupport = 0;
 my $animal = "noANIMAL";
 my $AnimalAtlas = undef;
 
@@ -857,7 +895,7 @@ my @argTbl = (
            "<model>"],
           ["CIVET options", "section"],  
           ["-input_is_stx", "boolean", 1, \$inputIsStx,
-           "Assume that the input volume is already linearly regsieted to stx space; this skips the linear registration steps"],
+           "Assume that the input volume is already linearly registered to stx space; this skips the linear registration steps (applies to all of T1, T2, PD)"],
           ["-multispectral", "const", "multispectral", \$inputType, 
            "Use T1, T2 and PD native files for tissue classification."],
           ["-correct-pve|-no-correct-pve", "boolean", 1, \$correctPVE, 
@@ -918,14 +956,14 @@ my @argTbl = (
            "mask out cerebellum in VBM maps [default -VBM-cerebellum]"],
 
           ["ANIMAL options", "section"],  
-          ["-animal", "const", "ANIMAL", \$animal, 
-           "run volumetric ANIMAL segmentation [default -no-animal]"],
-          ["-no-animal", "const", "noANIMAL", \$animal, 
-           "don\'t run volumetric ANIMAL segmentation "],
-          ["-lobe_atlas", "string", 1, \$AnimalAtlas, 
+          ( $AnimalSupport ) ? ["-animal", "const", "ANIMAL", \$animal, 
+           "run volumetric ANIMAL segmentation [default -no-animal]"] : (),
+          ( $AnimalSupport ) ? ["-no-animal", "const", "noANIMAL", \$animal, 
+           "don\'t run volumetric ANIMAL segmentation "] : (),
+          ( $AnimalSupport ) ? ["-lobe_atlas", "string", 1, \$AnimalAtlas, 
            "Use lobe atlas for ANIMAL segmentation (mandatory with -animal): " .
            "\"icbm152nl-VI\" (ICBM152 generation VI symmetric model), " .
-           "\"icbm152nl-2009a\" (ICBM152 2009a symmetric model)", "<model>" ],
+           "\"icbm152nl-2009a\" (ICBM152 2009a symmetric model)", "<model>" ] : (),
           ["Pipeline control", "section"],
           ["-run", "const", "run", \$command, "Run the pipeline."],
           ["-status-from-files", "const", "statusFromFiles", \$command, "Compute pipeline status from files"],
@@ -1081,22 +1119,24 @@ if( $surface ne "noSURFACE" ) {
 
 ############# Choose ANIMAL model.
 
-if( $animal eq "ANIMAL" ) {
-  if( ( defined $AnimalAtlas ) && 
-      ( $AnimalAtlas eq "icbm152nl-VI" || $AnimalAtlas eq "icbm152nl-2009a" ) ) {
-    $CIVETmodels{$CIVETModel}{AnimalModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalAtlasDir}/" .
-                                             "$ANIMALmodels{$AnimalAtlas}{AnimalAtlas}/";
-    $CIVETmodels{$CIVETModel}{AnimalRegNLModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalNLRegDir}/" .
-                                             $ANIMALmodels{$AnimalAtlas}{AnimalNLRegModel};
-    print "* ANIMAL atlas is $ANIMALmodels{$AnimalAtlas}{AnimalAtlas} \n";
-    print "* ANIMAL atlas directory is: \n  $ANIMALmodels{$AnimalAtlas}{AnimalAtlasDir} \n";
-    print "* ANIMAL non-linear registration model directory is: \n  $ANIMALmodels{$AnimalAtlas}{AnimalNLRegDir} \n";
-    print "* ANIMAL non-linear registration model is:    \n   $ANIMALmodels{$AnimalAtlas}{AnimalNLRegModel} \n";
-    print "\n";
-  } else {
-    print "Warning: You must specify a valid atlas to use ANIMAL segmentation.\n";
-    $AnimalAtlas = undef;
-    $animal = "noANIMAL";
+if( $AnimalSupport ) {
+  if( $animal eq "ANIMAL" ) {
+    if( ( defined $AnimalAtlas ) && 
+        ( $AnimalAtlas eq "icbm152nl-VI" || $AnimalAtlas eq "icbm152nl-2009a" ) ) {
+      $CIVETmodels{$CIVETModel}{AnimalModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalAtlasDir}/" .
+                                               "$ANIMALmodels{$AnimalAtlas}{AnimalAtlas}/";
+      $CIVETmodels{$CIVETModel}{AnimalRegNLModel} = "$ANIMALmodels{$AnimalAtlas}{AnimalNLRegDir}/" .
+                                               $ANIMALmodels{$AnimalAtlas}{AnimalNLRegModel};
+      print "* ANIMAL atlas is $ANIMALmodels{$AnimalAtlas}{AnimalAtlas} \n";
+      print "* ANIMAL atlas directory is: \n  $ANIMALmodels{$AnimalAtlas}{AnimalAtlasDir} \n";
+      print "* ANIMAL non-linear registration model directory is: \n  $ANIMALmodels{$AnimalAtlas}{AnimalNLRegDir} \n";
+      print "* ANIMAL non-linear registration model is:    \n   $ANIMALmodels{$AnimalAtlas}{AnimalNLRegModel} \n";
+      print "\n";
+    } else {
+      print "Warning: You must specify a valid atlas to use ANIMAL segmentation.\n";
+      $AnimalAtlas = undef;
+      $animal = "noANIMAL";
+    }
   }
 }
 
@@ -1170,26 +1210,29 @@ if( $ppn > 1 ) {
       close OUT;
       `chmod u+x ${mpijobdir}/${jobfile}`;
 
-      ### submit this job script to sge/pbs/spawn.
+      ### submit this job script to sge/pbs/slurm/spawn.
 
-      my $pipeline;
+      my $pipeline = undef;
 
       if ($PMPconf{$PMPtype}{type} eq "spawn") {
         $pipeline = PMP::spawn->new();
-      } elsif ($PMPconf{$PMPtype}{type} eq "sge") {
-        $pipeline = PMP::sge->new();
-        $pipeline->setCommand($PMPconf{$PMPtype}{command});
-        $pipeline->setQueue($PMPconf{$PMPtype}{queue});
-        $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
-        $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
-	$pipeline->setPriorityScheme("later-stages");
-      } elsif ($PMPconf{$PMPtype}{type} eq "pbs") {
-        $pipeline = PMP::pbs->new();
-        $pipeline->setCommand($PMPconf{$PMPtype}{command});
-        $pipeline->setQueue($PMPconf{$PMPtype}{queue});
-        $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
-        $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
-        $pipeline->setPriorityScheme("later-stages");
+      } else {
+        if ($PMPconf{$PMPtype}{type} eq "sge") {
+          $pipeline = PMP::sge->new();
+        } elsif ($PMPconf{$PMPtype}{type} eq "pbs") {
+          $pipeline = PMP::pbs->new();
+        } elsif ($PMPconf{$PMPtype}{type} eq "slurm") {
+          $pipeline = PMP::slurm->new();
+        }
+        if( defined( $pipeline ) ) {
+          $pipeline->setCommand($PMPconf{$PMPtype}{command});
+          $pipeline->setQueue($PMPconf{$PMPtype}{queue}) if( defined $PMPconf{$PMPtype}{queue} );
+          $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
+          $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
+	  $pipeline->setPriorityScheme("later-stages");
+        } else {
+          die "Cannot set PMP pipeline for scheduler $PMPconf{$PMPtype}{type}";
+        }
       }
 
       # set some generic pipeline options
@@ -1279,25 +1322,28 @@ if( $ppn > 1 ) {
 
     ##### Create the pipeline environment. #####
 
-    my $pipeline;
+    my $pipeline = undef;
 
     if ($PMPconf{$PMPtype}{type} eq "spawn") {
-        $pipeline = PMP::spawn->new();
-        $PMPgranularity = 0;
-    } elsif ($PMPconf{$PMPtype}{type} eq "sge") {
+      $pipeline = PMP::spawn->new();
+      $PMPgranularity = 0;
+    } else {
+      if ($PMPconf{$PMPtype}{type} eq "sge") {
         $pipeline = PMP::sge->new();
+      } elsif ($PMPconf{$PMPtype}{type} eq "pbs") {
+        $pipeline = PMP::pbs->new();
+      } elsif ($PMPconf{$PMPtype}{type} eq "slurm") {
+        $pipeline = PMP::slurm->new();
+      }
+      if( defined( $pipeline ) ) {
         $pipeline->setCommand($PMPconf{$PMPtype}{command});
-        $pipeline->setQueue($PMPconf{$PMPtype}{queue});
+        $pipeline->setQueue($PMPconf{$PMPtype}{queue}) if( defined $PMPconf{$PMPtype}{queue} );
         $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
         $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
 	$pipeline->setPriorityScheme("later-stages");
-    } elsif ($PMPconf{$PMPtype}{type} eq "pbs") {
-        $pipeline = PMP::pbs->new();
-        $pipeline->setCommand($PMPconf{$PMPtype}{command});
-        $pipeline->setQueue($PMPconf{$PMPtype}{queue});
-        $pipeline->setHosts($PMPconf{$PMPtype}{hosts}) if( defined $PMPconf{$PMPtype}{hosts} );
-        $pipeline->setQueueOptions($PMPconf{$PMPtype}{opts}) if( defined $PMPconf{$PMPtype}{opts} );
-        $pipeline->setPriorityScheme("later-stages");
+      } else {
+        die "Cannot set PMP pipeline for scheduler $PMPconf{$PMPtype}{type}";
+      }
     }
 
     # set some generic pipeline options

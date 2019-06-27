@@ -18,7 +18,7 @@ use MNI::Startup;
 use Getopt::Tabular;
 use MNI::Spawn;
 use MNI::DataDir;
-use MNI::FileUtilities qw(test_file check_output_dirs);
+use MNI::FileUtilities qw(test_file);
 use File::Temp qw/ tempdir /;
 use File::Basename;
 my($Help, $Usage, $me);

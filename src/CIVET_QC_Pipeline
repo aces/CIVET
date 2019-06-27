@@ -43,8 +43,8 @@ $SIG{'TERM'} = 'CLEANUP';
 # Create tmp dir.
 my $tmpdir = tempdir( CLEANUP => 1 );
 
-my $version = "2.1.0";
-my $versionDate= "September, 2016";
+my $version = "2.1.1";
+my $versionDate= "December, 2018";
 my $authors= "Claude Lepage";
 my $usage = "\nUSAGE:\n$ProgramName -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile>\n 
 ALTERNATIVE USAGE:\n
@@ -1279,10 +1279,21 @@ close FILE;
 $html .= "<tr> </tr> ";
 $html .= "<tr bgcolor=\"#dddddd\">" .
          "<th></th>" .
-         "<th>N</th> ";
+         "<th>N (total)</th> ";
 for( my $j = 0; $j <= $#fields; $j++ ) {
   if( $fields[$j]{count} > 0 ) {
     my $str = sprintf( "%d", $fields[$j]{count} );
+    $html .= "<th>$str</th>";
+  }
+}
+$html .= "</tr>\n";
+
+$html .= "<tr bgcolor=\"#dddddd\">" .
+         "<th></th>" .
+         "<th>N (unique)</th> ";
+for( my $j = 0; $j <= $#fields; $j++ ) {
+  if( $fields[$j]{count} > 0 ) {
+    my $str = sprintf( "%d", $group+1 );
     $html .= "<th>$str</th>";
   }
 }
@@ -1368,6 +1379,7 @@ $html .= "</table>\n";
 $html .= "<h2>Scatter plots of QC fields </h2>\n";
 open FILE, ">${qc_dir}/civet_${prefix}.gnu";
 print FILE "set datafile separator \",\"\n";
+print FILE "clear\n\n";   # weird bug sending an extra linefeed
 
 # determine the gnuplot version for backward compatibility 
 # of line colour specification.
@@ -1389,7 +1401,7 @@ for( my $i = 0; $i <= $#fields; $i++ ) {
     # Make the gnuplot graph for this field.
 
     print FILE "# $key\n";
-    print FILE "clear\n";
+    print FILE "clear\n\n";   # weird bug sending an extra linefeed
     print FILE "set grid\n";
     print FILE "unset key\n";
     print FILE "set title \"$fields[$i]{title}\"\n";

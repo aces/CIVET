@@ -14,7 +14,6 @@ use File::Basename;
 use File::Temp qw/ tempdir /;
 
 use MNI::Startup;
-use MNI::FileUtilities qw(check_output_dirs);
 
 my $me = &basename($0);
 

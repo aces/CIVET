@@ -50,6 +50,10 @@ close GNU;
 `gnuplot < $gnu`;
 unlink( $gnu );
 
+if( !( -e $output ) ) {
+  die "Could not create $output. Check that gnuplot has been installed.";
+}
+
 #Execute a system call.
 
 sub run {

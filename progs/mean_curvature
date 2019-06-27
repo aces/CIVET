@@ -10,11 +10,10 @@
 
 use strict;
 use warnings "all";
+use File::Temp qw/ tempdir /;
 
 use Getopt::Tabular;
 use MNI::Startup;
-use MNI::FileUtilities qw(check_output_dirs);
-
 
 # --- set the help & usage strings ---
 my $help = <<HELP;
@@ -47,8 +46,7 @@ my $mid = shift;
 my $output = shift;
 
 # These are temporary files.
-MNI::FileUtilities::check_output_dirs("${TmpDir}")
-  or exit 1;
+my $TmpDir = &tempdir( "mean_curvature-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
 # Make sure there is only one way to compute the thickness.
 

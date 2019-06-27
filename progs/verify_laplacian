@@ -24,7 +24,7 @@ my $tilesize = 240;
 my $debug = 0;
 my $quiet = 1;
 my @mont_args = ();
-my @DrawText = ( "-font", "Helvetica" );
+my @DrawText = ( "-font", "DejaVu-Sans" );
 
 my $xpos = 0.80*$tilesize;
 my $ypos = 15;

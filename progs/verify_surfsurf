@@ -43,7 +43,7 @@ $ret[0] =~ / Sum: (.*)/;
 my $right_inter = $1;
 
 my $title = sprintf( "Surface-surface intersections (Left=%d, Right=%d)", $left_inter, $right_inter );
-my @DrawText = ( "-font", "Helvetica", "-annotate", "0x0+${xpos}+${ypos}", $title );
+my @DrawText = ( "-font", "DejaVu-Sans", "-annotate", "0x0+${xpos}+${ypos}", $title );
 
 my $num_rows = 2;
 # ROWS 1 - 2: surface-surface intersections on left and right wm surfaces

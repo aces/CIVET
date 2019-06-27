@@ -52,7 +52,7 @@ if( $ret[1] =~ m/self_intersecting/ ) {      # little legacy typo
 my $title = ( $key eq "lobes" ) ? "Lobar" : $key;
 $title = sprintf( "$title surface parcellation (self-intersections Left=%d, Right=%d)", 
                   $left_inter, $right_inter );
-my @DrawText = ( "-font", "Helvetica", "-annotate", "0x0+${xpos}+${ypos}", $title );
+my @DrawText = ( "-font", "DejaVu-Sans", "-annotate", "0x0+${xpos}+${ypos}", $title );
 
 my $num_rows = 2;
 # ROWS 1 - 2: surface atlas on left and right mid-surfaces

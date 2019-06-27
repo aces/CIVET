@@ -16,11 +16,12 @@
 
 use strict;
 use POSIX;
+use File::Temp qw/ tempdir /;
+
 use MNI::Startup;
 use Getopt::Tabular;
 use MNI::Spawn;
 use MNI::DataDir;
-use MNI::FileUtilities qw(check_output_dirs);
 
 # ===== Global Variables =====
 my ($usage, $help);
@@ -72,7 +73,7 @@ AddDefaultArgs("mincblur", ["-quiet"]);
 AddDefaultArgs("mincresample", ["-quiet"]);
 
 # create necessary tmp directory
-check_output_dirs($TmpDir);
+my $TmpDir = &tempdir( "make_asp_grid-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
 # ===== Main program execution =====
 if (! defined($minc_model)){

@@ -1,3 +1,11 @@
+2018-11-29  Claude Lepage <claude@bic.mni.mcgill.ca>
+    * SLURM job scheduler for Compute Canada (new PMP lib)
+    * compilation on Ubuntu 16, Ubuntu 18 and CentOS 7 (this required fixing
+      some PERL syntax in many places)
+    * normalization of image, within N3, during non-uniformity corrections
+      (this may affect results)
+    * addition of mrisim as a tool to CIVET quarantine
+
 2016-09-29  Claude Lepage <claude@bic.mni.mcgill.ca>
     * allow native scans in stereotaxic space without linear transformation
     * pve with iterative correction of thresholds, masking of cerebellum

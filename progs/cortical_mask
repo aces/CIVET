@@ -16,8 +16,9 @@
 
 use strict;
 use warnings "all";
+use File::Temp qw/ tempdir /;
+
 use MNI::Startup;
-use MNI::FileUtilities qw(check_output_dirs);
 
 # define input variables:
 
@@ -28,8 +29,7 @@ my $brain_mask=$ARGV[3];
 my $xfm=$ARGV[4];
 
 # Directory for temporary files.
-
-MNI::FileUtilities::check_output_dirs($TmpDir) or exit 1;
+my $TmpDir = &tempdir( "cortical_mask-XXXXXXXX", TMPDIR => 1, CLEANUP => 1 );
 
 # Apply csf partial volumes to classified image.
 my $cls_tmp = "${TmpDir}/cls_tmp.mnc";
