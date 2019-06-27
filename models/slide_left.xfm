@@ -1,3 +1,7 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:227cc36b3b947d3a070c3ba052103e86e2961fadfdbe31b1ab7314479e17a708
-size 94
+MNI Transform File
+
+Transform_Type = Linear;
+Linear_Transform =
+ 1 0 0 -30
+ 0 1 0 0
+ 0 0 1 0;

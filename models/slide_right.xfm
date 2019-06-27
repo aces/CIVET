@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:32cc520eb9fc874a5155990214b8d548448a06c94d34199334887c7935c5d60b
-size 505
+MNI Transform File
+%Fri Mar  3 21:16:38 2006>>> param2xfm -clobber -scale 0.9781187642434298687555529100067674644294 1.075001263399242791737526949139724606742 0.9510414265488337663190815474039697388232 /data/aces/aces1/oliver/ICBM_reloaded/subjects2//processing_pipes/00100/transforms/linear//olly_icbm_00100_t1_tal_to_7.xfm
+%(Package MNI AutoReg, version 0.98s, compiled by dale@wart (mips-sgi-irix6.5) on 2005-07-28 at 12:15:12)
+
+Transform_Type = Linear;
+Linear_Transform =
+ 1 0 0 30
+ 0 1 0 0
+ 0 0 1 0;

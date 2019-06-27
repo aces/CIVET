@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2c730adb37591e5cd86b7e0c394b595d18946a857ece69bd660c89b3981baea3
-size 301
+MNI Transform File
+%Mon Jul 10 20:43:52 2006>>> param2xfm -clobber /data/node7/claude/tests/ec/2092/temp//identity.xfm
+%(Package mni_autoreg 0.99.2, compiled by claude@scarus (i686-pc-linux-gnu) on Mon Jun 12 13:25:26 EDT 2006)
+
+Transform_Type = Linear;
+Linear_Transform =
+ 1 0 0 0
+ 0 1 0 0
+ 0 0 1 0;
