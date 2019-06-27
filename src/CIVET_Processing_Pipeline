@@ -637,14 +637,15 @@ my %SURFACEmodels = ( 'icbm152MCsym'  => {  # ICBM152, marching-cubes, symmetric
 
 my %ANIMALmodels = ( 'icbm152nl-VI' => {
                        'AnimalAtlas'      => "icbm152-nl-VI",
-                       'AnimalAtlasDir'   => MNI::DataDir::dir("ANIMAL_INSECT"),
-                       'AnimalNLRegDir'   => MNI::DataDir::dir("mni-models"),
+
+                       'AnimalAtlasDir'   => ( check_animal_support() ) ? MNI::DataDir::dir("ANIMAL_INSECT") : "",
+                       'AnimalNLRegDir'   => ( check_animal_support() ) ? MNI::DataDir::dir("mni-models") : "",
                        'AnimalNLRegModel' => "icbm_avg_152_t1_tal_nlin_symmetric_VI"
                      },
                      'icbm152nl-2009a' => {
                        'AnimalAtlas'      => "icbm152-nl-2009a",
-                       'AnimalAtlasDir'   => MNI::DataDir::dir("ANIMAL_INSECT"),
-                       'AnimalNLRegDir'   => MNI::DataDir::dir("mni-models"),
+                       'AnimalAtlasDir'   => ( check_animal_support() ) ? MNI::DataDir::dir("ANIMAL_INSECT") : "",
+                       'AnimalNLRegDir'   => ( check_animal_support() ) ? MNI::DataDir::dir("mni-models") : "",
                        'AnimalNLRegModel' => "mni_icbm152_t1_tal_nlin_sym_09a"
                      },
                    );
@@ -1424,6 +1425,11 @@ if ($command eq "printStatus" ) {
 exit(0);
 
 ############# Voila!! #############
+
+sub check_animal_support {
+
+  return $AnimalSupport;
+}
 
 # Set interrupt handler (for cleaning of lock files)
 
