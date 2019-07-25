@@ -786,7 +786,14 @@ sub make_references {
   print PIPE "    to adulthood,\" NeuroImage, Volume 47, Supplement 1, July 2009, Page S102\n";
   print PIPE "    Organization for Human Brain Mapping 2009 Annual Meeting. \n";
   print PIPE "    (http://www.sciencedirect.com/science/article/pii/S1053811909708845)\n\n";
-
+  print PIPE "  If ADNI model is used, cite [6]:\n";
+  print PIPE "  --------------------------------\n";
+  print PIPE "    [6] V. Fonov, Coupe, P., Eskildsen, S., Collins, L., and The Alzheimers\’s \n";
+  print PIPE "    Disease Neuroimaging Initiative, \"Atrophy specific MRI brain template for \n";
+  print PIPE "    Alzheimer\'s disease and Mild Cognitive Impairment. Alzheimer\'s Association \n";
+  print PIPE "    International Conference, July 2011, France. 7 (4), pp. S58, 2011. \n";
+  print PIPE "    (https://hal.archives-ouvertes.fr/hal-00645521)\n";
+  print PIPE "    (https://drive.google.com/file/d/0B2WB9sZf0qcZTzUxZDU1QWRJRVE/view) \n\n";
   print PIPE "Brain-masking\n";
   print PIPE "=============\n";
   print PIPE "  S.M. Smith, \"Fast robust automated brain extraction,\" Human Brain\n";
@@ -809,7 +816,7 @@ sub make_references {
     print PIPE "==================\n";
     print PIPE " ... paper by Oliver Lyttelton (extraction by hemispheres)\n";
 
-    print PIPE "  Kim, J.S., Singh, V., Lee, J.K., Lerch, J., Ad-Dab'bagh, Y., MacDonald, D.,\n";
+    print PIPE "  Kim, J.S., Singh, V., Lee, J.K., Lerch, J., Ad-Dab\'bagh, Y., MacDonald, D.,\n";
     print PIPE "  Lee, J.M., Kim, S.I., and Evans, A.C., \"Automated 3-D extraction and \n";
     print PIPE "  evaluation of the inner and outer cortical surfaces using a Laplacian \n";
     print PIPE "  map and partial volume effect classification,\" NeuroImage 27, pp. 210-221,\n";
@@ -825,7 +832,7 @@ sub make_references {
     print PIPE "  power analysis and a population simulation,\" NeuroImage 24, pp. 163-173,\n";
     print PIPE "  2005.\n\n";
 
-    print PIPE "  Y. Ad-Dab'bagh et al., \"Native space cortical thickness measurement and\n";
+    print PIPE "  Y. Ad-Dab\'bagh et al., \"Native space cortical thickness measurement and\n";
     print PIPE "  the absence of correlation to cerebral volume\", in \"Proceedings of the\n";
     print PIPE "  11th Annual Meeting of the Organization for Human Brain Mapping\", K. Zilles, ed.\n";
     print PIPE "  (Toronto, NeuroImage), 2005.\n\n";
