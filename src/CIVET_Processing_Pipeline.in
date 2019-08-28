@@ -54,6 +54,7 @@ $SIG{'TERM'} = 'CLEANUP';
 
 my $version = "2.1.1";
 my $versionDate= "December, 2018";
+my $AnimalSupport = @ANIMAL@;
 my $usage = "\nUSAGE:\n$ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> [options] id1 id2 ... idn > <logfile> &\n 
 ALTERNATIVE USAGE:\n
 $ProgramName -sourcedir <dir> -targetdir <dir> -prefix <prefix> -id-file <idfile> [options]  > <logfile> &\n\n";
@@ -638,14 +639,14 @@ my %SURFACEmodels = ( 'icbm152MCsym'  => {  # ICBM152, marching-cubes, symmetric
 my %ANIMALmodels = ( 'icbm152nl-VI' => {
                        'AnimalAtlas'      => "icbm152-nl-VI",
 
-                       'AnimalAtlasDir'   => ( check_animal_support() ) ? MNI::DataDir::dir("ANIMAL_INSECT") : "",
-                       'AnimalNLRegDir'   => ( check_animal_support() ) ? MNI::DataDir::dir("mni-models") : "",
+                       'AnimalAtlasDir'   => ( $AnimalSupport ) ? MNI::DataDir::dir("ANIMAL_INSECT") : "",
+                       'AnimalNLRegDir'   => MNI::DataDir::dir("mni-models"),
                        'AnimalNLRegModel' => "icbm_avg_152_t1_tal_nlin_symmetric_VI"
                      },
                      'icbm152nl-2009a' => {
                        'AnimalAtlas'      => "icbm152-nl-2009a",
-                       'AnimalAtlasDir'   => ( check_animal_support() ) ? MNI::DataDir::dir("ANIMAL_INSECT") : "",
-                       'AnimalNLRegDir'   => ( check_animal_support() ) ? MNI::DataDir::dir("mni-models") : "",
+                       'AnimalAtlasDir'   => ( $AnimalSupport ) ? MNI::DataDir::dir("ANIMAL_INSECT") : "",
+                       'AnimalNLRegDir'   => MNI::DataDir::dir("mni-models"),
                        'AnimalNLRegModel' => "mni_icbm152_t1_tal_nlin_sym_09a"
                      },
                    );
@@ -832,7 +833,6 @@ my $MeanCurvature = 0;
 my $CombineSurfaces = 0;
 my $SurfaceAtlas = "lobes";
 
-my $AnimalSupport = 0;
 my $animal = "noANIMAL";
 my $AnimalAtlas = undef;
 
@@ -956,15 +956,16 @@ my @argTbl = (
           ["-no-VBM-cerebellum", "const", "noCerebellum", \$VBM_cerebellum, 
            "mask out cerebellum in VBM maps [default -VBM-cerebellum]"],
 
-          ["ANIMAL options", "section"],  
-          ( $AnimalSupport ) ? ["-animal", "const", "ANIMAL", \$animal, 
+          ( $AnimalSupport ) ? ["ANIMAL options", "section"] : (),
+          ( $AnimalSupport ) ? ["-animal", "const", "ANIMAL", \$animal,
            "run volumetric ANIMAL segmentation [default -no-animal]"] : (),
-          ( $AnimalSupport ) ? ["-no-animal", "const", "noANIMAL", \$animal, 
+          ( $AnimalSupport ) ? ["-no-animal", "const", "noANIMAL", \$animal,
            "don\'t run volumetric ANIMAL segmentation "] : (),
-          ( $AnimalSupport ) ? ["-lobe_atlas", "string", 1, \$AnimalAtlas, 
+          ( $AnimalSupport ) ? ["-lobe_atlas", "string", 1, \$AnimalAtlas,
            "Use lobe atlas for ANIMAL segmentation (mandatory with -animal): " .
            "\"icbm152nl-VI\" (ICBM152 generation VI symmetric model), " .
            "\"icbm152nl-2009a\" (ICBM152 2009a symmetric model)", "<model>" ] : (),
+
           ["Pipeline control", "section"],
           ["-run", "const", "run", \$command, "Run the pipeline."],
           ["-status-from-files", "const", "statusFromFiles", \$command, "Compute pipeline status from files"],
@@ -1425,11 +1426,6 @@ if ($command eq "printStatus" ) {
 exit(0);
 
 ############# Voila!! #############
-
-sub check_animal_support {
-
-  return $AnimalSupport;
-}
 
 # Set interrupt handler (for cleaning of lock files)
 
