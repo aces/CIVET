@@ -230,8 +230,13 @@ sub get_tissue_classes {
     open (IDFILE, $classify_qc);
     my $idline = <IDFILE>;
     close (IDFILE);
-    $idline =~ /classified image CSF (.*)\%  GM (.*)\%  WM (.*)\%  SC (.*)\%/;
-    return( $1, $2, $3, $4 );
+    if( $idline =~ /SC/ ) {
+      $idline =~ /classified image CSF (.*)\%  GM (.*)\%  WM (.*)\%  SC (.*)\%/;
+      return( $1, $2, $3, $4 );
+    } else {
+      $idline =~ /classified image CSF (.*)\%  GM (.*)\%  WM (.*)\%/;
+      return( $1, $2, $3, 0 );
+    }
   } else {
     return( 0, 0, 0, 0 );
   }
