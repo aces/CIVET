@@ -1379,7 +1379,7 @@ $html .= "</table>\n";
 $html .= "<h2>Scatter plots of QC fields </h2>\n";
 open FILE, ">${qc_dir}/civet_${prefix}.gnu";
 print FILE "set datafile separator \",\"\n";
-print FILE "clear\n\n";   # weird bug sending an extra linefeed
+print FILE "set terminal png\n";
 
 # determine the gnuplot version for backward compatibility 
 # of line colour specification.
@@ -1401,7 +1401,7 @@ for( my $i = 0; $i <= $#fields; $i++ ) {
     # Make the gnuplot graph for this field.
 
     print FILE "# $key\n";
-    print FILE "clear\n\n";   # weird bug sending an extra linefeed
+    print FILE "set output \"${qc_dir}/$key.png\"\n";
     print FILE "set grid\n";
     print FILE "unset key\n";
     print FILE "set title \"$fields[$i]{title}\"\n";
@@ -1412,13 +1412,11 @@ for( my $i = 0; $i <= $#fields; $i++ ) {
     } else {
       print FILE "unset log y\n";
     }
-    print FILE "set terminal png\n";
-    print FILE "set output \"${qc_dir}/$key.png\"\n";
     print FILE "plot \"${qc_dir}/civet_${prefix}.csv\" u $column w lp, " .
                "$fields[$i]{median} w li $lc 2, " .
                sprintf("%f",$fields[$i]{median}-$fields[$i]{stdev}) . " w li $lc 3, " .
                sprintf("%f",$fields[$i]{median}+$fields[$i]{stdev}) . " w li $lc 3\n";
-
+    print FILE "set output\n";
     my $figure = $column - 1;
     $html .= "<table>\n" .
              "<tr> <td></td> <td> <img src=\"$key.png\"> </td></tr>\n" .
